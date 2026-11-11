@@ -151,13 +151,21 @@ cd build && zip -qr TaoSheng-unsigned.ipa Payload
 
 ## 四、装上之后要做的两件事
 
-App 里 **设置 → 模型与转写** 填两个接口，不填也能录音，只是不转写 / 不整理。
+设置里**只有两处要配**，别的地方都不用管：**转写服务** 和 **大模型**。
+
+> 整理（总结事件/待办）、问问、整理技能、每日/每周回顾 —— **共用同一个大模型**，只配一次。
+> 问问页顶部会显示当前用的模型名，没配会提示去哪儿配。
+
+App 里 **设置 → 转写与大模型** 填两个接口，不填也能录音，只是不转写 / 不整理。
 
 | 用途 | 填什么 | 例子 |
 |---|---|---|
 | 转写（豆包） | 火山引擎语音控制台的 **API Key** | 设置里选「豆包语音（火山引擎）」，只填 API Key 一项 |
 | 转写（其它） | 任意 OpenAI 兼容的 `/audio/transcriptions` | `https://api.siliconflow.cn/v1` + `FunAudioLLM/SenseVoiceSmall` + `sk-...`；或 `https://api.openai.com/v1` + `whisper-1` |
-| 整理 | 任意 OpenAI 兼容的 `/chat/completions` | `https://api.deepseek.com/v1` + `deepseek-chat` + `sk-...` |
+| 大模型（整理/问问/技能/回顾共用） | 任意 OpenAI 兼容的 `/chat/completions` | 选「DeepSeek」→ `https://api.deepseek.com/v1` + `deepseek-chat` + `sk-...` |
+
+大模型那一栏是**就地可改**的：服务商下拉选一家（会自动带出地址和模型名），填上 Key 就能用。
+下面的「预设与备用」只是给别家预先存 Key 用的 —— 开了「主模型出问题自动换备用」，主模型断网或余额不足时会自动换下一家，整理不会中断。
 
 ### 豆包转写怎么填（重点）
 
