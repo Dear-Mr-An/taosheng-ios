@@ -78,7 +78,7 @@ final class SkillEngine: ObservableObject {
         var context = ""
         for (i, r) in lines.enumerated() {
             let who = r.speaker.isEmpty ? "" : "\(r.speaker)："
-            context += "[\(i + 1)] \(r.time) \(who)\(r.text)\n"
+            context += "[\(i + 1)] \(r.timeText) \(who)\(r.transcript)\n"
         }
         if context.count > 14000 { context = String(context.prefix(14000)) }
 
@@ -110,8 +110,9 @@ final class SkillEngine: ObservableObject {
         var map: [String: String] = [:]
         if let raw = obj["fields"] as? [String: Any] {
             for f in fields {
-                if let v = raw[f.key] as? String, !v.trimmed.isEmpty {
-                    map[f.key] = v.trimmed
+                if let v = raw[f.key] as? String {
+                    let t = v.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !t.isEmpty { map[f.key] = t }
                 }
             }
         }
@@ -119,7 +120,7 @@ final class SkillEngine: ObservableObject {
         let reason = (obj["nothing_reason"] as? String) ?? ""
 
         if map.isEmpty && !isNothing {
-            map[fields.first?.key ?? "text"] = reply.trimmed
+            map[fields.first?.key ?? "text"] = reply.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         let card = SkillCard(
@@ -160,7 +161,7 @@ final class SkillEngine: ObservableObject {
         var context = ""
         for r in lines {
             let who = r.speaker.isEmpty ? "" : "\(r.speaker)："
-            context += "\(r.time) \(who)\(r.text)\n"
+            context += "\(r.timeText) \(who)\(r.transcript)\n"
         }
         let system = """
         看用户的日常原话，提出一个对他有用的整理技能。

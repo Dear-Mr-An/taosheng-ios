@@ -129,7 +129,7 @@ extension Store {
         }
     }
 
-    private func ensureColumn(table: String, column: String, ddl: String) {
+    func ensureColumn(table: String, column: String, ddl: String) {
         var st: OpaquePointer?
         var exists = false
         if sqlite3_prepare_v2(db, "PRAGMA table_info(\(table));", -1, &st, nil) == SQLITE_OK {

@@ -215,6 +215,8 @@ struct ItemRow: View {
     let item: MemoryItem
     var onStatus: (MemItemStatus) -> Void = { _ in }
 
+    private var tint: Color { Color(hex: MemoryItem.categoryColor(item.category)) }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Button {
@@ -236,9 +238,9 @@ struct ItemRow: View {
                 HStack(spacing: 6) {
                     Text(item.category)
                         .font(.system(size: 10.5))
-                        .foregroundColor(item.categoryColor)
+                        .foregroundColor(tint)
                         .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(item.categoryColor.opacity(0.1))
+                        .background(tint.opacity(0.1))
                         .clipShape(Capsule())
                     if let d = item.dueDisplay {
                         Text(d).font(.system(size: 11)).foregroundColor(Theme.dim)
@@ -250,6 +252,20 @@ struct ItemRow: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - 十六进制色
+
+extension Color {
+    init(hex: String) {
+        let s = hex.trimmingCharacters(in: CharacterSet(charactersIn: "# "))
+        var v: UInt64 = 0
+        Scanner(string: s).scanHexInt64(&v)
+        let r = Double((v >> 16) & 0xFF) / 255.0
+        let g = Double((v >> 8) & 0xFF) / 255.0
+        let b = Double(v & 0xFF) / 255.0
+        self.init(red: r, green: g, blue: b)
     }
 }
 

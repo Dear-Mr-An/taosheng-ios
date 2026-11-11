@@ -16,8 +16,7 @@ final class PushEngine {
             for i in items {
                 let mark = i.status == .done ? "[x]" : "[ ]"
                 md += "- \(mark) \(i.category)：\(i.content)"
-                let d = i.dueDisplay
-                if !d.isEmpty { md += "（\(d)）" }
+                if let d = i.dueDisplay, !d.isEmpty { md += "（\(d)）" }
                 md += "\n"
             }
         }

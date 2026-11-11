@@ -100,6 +100,30 @@ struct TodosView: View {
         }
     }
 
+    private func tint(_ c: String) -> Color { Color(hex: MemoryItem.categoryColor(c)) }
+
+    private func metaRow(_ it: MemoryItem) -> some View {
+        HStack(spacing: 6) {
+            Text(it.category)
+                .font(.system(size: 10.5))
+                .foregroundColor(tint(it.category))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(tint(it.category).opacity(0.1))
+                .clipShape(Capsule())
+            if let k = it.kind, !k.isEmpty {
+                Text(k).font(.system(size: 10.5)).foregroundColor(Theme.dim2)
+            }
+            if let d = it.dueDisplay {
+                Text(d).font(.system(size: 11)).foregroundColor(Theme.dim)
+            }
+            if let w = it.who, !w.isEmpty {
+                Text(w).font(.system(size: 11)).foregroundColor(Theme.dim2)
+            }
+            Spacer()
+        }
+    }
+
     private var emptyText: String {
         switch tab {
         case 0: return "没有要确认的了"
@@ -127,24 +151,7 @@ struct TodosView: View {
                         .strikethrough(it.status == .done, color: Theme.dim2)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    HStack(spacing: 6) {
-                        Text(it.category)
-                            .font(.system(size: 10.5))
-                            .foregroundColor(it.categoryColor)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(it.categoryColor.opacity(0.1))
-                            .clipShape(Capsule())
-                        if let k = it.kind, !k.isEmpty {
-                            Text(k).font(.system(size: 10.5)).foregroundColor(Theme.dim2)
-                        }
-                        if let d = it.dueDisplay {
-                            Text(d).font(.system(size: 11)).foregroundColor(Theme.dim)
-                        }
-                        if let w = it.who, !w.isEmpty {
-                            Text(w).font(.system(size: 11)).foregroundColor(Theme.dim2)
-                        }
-                        Spacer()
-                    }
+                    metaRow(it)
                 }
             }
 

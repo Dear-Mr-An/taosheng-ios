@@ -36,7 +36,7 @@ final class DigestEngine: ObservableObject {
         guard !s.effectiveLLM.key.isEmpty else { return }
         guard !running else { return }
 
-        let day = DayKey.today()
+        let day = DayKey.of(Date())
         // 距上次整理不足间隔就跳过
         if let last = lastAttempt[day], Date().timeIntervalSince(last) < Double(max(s.digestIntervalMin, 1)) * 60 {
             return
@@ -152,7 +152,7 @@ final class DigestEngine: ObservableObject {
 
         // 6. 完成提示（done_hints）
         for h in out.done_hints ?? [] {
-            Store.shared.setItemStatus(id: h.item_id, status: .done)
+            Store.shared.setItemStatus(id: h.item_id, status: MemItemStatus.done)
         }
 
         // 7. 寻物（失败不影响整理）
@@ -243,7 +243,7 @@ final class DigestEngine: ObservableObject {
                 out.append("—— 新录音 ——")
             }
             lastDay = r.day
-            let who = r.speaker?.isEmpty == false ? r.speaker! : "说话人1"
+            let who = r.speaker.isEmpty ? "说话人1" : r.speaker
             out.append("[\(i + 1)] \(hms(r.startedAt)) \(who)：\(r.transcript)")
         }
         return out
