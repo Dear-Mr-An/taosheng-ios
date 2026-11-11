@@ -2,6 +2,7 @@ import Foundation
 import Combine
 
 enum ASRKind: String, CaseIterable, Identifiable {
+    case doubao
     case openAICompatible
     case appleSpeech
     case off
@@ -10,6 +11,7 @@ enum ASRKind: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .doubao: return "豆包语音（火山引擎）"
         case .openAICompatible: return "云端转写（OpenAI 兼容）"
         case .appleSpeech: return "系统语音识别（本机）"
         case .off: return "只录音，不转写"
@@ -18,7 +20,8 @@ enum ASRKind: String, CaseIterable, Identifiable {
 
     var hint: String {
         switch self {
-        case .openAICompatible: return "豆包 / Whisper / 自建服务都走这个接口：POST {base}/audio/transcriptions"
+        case .doubao: return "填火山引擎语音控制台拿到的 API Key（x-api-key）。走录音文件识别极速版，音频直接 base64 上传，不用公网地址。"
+        case .openAICompatible: return "Whisper / 硅基流动 / Groq / 自建服务走这个：POST {base}/audio/transcriptions。豆包语音不兼容这套，请选上面那个。"
         case .appleSpeech: return "免费、离线（需在系统设置里下载中文包），准确率一般"
         case .off: return "录音照常保存，随时可以在设置里打开转写再补"
         }
@@ -82,6 +85,12 @@ final class Settings: ObservableObject {
     @Published var transcribeIntervalMin: Int { didSet { d.set(transcribeIntervalMin, forKey: "transcribeIntervalMin") } }
     @Published var hotwordEnabled: Bool { didSet { d.set(hotwordEnabled, forKey: "hotwordEnabled") } }
 
+    // 豆包语音（火山引擎）原生接口
+    @Published var doubaoApiKey: String { didSet { d.set(doubaoApiKey, forKey: "doubaoApiKey") } }
+    @Published var doubaoAppKey: String { didSet { d.set(doubaoAppKey, forKey: "doubaoAppKey") } }
+    @Published var doubaoAccessKey: String { didSet { d.set(doubaoAccessKey, forKey: "doubaoAccessKey") } }
+    @Published var doubaoResourceId: String { didSet { d.set(doubaoResourceId, forKey: "doubaoResourceId") } }
+
     // 大模型
     @Published var llmBaseURL: String { didSet { d.set(llmBaseURL, forKey: "llmBaseURL") } }
     @Published var llmModel: String { didSet { d.set(llmModel, forKey: "llmModel") } }
@@ -142,6 +151,11 @@ final class Settings: ObservableObject {
         transcribeIntervalMin = d.object(forKey: "transcribeIntervalMin") as? Int ?? 30
         hotwordEnabled = d.object(forKey: "hotwordEnabled") as? Bool ?? true
 
+        doubaoApiKey = d.string(forKey: "doubaoApiKey") ?? ""
+        doubaoAppKey = d.string(forKey: "doubaoAppKey") ?? ""
+        doubaoAccessKey = d.string(forKey: "doubaoAccessKey") ?? ""
+        doubaoResourceId = d.string(forKey: "doubaoResourceId") ?? "volc.bigasr.auc_turbo"
+
         llmBaseURL = d.string(forKey: "llmBaseURL") ?? "https://api.deepseek.com/v1"
         llmModel = d.string(forKey: "llmModel") ?? "deepseek-chat"
         llmKey = d.string(forKey: "llmKey") ?? ""
@@ -193,7 +207,18 @@ final class Settings: ObservableObject {
         switch asrKind {
         case .off: return false
         case .appleSpeech: return true
+        case .doubao: return !doubaoApiKey.isEmpty || (!doubaoAppKey.isEmpty && !doubaoAccessKey.isEmpty)
         case .openAICompatible: return !asrKey.isEmpty && (!asrBaseURL.isEmpty || !asrFullURL.isEmpty) && !asrModel.isEmpty
+        }
+    }
+
+    var asrReadyHint: String {
+        if asrReady { return "已配置" }
+        switch asrKind {
+        case .doubao: return "还没填火山引擎 API Key"
+        case .openAICompatible: return "还没填地址和 Key"
+        case .appleSpeech: return "本机识别，不用配"
+        case .off: return "已关闭转写"
         }
     }
 

@@ -22,6 +22,22 @@ final class CaptureEngine: ObservableObject {
 
     private let queue = DispatchQueue(label: "app.taosheng.capture")
 
+    /// 落盘参数：16kHz / 16bit / 单声道 PCM WAV —— 云转写（豆包、Whisper）都认这个。
+    /// 硬件原始格式是 48kHz float32，直接按它写 WAV 会变成 IEEE float，很多服务拒收。
+    private let fileSettings: [String: Any] = [
+        AVFormatIDKey: kAudioFormatLinearPCM,
+        AVSampleRateKey: 16000,
+        AVNumberOfChannelsKey: 1,
+        AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false
+    ]
+    /// AVAudioFile 的写入格式（由文件对象给出，通常是 float32），转换目标以它为准。
+    private var writeFormat: AVAudioFormat?
+    private var converter: AVAudioConverter?
+    private var converterRate: Double = 0
+    private var converterChannels: AVAudioChannelCount = 0
+
     var onSegmentSaved: ((Segment) -> Void)?
 
     private init() {}
@@ -124,7 +140,11 @@ final class CaptureEngine: ObservableObject {
 
             // 写入
             if let f = self.file {
-                do { try f.write(from: buffer) } catch {
+                do {
+                    if let out = self.prepareForWrite(buffer) {
+                        try f.write(from: out)
+                    }
+                } catch {
                     NSLog("涛声: 写音频失败 \(error)")
                 }
             }
@@ -145,11 +165,46 @@ final class CaptureEngine: ObservableObject {
 
     // MARK: - 段落文件
 
+    /// 把硬件格式的 buffer 转成落盘格式（16k/16bit/mono）。转换器复用，避免每块重建丢历史。
+    private func prepareForWrite(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let target = writeFormat else { return buffer }
+        let inFmt = buffer.format
+        if inFmt.sampleRate == target.sampleRate && inFmt.channelCount == target.channelCount {
+            return buffer
+        }
+        if converter == nil || converterRate != inFmt.sampleRate || converterChannels != inFmt.channelCount {
+            converter = AVAudioConverter(from: inFmt, to: target)
+            converterRate = inFmt.sampleRate
+            converterChannels = inFmt.channelCount
+        }
+        guard let conv = converter else { return buffer }
+
+        let ratio = target.sampleRate / inFmt.sampleRate
+        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 64
+        guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return nil }
+
+        var supplied = false
+        var err: NSError?
+        let input: AVAudioConverterInputBlock = { _, status in
+            if supplied {
+                status.pointee = .noDataNow
+                return nil
+            }
+            supplied = true
+            status.pointee = .haveData
+            return buffer
+        }
+        let result = conv.convert(to: out, error: &err, withInputFrom: input)
+        if result == .error || err != nil || out.frameLength == 0 { return nil }
+        return out
+    }
+
     private func openSegment(format: AVAudioFormat, at date: Date) {
         let name = "\(DayKey.of(date))-\(Int(date.timeIntervalSince1970)).wav"
         let url = Store.audioDir.appendingPathComponent(name)
         do {
-            let f = try AVAudioFile(forWriting: url, settings: format.settings)
+            let f = try AVAudioFile(forWriting: url, settings: fileSettings)
+            writeFormat = f.processingFormat
             file = f
             fileURL = url
             segmentStart = date

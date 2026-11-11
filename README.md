@@ -151,12 +151,25 @@ cd build && zip -qr TaoSheng-unsigned.ipa Payload
 
 ## 四、装上之后要做的两件事
 
-App 里 **设置** 页填两个接口，不填也能录音，只是不转写 / 不整理。
+App 里 **设置 → 模型与转写** 填两个接口，不填也能录音，只是不转写 / 不整理。
 
 | 用途 | 填什么 | 例子 |
 |---|---|---|
-| 转写 | 任意 OpenAI 兼容的 `/audio/transcriptions` | `https://api.openai.com/v1` + `whisper-1` + `sk-...`；豆包/硅基流动/自建 whisper 同理 |
+| 转写（豆包） | 火山引擎语音控制台的 **API Key** | 设置里选「豆包语音（火山引擎）」，只填 API Key 一项 |
+| 转写（其它） | 任意 OpenAI 兼容的 `/audio/transcriptions` | `https://api.siliconflow.cn/v1` + `FunAudioLLM/SenseVoiceSmall` + `sk-...`；或 `https://api.openai.com/v1` + `whisper-1` |
 | 整理 | 任意 OpenAI 兼容的 `/chat/completions` | `https://api.deepseek.com/v1` + `deepseek-chat` + `sk-...` |
+
+### 豆包转写怎么填（重点）
+
+豆包语音**不是** OpenAI 兼容协议，走的是自己的接口，所以 App 里单独做了一条通道：
+
+- 端点（写死在代码里，不用填）：`https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash`
+- 你只需要填 **API Key**：火山引擎控制台 → 语音技术 → [API Key 管理](https://console.volcengine.com/speech/new/)，生成一个 key 复制过来
+- `Resource Id` 默认 `volc.bigasr.auc_turbo`（录音文件识别极速版），不用改
+- 音频是 **base64 直传**，不需要公网地址、不需要对象存储
+- 返回码看响应头 `X-Api-Status-Code`：`20000000` 成功，`20000003` 静音（当空文本处理）
+
+老账号如果只有 App Key + Access Key（没有 x-api-key），点开「改用老版 App Key + Access Key」那栏填进去，代码会自动换用 `X-Api-App-Key` / `X-Api-Access-Key` 头。
 
 不想用云端转写：把「转写方式」切成 **系统语音识别（本机）**，免费离线，准确率一般（要先在
 设置 → 通用 → 键盘/语言 里下载中文听写包）。

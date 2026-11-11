@@ -572,9 +572,21 @@ struct ModelSettingsView: View {
         Form {
             Section {
                 Picker("方式", selection: $settings.asrKind) {
-                    Text("豆包 / OpenAI 兼容").tag(ASRKind.openAICompatible)
-                    Text("苹果本机识别").tag(ASRKind.appleSpeech)
-                    Text("关闭").tag(ASRKind.off)
+                    ForEach(ASRKind.allCases) { k in
+                        Text(k.title).tag(k)
+                    }
+                }
+                if settings.asrKind == .doubao {
+                    SecureField("API Key（火山引擎语音控制台）", text: $settings.doubaoApiKey)
+                    TextField("Resource Id", text: $settings.doubaoResourceId)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    DisclosureGroup("改用老版 App Key + Access Key") {
+                        TextField("App Key", text: $settings.doubaoAppKey)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        SecureField("Access Key", text: $settings.doubaoAccessKey)
+                    }
                 }
                 if settings.asrKind == .openAICompatible {
                     TextField("接口地址", text: $settings.asrBaseURL)
@@ -587,10 +599,15 @@ struct ModelSettingsView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 }
+                if !settings.asrKind.hint.isEmpty {
+                    Text(settings.asrKind.hint)
+                        .font(.caption)
+                        .foregroundColor(Theme.dim)
+                }
             } header: {
                 Text("转写服务")
             } footer: {
-                Text(settings.asrReady ? "转写已就绪。声音会发给你填的这个服务。" : "还没填好，转写会停在「待转写」。")
+                Text(settings.asrReady ? "转写已就绪。声音会发给你填的这个服务。" : "\(settings.asrReadyHint)，转写会停在「待转写」。")
             }
 
             Section {

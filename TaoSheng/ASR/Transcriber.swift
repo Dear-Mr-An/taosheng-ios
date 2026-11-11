@@ -76,6 +76,95 @@ struct OpenAICompatibleTranscriber: Transcriber {
     }
 }
 
+// MARK: - 豆包语音（火山引擎 · 录音文件识别极速版）
+/// 官方文档：https://www.volcengine.com/docs/6561/1354868
+/// 极速版同步返回，音频走 base64，不需要公网 URL。
+struct DoubaoTranscriber: Transcriber {
+    let apiKey: String
+    let appKey: String
+    let accessKey: String
+    let resourceId: String
+
+    static let endpoint = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash"
+
+    private static func audioFormat(_ ext: String) -> String {
+        switch ext.lowercased() {
+        case "m4a", "mp4": return "m4a"
+        case "mp3": return "mp3"
+        case "ogg", "opus": return "ogg"
+        case "flac": return "flac"
+        case "aac": return "aac"
+        default: return "wav"
+        }
+    }
+
+    func transcribe(fileURL: URL) async throws -> String {
+        guard let url = URL(string: Self.endpoint) else { throw TranscribeError.notConfigured }
+        let raw = try Data(contentsOf: fileURL)
+        if raw.isEmpty { throw TranscribeError.empty }
+
+        let uid = apiKey.isEmpty ? (appKey.isEmpty ? UUID().uuidString : appKey) : apiKey
+        let audioPart: [String: Any] = [
+            "format": Self.audioFormat(fileURL.pathExtension),
+            "data": raw.base64EncodedString()
+        ]
+        let requestPart: [String: Any] = [
+            "model_name": "bigmodel",
+            "show_utterances": true,
+            "enable_itn": true,
+            "enable_punc": true,
+            "enable_speaker_info": true
+        ]
+        let body: [String: Any] = [
+            "user": ["uid": uid] as [String: Any],
+            "audio": audioPart,
+            "request": requestPart
+        ]
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if !apiKey.isEmpty {
+            req.setValue(apiKey, forHTTPHeaderField: "X-Api-Key")
+        } else {
+            req.setValue(appKey, forHTTPHeaderField: "X-Api-App-Key")
+            req.setValue(accessKey, forHTTPHeaderField: "X-Api-Access-Key")
+        }
+        req.setValue(resourceId.isEmpty ? "volc.bigasr.auc_turbo" : resourceId, forHTTPHeaderField: "X-Api-Resource-Id")
+        req.setValue(UUID().uuidString, forHTTPHeaderField: "X-Api-Request-Id")
+        req.setValue("-1", forHTTPHeaderField: "X-Api-Sequence")
+        req.timeoutInterval = 300
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw TranscribeError.empty }
+
+        let code = http.value(forHTTPHeaderField: "X-Api-Status-Code") ?? ""
+        let message = http.value(forHTTPHeaderField: "X-Api-Message") ?? ""
+
+        // 20000003 = 静音，不算错误
+        if code == "20000003" { return "" }
+        if code != "20000000" {
+            let hint = message.isEmpty ? (String(data: data, encoding: .utf8) ?? "") : message
+            throw TranscribeError.http(http.statusCode, "[\(code.isEmpty ? "无状态码" : code)] \(hint.prefix(200))")
+        }
+
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = obj["result"] as? [String: Any] else { throw TranscribeError.empty }
+
+        if let utts = result["utterances"] as? [[String: Any]], !utts.isEmpty {
+            let lines = utts.compactMap { $0["text"] as? String }
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            if !lines.isEmpty { return lines.joined(separator: "\n") }
+        }
+        if let text = result["text"] as? String {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        throw TranscribeError.empty
+    }
+}
+
 // MARK: - 系统语音识别（本机 / 免费）
 final class AppleSpeechTranscriber: Transcriber {
     private let locale: Locale
@@ -128,6 +217,12 @@ enum TranscriberFactory {
             return nil
         case .appleSpeech:
             return AppleSpeechTranscriber(language: s.asrLanguage)
+        case .doubao:
+            guard s.asrReady else { return nil }
+            return DoubaoTranscriber(apiKey: s.doubaoApiKey,
+                                     appKey: s.doubaoAppKey,
+                                     accessKey: s.doubaoAccessKey,
+                                     resourceId: s.doubaoResourceId)
         case .openAICompatible:
             guard s.asrReady else { return nil }
             return OpenAICompatibleTranscriber(baseURL: s.asrBaseURL, apiKey: s.asrKey, model: s.asrModel, language: s.asrLanguage)
