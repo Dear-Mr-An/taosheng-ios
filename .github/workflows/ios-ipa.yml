@@ -3,6 +3,10 @@ name: build-ipa
 on:
   push:
     branches: [main, master]
+    paths:
+      - 'TaoSheng/**'
+      - 'project.yml'
+      - '.github/workflows/ios-ipa.yml'
   workflow_dispatch:
 
 jobs:
