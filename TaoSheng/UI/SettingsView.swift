@@ -5,81 +5,222 @@ struct SettingsView: View {
     @EnvironmentObject var app: AppState
     @EnvironmentObject var capture: CaptureEngine
 
+    @AppStorage("appearance") private var appearance = "light"
+
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 14) {
                     header
 
-                    VStack(spacing: 0) {
+                    group("记录") {
                         nav(RecordingSettingsView(), icon: "waveform", title: "录音与后台",
-                            detail: capture.isRunning ? "正在聆听 · \(MicRouter.shared.currentName())" : "已暂停")
-                        Divider().overlay(Theme.lineSoft).padding(.leading, 48)
-                        nav(PersonsView(), icon: "person.2", title: "声纹与人物",
-                            detail: "人物 · \(app.persons.count)")
-                        Divider().overlay(Theme.lineSoft).padding(.leading, 48)
+                            dot: capture.isRunning ? Theme.ok : Theme.dim2,
+                            detail: capture.isRunning ? "正在聆听" : "已暂停")
+                        sep
+                        nav(ModelSettingsView(part: .asr), icon: "text.bubble", title: "原话与转写",
+                            dot: settings.asrReady ? Theme.ok : Theme.warn,
+                            detail: settings.asrReady ? settings.asrKind.title : "转写未就绪")
+                        sep
+                        nav(EnvironmentSoundView(), icon: "wind", title: "环境音识别",
+                            dot: settings.envSoundOn ? Theme.ok : Theme.dim2,
+                            detail: settings.envSoundOn ? "已开启" : "未开启")
+                        sep
+                        nav(FootprintView(), icon: "location", title: "足迹",
+                            dot: settings.locationOn ? Theme.ok : Theme.dim2,
+                            detail: settings.locationOn ? "记录全天位置" : "未开启")
+                    }
+
+                    group("智能") {
+                        nav(ModelSettingsView(part: .llm), icon: "brain", title: "整理模型",
+                            dot: settings.effectiveLLM.key.isEmpty ? Theme.warn : Theme.ok,
+                            detail: settings.effectiveLLM.key.isEmpty ? "未填密钥" : settings.llmModel)
+                        sep
                         nav(SkillsView(), icon: "wand.and.stars", title: "整理技能",
-                            detail: "\(app.skills.filter { $0.enabled }.count) 个已开启")
-                        Divider().overlay(Theme.lineSoft).padding(.leading, 48)
+                            dot: Theme.dim2,
+                            detail: "开了 \(app.skills.filter { $0.enabled }.count) 个")
+                        sep
+                        nav(HotwordView(), icon: "character.book.closed", title: "热词识别",
+                            dot: Theme.dim2,
+                            detail: app.hotwords.isEmpty ? "未添加" : "\(app.hotwords.count) 个词")
+                        sep
                         nav(ChannelsView(), icon: "paperplane", title: "推送通道",
-                            detail: "通道 · \(app.channels.count)")
-                        Divider().overlay(Theme.lineSoft).padding(.leading, 48)
+                            dot: Theme.dim2,
+                            detail: app.channels.isEmpty ? "只发手机通知" : "通道 · \(app.channels.count)")
+                        sep
+                        nav(PersonsView(), icon: "person.2", title: "声纹与人物",
+                            dot: Theme.dim2,
+                            detail: "人物 · \(app.persons.count)")
+                    }
+
+                    group("数据") {
                         nav(BackupView(), icon: "externaldrive", title: "数据备份",
-                            detail: settings.backupKind == .none ? "只存在本机" : settings.backupKind.title)
+                            dot: settings.backupKind == .none ? Theme.dim2 : Theme.ok,
+                            detail: settings.backupKind == .none ? "未开启" : settings.backupKind.title)
                     }
-                    .card(padding: 6)
 
-                    VStack(spacing: 0) {
-                        nav(ModelSettingsView(), icon: "brain", title: "转写与大模型",
-                            detail: "\(settings.asrKind.title) · \(settings.llmReady ? settings.llmModel : "未配 Key")")
-                        Divider().overlay(Theme.lineSoft).padding(.leading, 48)
-                        nav(ReviewSettingsView(), icon: "text.badge.checkmark", title: "回顾与提醒",
-                            detail: "每天 \(settings.reviewHour):00 生成")
-                        Divider().overlay(Theme.lineSoft).padding(.leading, 48)
-                        nav(PrivacyView(), icon: "lock.shield", title: "隐私与数据",
-                            detail: "原录音保留 \(settings.keepAudioDays) 天")
+                    group("外观") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "circle.lefthalf.filled")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(Theme.dim)
+                                    .frame(width: 22)
+                                Text("日间 / 夜间")
+                                    .font(.system(size: 14.5))
+                                    .foregroundColor(Theme.text)
+                                Spacer()
+                            }
+                            Picker("", selection: $appearance) {
+                                Text("日间").tag("light")
+                                Text("夜间").tag("dark")
+                                Text("跟随系统").tag("auto")
+                            }
+                            .pickerStyle(.segmented)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 10)
                     }
-                    .card(padding: 6)
 
-                    VStack(spacing: 0) {
+                    group("关于") {
                         nav(AboutView(), icon: "info.circle", title: "关于涛声",
-                            detail: "0.2.0")
+                            dot: Theme.dim2, detail: "0.3.2")
+                        sep
+                        nav(PrivacyView(), icon: "lock.shield", title: "隐私与数据",
+                            dot: Theme.dim2, detail: "原录音保留 \(settings.keepAudioDays) 天")
+                        sep
+                        nav(ReviewSettingsView(), icon: "text.badge.checkmark", title: "回顾与提醒",
+                            dot: Theme.dim2, detail: "每天 \(settings.reviewHour):00")
                     }
-                    .card(padding: 6)
 
                     Text("所有录音、转写和整理结果都只存在这台手机上。没有账号，没有我们的服务器。")
                         .font(.system(size: 11))
-                        .foregroundStyle(Theme.dim2)
+                        .foregroundColor(Theme.dim2)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
-                        .padding(.top, 6)
+                        .padding(.top, 4)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
                 .padding(.bottom, 110)
             }
             .background(Theme.bg.ignoresSafeArea())
+            .navigationBarHidden(true)
         }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("设置")
-                .font(.system(size: 26, weight: .bold))
-                .foregroundStyle(Theme.text)
+                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .foregroundColor(Theme.text)
             Text("涛声 · 一直在听，从不外传")
                 .font(.system(size: 12))
-                .foregroundStyle(Theme.dim)
+                .foregroundColor(Theme.dim)
         }
     }
 
-    private func nav<D: View>(_ dest: D, icon: String, title: String, detail: String) -> some View {
-        NavigationLink {
-            dest
-        } label: {
-            SettingRow(icon: icon, title: title, detail: detail)
-                .padding(.horizontal, 8)
+    private var sep: some View {
+        Divider().overlay(Theme.lineSoft).padding(.leading, 44)
+    }
+
+    private func group<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(Theme.dim)
+                .padding(.leading, 4)
+            VStack(spacing: 0) { content() }
+                .background(Theme.card)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+        }
+    }
+
+    private func nav<D: View>(_ dest: D, icon: String, title: String,
+                              dot: Color, detail: String) -> some View {
+        NavigationLink { dest } label: {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 14))
+                    .foregroundColor(Theme.dim)
+                    .frame(width: 22)
+                Text(title)
+                    .font(.system(size: 14.5))
+                    .foregroundColor(Theme.text)
+                Spacer()
+                Circle().fill(dot).frame(width: 6, height: 6)
+                Text(detail)
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.dim2)
+                    .lineLimit(1)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Theme.dim2)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 13)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - 环境音识别
+
+struct EnvironmentSoundView: View {
+    @EnvironmentObject var settings: Settings
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("环境音识别", isOn: $settings.envSoundOn)
+            } footer: {
+                Text("只分析已经录下的人声片段，在转写前判断一次；录音方式不变，旧录音不补算。全部在手机上完成，不上传。")
+            }
+            Section {
+                Text("能认出的：音乐、键盘、雨、宠物、流水、家电、脚步、闹钟、车流。识别结果会写进事件和周报。")
+                    .font(.system(size: 12.5))
+                    .foregroundColor(Theme.dim)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg)
+        .navigationTitle("环境音识别")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - 足迹
+
+struct FootprintView: View {
+    @EnvironmentObject var settings: Settings
+    @State private var places: [PlaceVisit] = []
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("记录全天位置", isOn: $settings.locationOn)
+            } footer: {
+                Text("跟随收音服务，约每 5 分钟记一个点；位置记录只存手机本地。")
+            }
+            Section("今天") {
+                if places.isEmpty {
+                    Text("这一天没有位置记录").foregroundColor(Theme.dim)
+                } else {
+                    ForEach(places) { p in
+                        HStack {
+                            Text(p.place).font(.system(size: 14))
+                            Spacer()
+                            Text(p.durationText).font(.system(size: 12)).foregroundColor(Theme.dim)
+                        }
+                    }
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg)
+        .navigationTitle("足迹")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { places = Store.shared.places(day: DayKey.of(Date())) }
     }
 }

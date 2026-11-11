@@ -103,6 +103,10 @@ final class Settings: ObservableObject {
     @Published var autoTranscribe: Bool { didSet { d.set(autoTranscribe, forKey: "autoTranscribe") } }
     @Published var autoDigest: Bool { didSet { d.set(autoDigest, forKey: "autoDigest") } }
     @Published var digestHour: Int { didSet { d.set(digestHour, forKey: "digestHour") } }
+    /// 按间隔整理：多久整理一次（分钟）
+    @Published var digestIntervalMin: Int { didSet { d.set(digestIntervalMin, forKey: "digestIntervalMin") } }
+    /// true=按间隔，false=按时间点（digestHour）
+    @Published var digestByInterval: Bool { didSet { d.set(digestByInterval, forKey: "digestByInterval") } }
     @Published var reviewHour: Int { didSet { d.set(reviewHour, forKey: "reviewHour") } }
     @Published var weeklyReviewWeekday: Int { didSet { d.set(weeklyReviewWeekday, forKey: "weeklyReviewWeekday") } }
     @Published var keepAudioDays: Int { didSet { d.set(keepAudioDays, forKey: "keepAudioDays") } }
@@ -166,6 +170,8 @@ final class Settings: ObservableObject {
         autoTranscribe = d.object(forKey: "autoTranscribe") as? Bool ?? true
         autoDigest = d.object(forKey: "autoDigest") as? Bool ?? true
         digestHour = d.object(forKey: "digestHour") as? Int ?? 21
+        digestIntervalMin = d.object(forKey: "digestIntervalMin") as? Int ?? 30
+        digestByInterval = d.object(forKey: "digestByInterval") as? Bool ?? true
         reviewHour = d.object(forKey: "reviewHour") as? Int ?? 22
         weeklyReviewWeekday = d.object(forKey: "weeklyReviewWeekday") as? Int ?? 1
         keepAudioDays = d.object(forKey: "keepAudioDays") as? Int ?? 3

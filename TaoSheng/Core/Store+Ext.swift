@@ -39,9 +39,11 @@ extension Store {
                 weekday INTEGER NOT NULL DEFAULT 1,
                 prompt TEXT NOT NULL DEFAULT '',
                 builtin INTEGER NOT NULL DEFAULT 0,
-                created_at REAL NOT NULL
+                created_at REAL NOT NULL,
+                fields TEXT NOT NULL DEFAULT ''
             );
             """)
+            ensureColumn(table: "skill", column: "fields", ddl: "TEXT NOT NULL DEFAULT ''")
             exec("""
             CREATE TABLE IF NOT EXISTS skill_run (
                 id TEXT PRIMARY KEY,
@@ -282,11 +284,22 @@ extension Store {
 
     // MARK: - 技能
 
+    static func encodeFields(_ f: [SkillField]) -> String {
+        guard !f.isEmpty, let d = try? JSONEncoder().encode(f) else { return "" }
+        return String(data: d, encoding: .utf8) ?? ""
+    }
+
+    static func decodeFields(_ s: String) -> [SkillField] {
+        guard !s.isEmpty, let d = s.data(using: .utf8),
+              let v = try? JSONDecoder().decode([SkillField].self, from: d) else { return [] }
+        return v
+    }
+
     func skills() -> [SkillDef] {
         queue.sync { () -> [SkillDef] in
             var st: OpaquePointer?
             let sql = """
-            SELECT id,name,symbol,desc,enabled,schedule,hour,minute,weekday,prompt,builtin,created_at
+            SELECT id,name,symbol,desc,enabled,schedule,hour,minute,weekday,prompt,builtin,created_at,fields
             FROM skill ORDER BY builtin DESC, created_at ASC;
             """
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
@@ -305,7 +318,8 @@ extension Store {
                     weekday: Int(sqlite3_column_int64(st, 8)),
                     prompt: col(st, 9),
                     builtin: sqlite3_column_int64(st, 10) != 0,
-                    createdAt: Date(timeIntervalSince1970: sqlite3_column_double(st, 11))
+                    createdAt: Date(timeIntervalSince1970: sqlite3_column_double(st, 11)),
+                    fields: Store.decodeFields(col(st, 12))
                 ))
             }
             return out
@@ -316,8 +330,8 @@ extension Store {
         queue.sync {
             let sql = """
             INSERT OR REPLACE INTO skill
-            (id,name,symbol,desc,enabled,schedule,hour,minute,weekday,prompt,builtin,created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?);
+            (id,name,symbol,desc,enabled,schedule,hour,minute,weekday,prompt,builtin,created_at,fields)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);
             """
             var st: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return }
@@ -334,6 +348,7 @@ extension Store {
             bind(st, 10, s.prompt)
             sqlite3_bind_int64(st, 11, s.builtin ? 1 : 0)
             sqlite3_bind_double(st, 12, s.createdAt.timeIntervalSince1970)
+            bind(st, 13, Store.encodeFields(s.fields))
             sqlite3_step(st)
         }
     }

@@ -130,62 +130,125 @@ struct SegmentRow: View {
 }
 
 // MARK: - 时间线事件行
+/// 时间线上的一件事
 struct EventRow: View {
-    let item: DigestItem
-    var onToggle: () -> Void = {}
-
-    private var dotColor: Color {
-        switch item.kind {
-        case .event: return Theme.blue
-        case .todo: return Theme.accent
-        case .promise: return Theme.purple
-        case .idea: return Theme.warn
-        case .memory: return Theme.ok
-        }
-    }
+    let event: MemoryEvent
+    var onStar: () -> Void = {}
+    var onTap: () -> Void = {}
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(spacing: 0) {
-                Circle().fill(dotColor).frame(width: 7, height: 7).padding(.top, 6)
+                Circle().fill(event.starred ? Theme.warn : Theme.accent)
+                    .frame(width: 7, height: 7).padding(.top, 6)
                 Rectangle().fill(Theme.line).frame(width: 1).frame(maxHeight: .infinity)
             }
             .frame(width: 8)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
-                    Text(item.kind.title)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(dotColor)
-                    if !item.due.isEmpty {
-                        Text(item.dueDisplay)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Theme.dim2)
+                    Text(event.timeText)
+                        .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                        .foregroundColor(Theme.dim)
+                    Text(event.scene)
+                        .font(.system(size: 10.5))
+                        .foregroundColor(Theme.dim2)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Theme.bgDeep).clipShape(Capsule())
+                    if event.starred {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 9)).foregroundColor(Theme.warn)
                     }
                     Spacer()
-                    if item.kind == .todo || item.kind == .promise {
-                        Button(action: onToggle) {
-                            Image(systemName: item.status == .done ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 17))
-                                .foregroundStyle(item.status == .done ? Theme.ok : Theme.dim2)
+                    if event.important {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.system(size: 10)).foregroundColor(Theme.bad)
+                    }
+                    Text(event.emotion)
+                        .font(.system(size: 10.5)).foregroundColor(Theme.dim2)
+                }
+                Text(event.title)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(Theme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !event.summary.isEmpty {
+                    Text(event.summary)
+                        .font(.system(size: 12.5)).foregroundColor(Theme.text2)
+                        .lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+                }
+                if !event.points.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(Array(event.points.prefix(3).enumerated()), id: \.offset) { _, p in
+                            HStack(alignment: .top, spacing: 5) {
+                                Circle().fill(Theme.dim2).frame(width: 3, height: 3).padding(.top, 6)
+                                Text(p).font(.system(size: 12)).foregroundColor(Theme.dim)
+                                    .lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+                            }
                         }
-                        .buttonStyle(.plain)
                     }
                 }
-                Text(item.title)
-                    .font(.system(size: 14.5, weight: .medium))
-                    .foregroundStyle(item.status == .done ? Theme.dim2 : Theme.text)
-                    .strikethrough(item.status == .done, color: Theme.dim2)
-                    .fixedSize(horizontal: false, vertical: true)
-                if !item.detail.isEmpty {
-                    Text(item.detail)
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(Theme.dim)
-                        .lineSpacing(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                if !event.people.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(Array(event.people.prefix(4)), id: \.self) { p in
+                            Text(p).font(.system(size: 10.5))
+                                .foregroundColor(Theme.text2)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Theme.bgDeep).clipShape(Capsule())
+                        }
+                    }
                 }
             }
-            .padding(.bottom, 12)
+            .padding(.bottom, 14)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+        .contextMenu {
+            Button { onStar() } label: {
+                Label(event.starred ? "取消重点" : "标为重点", systemImage: "star")
+            }
+        }
+    }
+}
+
+/// 一条提取项（待办/约定/备忘/灵感/关键信息/决定/知识）
+struct ItemRow: View {
+    let item: MemoryItem
+    var onStatus: (MemItemStatus) -> Void = { _ in }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Button {
+                onStatus(item.status == .done ? .accepted : .done)
+            } label: {
+                Image(systemName: item.status == .done ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 18))
+                    .foregroundColor(item.status == .done ? Theme.ok : Theme.dim2)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.content)
+                    .font(.system(size: 14.5))
+                    .foregroundColor(item.status == .done ? Theme.dim2 : Theme.text)
+                    .strikethrough(item.status == .done, color: Theme.dim2)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    Text(item.category)
+                        .font(.system(size: 10.5))
+                        .foregroundColor(item.categoryColor)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(item.categoryColor.opacity(0.1))
+                        .clipShape(Capsule())
+                    if let d = item.dueDisplay {
+                        Text(d).font(.system(size: 11)).foregroundColor(Theme.dim)
+                    }
+                    if let w = item.who, !w.isEmpty {
+                        Text(w).font(.system(size: 11)).foregroundColor(Theme.dim2)
+                    }
+                    Spacer()
+                }
+            }
         }
     }
 }

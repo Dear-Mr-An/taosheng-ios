@@ -589,6 +589,10 @@ struct BackupView: View {
 
 // MARK: - 模型与转写
 struct ModelSettingsView: View {
+    enum Part { case both, asr, llm }
+
+    var part: Part = .both
+
     @EnvironmentObject var settings: Settings
     @State private var testing = false
     @State private var llmOK = false
@@ -596,6 +600,7 @@ struct ModelSettingsView: View {
 
     var body: some View {
         Form {
+            if part != .llm {
             Section {
                 Picker("方式", selection: $settings.asrKind) {
                     ForEach(ASRKind.allCases) { k in
@@ -635,7 +640,9 @@ struct ModelSettingsView: View {
             } footer: {
                 Text(settings.asrReady ? "转写已就绪。声音会发给你填的这个服务。" : "\(settings.asrReadyHint)，转写会停在「待转写」。")
             }
+            }
 
+            if part != .asr {
             Section {
                 TextField("接口地址", text: $settings.llmBaseURL)
                     .textInputAutocapitalization(.never)
@@ -701,10 +708,11 @@ struct ModelSettingsView: View {
             } footer: {
                 Text("填过 Key 的会当兜底：主模型断网、余额不足或 Key 失效时自动换下一个。点进去可以单独测连通。")
             }
+            }
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
-        .navigationTitle("转写与大模型")
+        .navigationTitle(part == .asr ? "原话与转写" : (part == .llm ? "整理模型" : "转写与大模型"))
         .navigationBarTitleDisplayMode(.inline)
     }
 

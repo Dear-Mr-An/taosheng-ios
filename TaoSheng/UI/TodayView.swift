@@ -1,95 +1,68 @@
 import SwiftUI
 
 struct TodayView: View {
-    @EnvironmentObject var app: AppState
-    @EnvironmentObject var capture: CaptureEngine
-    @EnvironmentObject var digest: DigestEngine
-    @EnvironmentObject var settings: Settings
+    @ObservedObject private var app = AppState.shared
+    @ObservedObject private var capture = CaptureEngine.shared
+    @ObservedObject private var digest = DigestEngine.shared
+    @ObservedObject private var settings = Settings.shared
 
-    private var dateText: String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_CN")
-        f.dateFormat = "M月d日"
-        return f.string(from: Date())
-    }
+    @State private var heroCollapsed = false
+    @State private var showShare = false
+    @State private var showModel = false
+    @State private var toast: String?
+    @State private var showTimeline = false
 
-    private var weekText: String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_CN")
-        f.dateFormat = "EEEE"
-        return f.string(from: Date())
-    }
-
-    private var totalTalk: String {
-        let s = Int(app.todaySegments.reduce(0) { $0 + $1.duration })
-        if s < 60 { return "\(s)秒" }
-        let m = s / 60
-        if m < 60 { return "\(m)分钟" }
-        return "\(m / 60)小时\(m % 60)分"
-    }
-
-    private var digestAgo: String {
-        let today = DayKey.of(Date())
-        let t = digest.lastRunAt ?? Store.shared.digest(day: today)?.createdAt
-        guard let t else { return "还没整理过" }
-        let m = Int(Date().timeIntervalSince(t) / 60)
-        if m < 1 { return "刚刚整理过" }
-        if m < 60 { return "\(m)分钟前整理过" }
-        return "\(m / 60)小时前整理过"
-    }
+    private var today: String { DayKey.of(Date()) }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
+        ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 header
                 heroCard
+                modelCard
                 rhythmCard
                 timelineCard
+                Color.clear.frame(height: 78)
             }
             .padding(.horizontal, 16)
-            .padding(.top, 10)
-            .padding(.bottom, 110)
+            .padding(.top, 8)
         }
         .background(Theme.bg.ignoresSafeArea())
+        .navigationBarHidden(true)
         .sheet(isPresented: $showShare) {
-            if let u = shareURL {
-                ShareSheet(items: [u])
-            }
+            ShareSheet(items: [app.exportMarkdown(day: today)])
         }
-        .alert("提示", isPresented: Binding(
-            get: { toast != nil },
-            set: { if !$0 { toast = nil } }
-        )) {
+        .sheet(isPresented: $showModel) {
+            NavigationStack { ModelSettingsView() }
+        }
+        .alert("提示", isPresented: Binding(get: { toast != nil }, set: { if !$0 { toast = nil } })) {
             Button("好") { toast = nil }
         } message: {
             Text(toast ?? "")
         }
     }
 
-    // MARK: - 头部
+    // MARK: 头部
+
     private var header: some View {
-        HStack(alignment: .center) {
+        HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("今天 · \(weekText)")
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(Theme.dim)
+                Text("今天 · \(weekdayText)")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Theme.dim)
                 Text(dateText)
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(Theme.text)
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .foregroundColor(Theme.text)
             }
             Spacer()
             Button {
-                if let url = writeExport() {
-                    shareURL = url
-                    showShare = true
-                } else {
-                    toast = "这一天还没有可导出的内容"
-                }
+                let md = app.exportMarkdown(day: today)
+                if md.count < 40 { toast = "这一天还没有可导出的内容" } else { showShare = true }
             } label: {
                 Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Theme.text2)
-                    .frame(width: 36, height: 36)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(Theme.text2)
+                    .frame(width: 38, height: 38)
                     .background(Theme.card)
                     .clipShape(Circle())
             }
@@ -97,186 +70,231 @@ struct TodayView: View {
         }
     }
 
-    @State private var shareURL: URL?
-    @State private var showShare = false
-    @State private var toast: String?
+    // MARK: Hero
 
-    // MARK: - 正在聆听
     private var heroCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 7) {
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 7, height: 7)
-                    .opacity(capture.isRunning ? 1 : 0.45)
-                Text(capture.isRunning ? "正在聆听" : "点这里开始聆听")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.75))
-                Spacer()
-                if capture.isRunning {
-                    LevelBars(level: capture.level, count: 14, color: .white)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(capture.isRunning ? Color.white : Color.white.opacity(0.45))
+                        .frame(width: 7, height: 7)
+                    Text(capture.isRunning ? "正在聆听" : "已暂停")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
                 }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { toggleCapture() }
+                .contentShape(Rectangle())
+                .onTapGesture { toggleCapture() }
 
-            HStack(alignment: .firstTextBaseline, spacing: 14) {
-                Text(totalTalk)
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
                 Spacer()
-                VStack(spacing: 1) {
-                    Text("\(app.todaySegments.count)")
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text("今天说话")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.white.opacity(0.82))
-                }
-                VStack(spacing: 1) {
-                    Text("\(app.openItems.count)")
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text("待确认")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.white.opacity(0.82))
-                }
-            }
 
-            Rectangle()
-                .fill(Color.white.opacity(0.22))
-                .frame(height: 1)
-
-            HStack(spacing: 10) {
-                Text(digestAgo)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.white.opacity(0.85))
-                Spacer()
                 Button {
-                    digest.digest(day: DayKey.of(Date()))
+                    withAnimation(.easeInOut(duration: 0.2)) { heroCollapsed.toggle() }
                 } label: {
-                    HStack(spacing: 4) {
-                        if digest.running {
-                            ProgressView().scaleEffect(0.6).tint(.white)
-                        } else {
-                            Image(systemName: "sparkles").font(.system(size: 10, weight: .semibold))
-                        }
-                        Text(digest.running ? "整理中" : "现在整理")
-                            .font(.system(size: 11.5, weight: .semibold))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Color.white.opacity(0.22))
-                    .clipShape(Capsule())
+                    Text(heroCollapsed ? "展开" : "收起")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.8))
                 }
                 .buttonStyle(.plain)
-
-                Text(settings.effectiveLLM.key.isEmpty ? "未配模型" : "模型已就绪")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.75))
             }
 
-            if let e = capture.lastError {
-                heroNote(e)
-            }
-            if let e = digest.lastError {
-                heroNote(e)
+            if !heroCollapsed {
+                Divider()
+                    .overlay(Color.white.opacity(0.25))
+                    .padding(.vertical, 12)
+
+                HStack(spacing: 0) {
+                    heroStat(app.todayTalkText, "录到人声")
+                    heroDivider
+                    heroStat("\(app.eventCount)", "件事")
+                    heroDivider
+                    heroStat("\(app.counts.pending)", "待确认")
+                }
+
+                Text(heroNote)
+                    .font(.system(size: 11.5))
+                    .foregroundColor(.white.opacity(0.78))
+                    .lineSpacing(2)
+                    .padding(.top, 10)
+
+                HStack(spacing: 8) {
+                    Button {
+                        Task { await runDigest() }
+                    } label: {
+                        HStack(spacing: 5) {
+                            if digest.running {
+                                ProgressView().scaleEffect(0.7).tint(.white)
+                            } else {
+                                Image(systemName: "sparkles").font(.system(size: 12))
+                            }
+                            Text(digest.running ? "正在整理…" : "现在整理")
+                                .font(.system(size: 12.5, weight: .medium))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(Color.white.opacity(0.22))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(digest.running)
+
+                    Spacer()
+
+                    Text(digestAgo)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .padding(.top, 12)
             }
         }
         .padding(16)
-        .background(Theme.heroGradient)
+        .background(LinearGradient(colors: [Theme.accent, Theme.accentHi],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing))
         .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
-        .shadow(color: Theme.accent.opacity(0.28), radius: 14, x: 0, y: 6)
+        .shadow(color: Theme.accent.opacity(0.25), radius: 12, x: 0, y: 6)
     }
 
-    private func heroNote(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11.5))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.white.opacity(0.18))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    private var heroNote: String {
+        if let e = capture.lastError, !e.isEmpty { return e }
+        if let e = digest.lastError, !e.isEmpty { return e }
+        if settings.effectiveLLM.key.isEmpty {
+            return "填好大模型密钥后，转写出的原话会自动整理成一件件事"
+        }
+        if app.todayEvents.isEmpty {
+            return "录到人声 → 转写成原话 → 说完约 10 分钟后整理成一件件事"
+        }
+        return "模型已就绪 · \(settings.llmModel)"
     }
 
-    // MARK: - 今日节律
+    private func heroStat(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value)
+                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                .foregroundColor(.white)
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.75))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var heroDivider: some View {
+        Rectangle().fill(Color.white.opacity(0.22)).frame(width: 1, height: 30)
+    }
+
+    // MARK: 模型卡
+
+    private var modelCard: some View {
+        Button { showModel = true } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("整理用的大模型")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(Theme.text)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Theme.dim2)
+                }
+                Text("点一下切换；整理、问问、回顾都用当前这个，技能可以另选。")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(settings.effectiveLLM.key.isEmpty ? Theme.warn : Theme.ok)
+                        .frame(width: 7, height: 7)
+                    Text(settings.llmModel.isEmpty ? "未选择模型" : settings.llmModel)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Theme.text2)
+                    Text(settings.effectiveLLM.key.isEmpty ? "· 未填密钥" : "· 已就绪")
+                        .font(.system(size: 12))
+                        .foregroundColor(settings.effectiveLLM.key.isEmpty ? Theme.warn : Theme.ok)
+                    Spacer()
+                    Text("编辑")
+                        .font(.system(size: 12.5))
+                        .foregroundColor(Theme.accent)
+                }
+            }
+            .padding(14)
+            .background(Theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: 今日节律
+
     private var rhythmCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("今日节律")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.text)
-                Spacer()
-                if capture.isRunning {
-                    Text(capture.isSpeaking ? "有人在说话" : "环境安静")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.dim)
-                }
-            }
+            Text("今日节律")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(Theme.text)
 
             HStack(spacing: 0) {
-                StatCell(value: shortDur(app.mySeconds), label: "我说了", color: Theme.accent)
-                StatCell(value: shortDur(app.otherSeconds), label: "别人说了", color: Theme.blue)
-                StatCell(value: "\(app.peopleCount)", label: "人聊过", color: Theme.purple)
-                StatCell(value: "\(app.todayItems.count)", label: "件事", color: Theme.ok)
+                rhythmCell(durationText(app.mySeconds), "我说了", Theme.accent)
+                rhythmCell(durationText(app.otherSeconds), "别人说了", Theme.blue)
+                rhythmCell("\(app.peopleCount)", "人聊过", Theme.purple)
+                rhythmCell("\(app.meetingCount)", "次开会", Theme.ok)
             }
 
-            HStack(alignment: .bottom, spacing: 3) {
-                ForEach(0..<28, id: \.self) { i in
-                    let h = barHeight(i)
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Theme.accent.opacity(0.18 + 0.5 * h))
-                        .frame(height: max(4, h * 42))
-                }
-            }
-            .frame(height: 44, alignment: .bottom)
+            LevelBars(level: min(1.0, app.todaySeconds / 3600.0), count: 32, color: Theme.accent.opacity(0.7))
+                .frame(height: 34)
         }
-        .card()
+        .padding(14)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
     }
 
-    private func barHeight(_ i: Int) -> Double {
-        let base = Double((i * 53) % 17) / 17.0
-        let live = capture.isRunning ? capture.level : 0
-        return min(1.0, 0.15 + base * 0.6 + live * 0.9)
+    private func rhythmCell(_ v: String, _ l: String, _ c: Color) -> some View {
+        VStack(spacing: 3) {
+            Text(v)
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .foregroundColor(c)
+            Text(l)
+                .font(.system(size: 10.5))
+                .foregroundColor(Theme.dim)
+        }
+        .frame(maxWidth: .infinity)
     }
 
-    // MARK: - 时间线
+    // MARK: 时间线
+
     private var timelineCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("时间线 · \(app.todayItems.count) 件事")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.text)
+                Text("时间线 · \(app.todayEvents.count) 件事")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(Theme.text)
                 Spacer()
-                NavigationLink {
-                    TimelineFullView(day: DayKey.of(Date()))
-                } label: {
-                    Text("全部")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.accent)
+                if app.todayEvents.count > 6 {
+                    Button { showTimeline = true } label: {
+                        Text("全部").font(.system(size: 12.5)).foregroundColor(Theme.accent)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
-            if app.todayItems.isEmpty {
-                EmptyHint(text: app.todaySegments.isEmpty
-                          ? "还没有录音。点上面的卡片开始，它会一直听着。"
-                          : "有 \(app.todaySegments.count) 段录音，点「现在整理」把它们变成事件。")
-                    .padding(.vertical, 10)
+            if app.todayEvents.isEmpty {
+                EmptyHint(text: "这一天还没有整理出事件")
             } else {
-                ForEach(app.todayItems.prefix(12)) { item in
-                    EventRow(item: item) { app.toggleItem(item.id) }
+                ForEach(app.todayEvents.prefix(6)) { e in
+                    EventRow(event: e, onStar: {
+                        app.starEvent(e.id, starred: !e.starred)
+                    }, onTap: { showTimeline = true })
                 }
             }
         }
-        .card()
+        .padding(14)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+        .sheet(isPresented: $showTimeline) {
+            NavigationStack { TimelineFullView(day: today) }
+        }
     }
 
-    // MARK: - 动作
+    // MARK: 动作
+
     private func toggleCapture() {
         if capture.isRunning {
             capture.stop()
@@ -287,55 +305,90 @@ struct TodayView: View {
         }
     }
 
-    private func shortDur(_ s: Double) -> String {
-        let v = Int(s)
-        if v < 60 { return "\(v)秒" }
-        return "\(v / 60)分"
+    private func runDigest() async {
+        do {
+            let r = try await digest.digest(day: today)
+            if r.events == 0 && r.items == 0 { toast = "暂时没有新的原话可以整理" }
+        } catch {
+            toast = error.localizedDescription
+        }
     }
 
-    private func writeExport() -> URL? {
-        let md = app.exportMarkdown(day: DayKey.of(Date()))
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("涛声-\(DayKey.of(Date())).md")
-        do {
-            try md.write(to: url, atomically: true, encoding: .utf8)
-            return url
-        } catch {
-            return nil
-        }
+    private var digestAgo: String {
+        let t = digest.lastRunAt ?? Store.shared.reviews(limit: 1).first?.createdAt
+        guard let t = t else { return "还没整理过" }
+        let m = Int(Date().timeIntervalSince(t) / 60)
+        if m < 1 { return "刚刚整理过" }
+        if m < 60 { return "\(m) 分钟前整理过" }
+        return "\(m / 60) 小时前整理过"
+    }
+
+    private var weekdayText: String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = "EEEE"
+        return f.string(from: Date())
+    }
+
+    private var dateText: String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = "M月d日"
+        return f.string(from: Date())
+    }
+
+    private func durationText(_ s: Double) -> String {
+        let v = Int(s.rounded())
+        if v < 60 { return "\(v)秒" }
+        if v < 3600 { return "\(v / 60)分" }
+        return "\(v / 3600)小时\(v % 3600 / 60)分"
     }
 }
 
-// MARK: - 完整时间线
+// MARK: - 全天时间线
+
 struct TimelineFullView: View {
     let day: String
-    @EnvironmentObject var app: AppState
-    @State private var asc = false
+    @ObservedObject private var app = AppState.shared
+    @State private var earlyFirst = true
 
-    private var items: [DigestItem] {
-        let base = day == DayKey.of(Date()) ? app.todayItems : app.dayItems
-        return asc ? base.reversed() : base
+    private var events: [MemoryEvent] {
+        let list = Store.shared.events(day: day, limit: 500)
+        return earlyFirst ? list : list.reversed()
     }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 10) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
                 HStack {
-                    Chip(text: asc ? "早的在上" : "晚的在上", selected: true) { asc.toggle() }
+                    Text("\(events.count) 件事")
+                        .font(.system(size: 12.5))
+                        .foregroundColor(Theme.dim)
                     Spacer()
-                }
-                if items.isEmpty {
-                    EmptyHint(text: "这一天还没有整理出事件。").padding(.top, 40)
-                } else {
-                    ForEach(items) { item in
-                        EventRow(item: item) { app.toggleItem(item.id) }
+                    Button {
+                        earlyFirst.toggle()
+                    } label: {
+                        Text(earlyFirst ? "↓ 早的在上" : "↑ 晚的在上")
+                            .font(.system(size: 12))
+                            .foregroundColor(Theme.accent)
                     }
+                    .buttonStyle(.plain)
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+
+                ForEach(events) { e in
+                    EventRow(event: e, onStar: {
+                        app.starEvent(e.id, starred: !e.starred)
+                    })
+                    .padding(.horizontal, 16)
+                }
+                if events.isEmpty { EmptyHint(text: "这一天还没有整理出事件") }
+                Color.clear.frame(height: 40)
             }
-            .padding(16)
-            .padding(.bottom, 40)
         }
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle(DayKey.display(day))
+        .navigationTitle(day)
         .navigationBarTitleDisplayMode(.inline)
     }
 }

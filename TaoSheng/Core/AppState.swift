@@ -12,13 +12,21 @@ final class AppState: ObservableObject {
 
     private let store = Store.shared
 
+    // 今天
     @Published var todaySegments: [Segment] = []
+    @Published var todayEvents: [MemoryEvent] = []
+    @Published var todayItems: [MemoryItem] = []
+    @Published var todayCards: [SkillCard] = []
+    @Published var todayReview: ReviewRecord?
     @Published var days: [String] = []
-    @Published var todayItems: [DigestItem] = []
-    @Published var openItems: [DigestItem] = []
-    @Published var todaySummary: String = ""
-    @Published var stats: (segments: Int, transcribed: Int, pending: Int, seconds: Double) = (0, 0, 0, 0)
 
+    // 待办（跨天）
+    @Published var pendingItems: [MemoryItem] = []
+    @Published var activeItems: [MemoryItem] = []
+    @Published var doneItems: [MemoryItem] = []
+    @Published var counts: (pending: Int, accepted: Int, done: Int) = (0, 0, 0)
+
+    // 配置类
     @Published var persons: [Person] = []
     @Published var skills: [SkillDef] = []
     @Published var channels: [Channel] = []
@@ -27,12 +35,16 @@ final class AppState: ObservableObject {
     @Published var hotwords: [Hotword] = []
     @Published var askMessages: [AskMessage] = []
     @Published var skillRuns: [SkillRun] = []
+    @Published var things: [Thing] = []
 
+    // 选中的那天（记忆页）
     @Published var selectedDay: String = DayKey.of(Date())
     @Published var daySegments: [Segment] = []
-    @Published var dayItems: [DigestItem] = []
-    @Published var dayReview: ReviewRecord? = nil
-    @Published var dayPlaces: [PlaceVisit] = []
+    @Published var dayEvents: [MemoryEvent] = []
+    @Published var dayItems: [MemoryItem] = []
+    @Published var dayCards: [SkillCard] = []
+    @Published var dayReview: ReviewRecord?
+    @Published var starredList: [MemoryEvent] = []
 
     private var observer: NSObjectProtocol?
 
@@ -56,43 +68,63 @@ final class AppState: ObservableObject {
 
     private func seedIfNeeded() {
         if store.persons().isEmpty {
-            let me = Person(
-                id: "me",
-                name: "我",
-                colorHex: "#F0833E",
-                note: "默认认作本人的声音",
-                isMe: true,
-                sampleCount: 0,
-                createdAt: Date()
-            )
-            store.upsertPerson(me)
+            store.upsertPerson(Person(
+                id: "me", name: "我", colorHex: "#F0833E",
+                note: "默认认作本人的声音", isMe: true, sampleCount: 0, createdAt: Date()
+            ))
         }
         if store.skills().isEmpty {
             let now = Date()
             let builtins: [SkillDef] = [
-                SkillDef(id: "meeting", name: "会议速记", symbol: "person.2.wave.2", desc: "说完自动识别，整理成会议纪要",
+                SkillDef(id: "meeting", name: "会议速记", symbol: "person.2.wave.2",
+                         desc: "把有明确议题的多人讨论整理成会议卡",
                          enabled: true, schedule: .afterDigest, hour: 0, minute: 0, weekday: 1,
-                         prompt: "把今天识别为会议的内容整理成会议纪要：参会人、议题、结论、待办。", builtin: true, createdAt: now),
-                SkillDef(id: "checkout", name: "收工打卡", symbol: "checkmark.seal", desc: "每天下班时总结今天做完的事",
-                         enabled: false, schedule: .daily, hour: 18, minute: 0, weekday: 1,
-                         prompt: "总结今天完成的事、没做完的事、明天第一件事。", builtin: true, createdAt: now.addingTimeInterval(1)),
-                SkillDef(id: "weekly", name: "每周回顾", symbol: "calendar.badge.clock", desc: "一周的收获、卡点与下周计划",
+                         prompt: "把今天识别为会议的内容整理成会议卡：议题、结论、分点要点、决定。",
+                         builtin: true, createdAt: now,
+                         fields: [
+                            SkillField(key: "topic", label: "议题", type: "text", required: true),
+                            SkillField(key: "conclusion", label: "结论先行", type: "paragraph", required: true),
+                            SkillField(key: "points", label: "分点要点", type: "bullets", required: false),
+                            SkillField(key: "decisions", label: "决定", type: "bullets", required: false)
+                         ]),
+                SkillDef(id: "checkout", name: "收工打卡", symbol: "checkmark.seal",
+                         desc: "用自己的记录回看今天做了什么",
+                         enabled: true, schedule: .daily, hour: 18, minute: 0, weekday: 1,
+                         prompt: "用自己的记录回看今天做了什么。",
+                         builtin: true, createdAt: now.addingTimeInterval(1),
+                         fields: [
+                            SkillField(key: "done", label: "今天做了什么", type: "bullets", required: true),
+                            SkillField(key: "progress", label: "推进到哪一步", type: "bullets", required: false),
+                            SkillField(key: "tomorrow", label: "明天接着做", type: "bullets", required: false)
+                         ]),
+                SkillDef(id: "weekly", name: "每周回顾", symbol: "calendar.badge.clock",
+                         desc: "一周的收获、卡点与下周计划",
                          enabled: false, schedule: .weekly, hour: 21, minute: 0, weekday: 1,
-                         prompt: "总结这一周：关键进展、反复出现的问题、下周最重要的三件事。", builtin: true, createdAt: now.addingTimeInterval(2)),
-                SkillDef(id: "mood", name: "情绪日记", symbol: "heart.text.square", desc: "记录今天的情绪变化与原因",
+                         prompt: "总结这一周：关键进展、反复出现的问题、下周最重要的三件事。",
+                         builtin: true, createdAt: now.addingTimeInterval(2),
+                         fields: [
+                            SkillField(key: "progress", label: "关键进展", type: "bullets", required: true),
+                            SkillField(key: "problems", label: "反复出现的问题", type: "bullets", required: false),
+                            SkillField(key: "next", label: "下周最重要的三件事", type: "bullets", required: false)
+                         ]),
+                SkillDef(id: "mood", name: "情绪日记", symbol: "heart.text.square",
+                         desc: "记录今天的情绪变化与原因",
                          enabled: false, schedule: .daily, hour: 22, minute: 15, weekday: 1,
-                         prompt: "从今天的原话里读出情绪变化：什么时候状态好、什么时候烦躁、因为什么。", builtin: true, createdAt: now.addingTimeInterval(3))
+                         prompt: "从今天的原话里读出情绪变化：什么时候状态好、什么时候烦躁、因为什么。",
+                         builtin: true, createdAt: now.addingTimeInterval(3),
+                         fields: [
+                            SkillField(key: "mood", label: "今天的心情", type: "text", required: true),
+                            SkillField(key: "reason", label: "因为什么", type: "paragraph", required: false),
+                            SkillField(key: "shift", label: "情绪变化", type: "bullets", required: false)
+                         ])
             ]
             builtins.forEach { store.upsertSkill($0) }
         }
-        if !Settings.shared.onboarded {
-            Settings.shared.onboarded = true
-        }
+        Settings.shared.onboarded = true
     }
 
     // MARK: - 刷新
 
-    /// 清空数据后重建内置人物与技能
     func wipeAll() {
         store.wipeAll()
         seedIfNeeded()
@@ -102,11 +134,15 @@ final class AppState: ObservableObject {
 
     func refresh() {
         let today = DayKey.of(Date())
-        let segs = store.segments(day: today, limit: 400)
-        let items = store.items(day: today, openOnly: false)
-        let open = store.items(day: nil, openOnly: true)
-        let st = store.todayStats()
-        let dig = store.digest(day: today)
+        let segs = store.segments(day: today, limit: 600)
+        let evs = store.events(day: today, limit: 300)
+        let its = store.items(day: today, status: nil, category: nil, limit: 300)
+        let cards = store.cards(day: today, skillId: nil, limit: 40)
+        let pend = store.items(day: nil, status: .pending, category: nil, limit: 200)
+        let act = store.items(day: nil, status: .accepted, category: nil, limit: 200)
+        let done = store.items(day: nil, status: .done, category: nil, limit: 200)
+        let cnt = store.itemCounts()
+        let rev = store.reviews(limit: 60).first { $0.day == today }
         let ppl = store.persons()
         let sk = store.skills()
         let ch = store.channels()
@@ -116,13 +152,19 @@ final class AppState: ObservableObject {
         let dk = store.dayKeys(limit: 90)
         let ask = store.askMessages(limit: 200)
         let runs = store.skillRuns(day: nil, limit: 40)
+        let th = store.things(limit: 200)
+        let star = store.starredEvents(limit: 100)
 
         DispatchQueue.main.async {
             self.todaySegments = segs
-            self.todayItems = items
-            self.openItems = open
-            self.stats = st
-            self.todaySummary = dig?.summary ?? ""
+            self.todayEvents = evs
+            self.todayItems = its
+            self.todayCards = cards
+            self.todayReview = rev
+            self.pendingItems = pend
+            self.activeItems = act
+            self.doneItems = done
+            self.counts = cnt
             self.persons = ppl
             self.skills = sk
             self.channels = ch
@@ -132,33 +174,32 @@ final class AppState: ObservableObject {
             self.days = dk
             self.askMessages = ask
             self.skillRuns = runs
+            self.things = th
+            self.starredList = star
         }
         refreshDay(selectedDay)
     }
 
     func refreshDay(_ day: String) {
         selectedDay = day
-        let segs = store.segments(day: day, limit: 400)
-        let items = store.items(day: day, openOnly: false)
+        let segs = store.segments(day: day, limit: 600)
+        let evs = store.events(day: day, limit: 300)
+        let its = store.items(day: day, status: nil, category: nil, limit: 300)
+        let cards = store.cards(day: day, skillId: nil, limit: 40)
         let rev = store.reviews(limit: 60).first { $0.day == day }
-        let places = store.places(day: day)
         DispatchQueue.main.async {
             self.daySegments = segs
-            self.dayItems = items
+            self.dayEvents = evs
+            self.dayItems = its
+            self.dayCards = cards
             self.dayReview = rev
-            self.dayPlaces = places
         }
     }
 
-    // MARK: - 操作
+    // MARK: - 提取项操作
 
-    func toggleItem(_ id: String) {
-        store.toggleItem(id: id)
-        refresh()
-    }
-
-    func setItemDone(_ id: String, done: Bool) {
-        store.setItemStatus(id: id, status: done ? .done : .open)
+    func setItemStatus(_ id: String, status: MemItemStatus) {
+        store.setItemStatus(id: id, status: status)
         refresh()
     }
 
@@ -167,18 +208,27 @@ final class AppState: ObservableObject {
         refresh()
     }
 
-    func addTodo(title: String, due: String, day: String = DayKey.of(Date())) {
-        let item = DigestItem(
-            id: shortID(),
-            day: day,
-            kind: .todo,
-            title: title,
-            detail: "",
-            due: due,
-            status: .open,
-            createdAt: Date()
+    /// 手动加一条待办（文字原样，走 LLM 拆卡由 UI 决定）
+    func addItem(content: String, category: String = "待办", due: String? = nil) {
+        let it = MemoryItem(
+            id: shortID(), eventId: nil, day: DayKey.of(Date()),
+            category: category, kind: "我要做", content: content,
+            status: .accepted, dueText: due, dueAt: DigestEngine.parseDue(due),
+            who: nil, sourceText: nil, createdAt: Date(), updatedAt: Date()
         )
-        store.insert(item)
+        store.insertItems([it])
+        refresh()
+    }
+
+    // MARK: - 事件操作
+
+    func starEvent(_ id: String, starred: Bool) {
+        store.setEventStar(id: id, starred: starred)
+        refresh()
+    }
+
+    func deleteEvent(_ id: String) {
+        store.deleteEvent(id: id)
         refresh()
     }
 
@@ -196,16 +246,10 @@ final class AppState: ObservableObject {
 
     func addPerson(name: String) {
         let idx = persons.count % personPalette.count
-        let p = Person(
-            id: shortID(),
-            name: name,
-            colorHex: personPalette[idx],
-            note: "",
-            isMe: false,
-            sampleCount: 0,
-            createdAt: Date()
-        )
-        store.upsertPerson(p)
+        store.upsertPerson(Person(
+            id: shortID(), name: name, colorHex: personPalette[idx],
+            note: "", isMe: false, sampleCount: 0, createdAt: Date()
+        ))
         refresh()
     }
 
@@ -226,13 +270,8 @@ final class AppState: ObservableObject {
 
     func addReminder(title: String, at date: Date, repeatDaily: Bool) {
         let r = Reminder(
-            id: shortID(),
-            title: title,
-            fireAt: date,
-            itemId: "",
-            enabled: true,
-            repeatDaily: repeatDaily,
-            createdAt: Date()
+            id: shortID(), title: title, fireAt: date, itemId: "",
+            enabled: true, repeatDaily: repeatDaily, createdAt: Date()
         )
         store.upsertReminder(r)
         ReminderEngine.shared.schedule(r)
@@ -246,8 +285,7 @@ final class AppState: ObservableObject {
     }
 
     func addHotword(word: String, replacement: String) {
-        let h = Hotword(id: shortID(), word: word, replacement: replacement, createdAt: Date())
-        store.upsertHotword(h)
+        store.upsertHotword(Hotword(id: shortID(), word: word, replacement: replacement, createdAt: Date()))
         refresh()
     }
 
@@ -273,22 +311,29 @@ final class AppState: ObservableObject {
 
     // MARK: - 派生
 
-    var pendingCount: Int { stats.pending }
+    var pendingCount: Int { counts.pending }
 
     var todayTalkText: String {
-        let s = Int(stats.seconds.rounded())
+        let s = Int(todaySeconds.rounded())
         if s < 60 { return "\(s)秒" }
         let h = s / 3600
         let m = (s % 3600) / 60
-        if h > 0 { return "\(h)小时\(m)分" }
-        return "\(m)分钟"
+        return h > 0 ? "\(h)小时\(m)分" : "\(m)分钟"
     }
+
+    var todaySeconds: Double {
+        todaySegments.reduce(0) { $0 + $1.duration }
+    }
+
+    var eventCount: Int { todayEvents.count }
 
     var peopleCount: Int {
-        Set(todaySegments.map { $0.speaker }.filter { !$0.isEmpty }).count
+        Set(todayEvents.flatMap { $0.people }).count
     }
 
-    var eventCount: Int { todayItems.count }
+    var meetingCount: Int {
+        todayEvents.filter { $0.scene == "会议" }.count
+    }
 
     var mySeconds: Double {
         todaySegments.filter { $0.speaker == "我" }.reduce(0) { $0 + $1.duration }
@@ -296,6 +341,13 @@ final class AppState: ObservableObject {
 
     var otherSeconds: Double {
         todaySegments.filter { $0.speaker != "我" && !$0.speaker.isEmpty }.reduce(0) { $0 + $1.duration }
+    }
+
+    /// 所有跨天未完成的待办 + 约定（待办页）
+    var allOpenItems: [MemoryItem] {
+        (pendingItems + activeItems).sorted { a, b in
+            (a.dueAt ?? Date.distantFuture) < (b.dueAt ?? Date.distantFuture)
+        }
     }
 
     // MARK: - 维护
@@ -313,25 +365,39 @@ final class AppState: ObservableObject {
 
     func exportMarkdown(day: String) -> String {
         let segs = store.segments(day: day, limit: 1000).sorted { $0.startedAt < $1.startedAt }
-        let items = store.items(day: day, openOnly: false)
-        let dig = store.digest(day: day)
+        let evs = store.events(day: day, limit: 500)
+        let its = store.items(day: day, status: nil, category: nil, limit: 500)
+        let cards = store.cards(day: day, skillId: nil, limit: 40)
         var out = "# 涛声 · \(day)\n\n"
-        if let d = dig, !d.summary.isEmpty {
-            out += "## 概要\n\n\(d.summary)\n\n"
+
+        if let r = store.reviews(limit: 60).first(where: { $0.day == day }), !r.headline.isEmpty {
+            out += "## 一句话\n\n\(r.headline)\n\n"
         }
-        if !items.isEmpty {
-            out += "## 事件与待办\n\n"
-            for i in items {
-                let mark = i.status == .done ? "[x]" : "[ ]"
-                out += "- \(mark) **\(i.kind.title)** \(i.title)"
-                if !i.due.isEmpty { out += "（\(i.due)）" }
-                if !i.detail.isEmpty { out += " — \(i.detail)" }
+        if !evs.isEmpty {
+            out += "## 时间线\n\n"
+            for e in evs {
+                out += "### \(e.timeText) \(e.title)\n\n"
+                if !e.summary.isEmpty { out += "\(e.summary)\n\n" }
+                for p in e.points { out += "- \(p)\n" }
+                if !e.points.isEmpty { out += "\n" }
+            }
+        }
+        if !its.isEmpty {
+            out += "## 提取\n\n"
+            for i in its {
+                let mark = i.status == .done ? "x" : " "
+                out += "- [\(mark)] **\(i.category)** \(i.content)"
+                if let d = i.dueDisplay { out += "（\(d)）" }
                 out += "\n"
             }
             out += "\n"
         }
+        for c in cards where !c.isNothing {
+            out += "## \(c.skillName)\n\n"
+            for (k, v) in c.fields where !v.isEmpty { out += "**\(k)**：\(v)\n\n" }
+        }
         out += "## 原话\n\n"
-        for s in segs where !s.isEmptySpeech {
+        for s in segs where !s.transcript.isEmpty {
             let who = s.speaker.isEmpty ? "" : "\(s.speaker)："
             out += "- \(s.timeText) \(who)\(s.transcript)\n"
         }

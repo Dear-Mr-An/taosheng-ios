@@ -8,21 +8,33 @@ final class PushEngine {
 
     // MARK: - 对外
 
-    func pushDigest(day: String, summary: String, items: [DigestItem], transcript: String) {
+    func pushDigest(day: String, summary: String, items: [MemoryItem], transcript: String) {
         guard Settings.shared.pushOnDigest else { return }
         var md = "# 涛声 · \(day)\n\n\(summary)\n\n"
         if !items.isEmpty {
-            md += "## 事件与待办\n"
+            md += "## 提取到的事\n"
             for i in items {
                 let mark = i.status == .done ? "[x]" : "[ ]"
-                md += "- \(mark) \(i.kind.title)：\(i.title)"
-                if !i.due.isEmpty { md += "（\(i.due)）" }
+                md += "- \(mark) \(i.category)：\(i.content)"
+                let d = i.dueDisplay
+                if !d.isEmpty { md += "（\(d)）" }
                 md += "\n"
             }
         }
         md += "\n## 原话\n\(transcript)"
-        let title = "涛声 · \(day) 整理完成"
-        broadcast(title: title, body: md)
+        broadcast(title: "涛声 · \(day) 整理完成", body: md)
+    }
+
+    func pushCard(_ c: SkillCard) {
+        guard Settings.shared.pushOnDigest, !c.isNothing else { return }
+        var md = "# \(c.skillName) · \(c.day)\n\n"
+        for k in c.fields.keys.sorted() {
+            md += "**\(k)**\n\(c.fields[k] ?? "")\n\n"
+        }
+        if !c.quotes.isEmpty {
+            md += "## 原话\n" + c.quotes.map { "> \($0)" }.joined(separator: "\n")
+        }
+        broadcast(title: "涛声 · \(c.skillName)", body: md)
     }
 
     func pushReview(_ r: ReviewRecord) {

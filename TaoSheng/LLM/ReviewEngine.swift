@@ -46,36 +46,30 @@ final class ReviewEngine {
             context = String(context.prefix(12000))
         }
 
-        let system = """
-        你是用户的私人记录助手。基于今天的原话，写一份「当天回顾」。
-        只输出 JSON，不要任何解释：
-        {
-          "headline": "一句话总结今天（不超过 20 字）",
-          "sections": [
-            {"title": "要紧的事", "lines": ["..."]},
-            {"title": "待办", "lines": ["..."]},
-            {"title": "值得留意", "lines": ["..."]},
-            {"title": "灵感", "lines": ["..."]},
-            {"title": "心力", "lines": ["..."]}
-          ]
-        }
-        规则：每节 0~3 条，没有内容就留空数组；每条不超过 40 字；只写原话里有的，不编造。
-        """
+        let system = PromptsAsk.reviewSystem
 
-        let reply = try await LLMClient.completeAny(system: system, user: "今天的原话：\n\(context)", temperature: 0.3)
+        let reply = try await LLMClient.completeAny(system: system, user: "\(day) 的原话：\n\(context)", temperature: 0.3)
         let obj = JSONExtract.object(from: reply)
 
         var headline = "今天没什么特别的"
         var body = ""
         if let o = obj {
-            if let h = o["headline"] as? String, !h.isEmpty { headline = h }
+            if let h = o["brief"] as? String, !h.isEmpty { headline = h }
             if let secs = o["sections"] as? [[String: Any]] {
                 for sec in secs {
                     let title = (sec["title"] as? String) ?? ""
-                    let lines = (sec["lines"] as? [String]) ?? []
-                    guard !lines.isEmpty else { continue }
+                    guard !title.isEmpty else { continue }
+                    var rows: [String] = []
+                    if let ls = sec["lines"] as? [[String: Any]] {
+                        for l in ls {
+                            if let t = l["text"] as? String, !t.isEmpty { rows.append(t) }
+                        }
+                    } else if let ls = sec["lines"] as? [String] {
+                        rows = ls
+                    }
+                    guard !rows.isEmpty else { continue }
                     body += "## \(title)\n"
-                    for l in lines { body += "- \(l)\n" }
+                    for l in rows { body += "- \(l)\n" }
                     body += "\n"
                 }
             }

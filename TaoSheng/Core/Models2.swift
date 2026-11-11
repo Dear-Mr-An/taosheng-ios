@@ -40,6 +40,32 @@ enum SkillSchedule: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// 技能卡片上的一个字段（原版 skill.json 的 fields[]）
+struct SkillField: Codable, Hashable, Identifiable {
+    var key: String
+    var label: String
+    var type: String        // text / paragraph / bullets / checklist / tags / quotes
+    var required: Bool
+
+    var id: String { key }
+
+    var typeText: String {
+        switch type {
+        case "text": return "一句话"
+        case "paragraph": return "一段话"
+        case "bullets": return "要点"
+        case "checklist": return "清单"
+        case "tags": return "标签"
+        case "quotes": return "原话"
+        default: return "文本"
+        }
+    }
+
+    static let text = SkillField(key: "text", label: "内容", type: "text", required: true)
+    static let paragraph = SkillField(key: "text", label: "内容", type: "paragraph", required: true)
+    static let bullets = SkillField(key: "points", label: "要点", type: "bullets", required: false)
+}
+
 struct SkillDef: Identifiable, Codable, Hashable {
     var id: String
     var name: String
@@ -53,6 +79,7 @@ struct SkillDef: Identifiable, Codable, Hashable {
     var prompt: String      // 该技能的额外提示词
     var builtin: Bool
     var createdAt: Date
+    var fields: [SkillField] = []
 
     var scheduleText: String {
         switch schedule {

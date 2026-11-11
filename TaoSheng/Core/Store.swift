@@ -21,6 +21,7 @@ final class Store {
         exec("PRAGMA synchronous=NORMAL;")
         migrate()
         migrateExtra()
+        migrateMemory()
     }
 
     static var supportDir: URL {
