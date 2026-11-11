@@ -8,7 +8,7 @@ on:
 jobs:
   ipa:
     name: 构建未签名 IPA
-    runs-on: macos-14
+    runs-on: macos-13
     timeout-minutes: 40
 
     steps:
