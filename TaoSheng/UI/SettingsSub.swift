@@ -611,6 +611,28 @@ struct ModelSettingsView: View {
             }
 
             Section {
+                Picker("服务商", selection: $settings.llmProviderID) {
+                    ForEach(settings.providers) { p in
+                        Text(p.name).tag(p.id)
+                    }
+                }
+                TextField("接口地址", text: $settings.llmBaseURL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                TextField("模型", text: $settings.llmModel)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                SecureField("API Key", text: $settings.llmKey)
+            } header: {
+                Text("大模型（整理 / 问问 / 技能 / 回顾共用）")
+            } footer: {
+                Text(settings.llmReady
+                     ? "已就绪。整理、问问、技能、回顾全部走这一个模型，不用分开配。"
+                     : "还没填 Key，整理和问问都用不了。")
+            }
+
+            Section {
+                Toggle("主模型出问题自动换备用", isOn: $settings.llmFallback).tint(Theme.accent)
                 ForEach(settings.providers) { p in
                     NavigationLink {
                         ProviderEditView(provider: p)
@@ -638,20 +660,28 @@ struct ModelSettingsView: View {
                     }
                 }
             } header: {
-                Text("整理大模型")
+                Text("预设与备用")
             } footer: {
-                Text("点一家填密钥，点右边「主」设为默认。")
+                Text("点一家可以预填密钥；主模型断网、余额不足或密钥失效时，按顺序换下一个，整理和回顾不中断。")
             }
-
-            Section {
-                Toggle("主模型出问题自动换备用", isOn: $settings.llmFallback).tint(Theme.accent)
-            } footer: {
-                Text("断网、余额不足或密钥失效时，按顺序换下一个，整理和回顾不中断。")
-            }
+        }
+        .onChange(of: settings.llmProviderID) { newID in
+            guard let p = settings.providers.first(where: { $0.id == newID }) else { return }
+            settings.llmBaseURL = p.baseURL
+            settings.llmModel = p.model
+            settings.llmKey = p.key
+        }
+        .onAppear {
+            guard settings.llmKey.isEmpty,
+                  let p = settings.providers.first(where: { $0.id == settings.llmProviderID }),
+                  !p.key.isEmpty else { return }
+            settings.llmBaseURL = p.baseURL
+            settings.llmModel = p.model
+            settings.llmKey = p.key
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
-        .navigationTitle("模型与转写")
+        .navigationTitle("转写与大模型")
         .navigationBarTitleDisplayMode(.inline)
     }
 }

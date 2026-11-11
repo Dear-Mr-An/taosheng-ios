@@ -67,13 +67,12 @@ final class DigestEngine: ObservableObject {
             lines.append("[\(i + 1)] \(f.string(from: seg.startedAt)) \(who)\(seg.transcript)")
         }
 
-        let client = LLMClient(baseURL: s.llmBaseURL, apiKey: s.llmKey, model: s.llmModel)
         let system = Prompts.digestSystem
         let user = Prompts.digestUser(day: day, lines: lines, calendar: Prompts.calendarText())
 
         Task.detached(priority: .userInitiated) {
             do {
-                let reply = try await client.complete(system: system, user: user)
+                let reply = try await LLMClient.completeAny(system: system, user: user, temperature: 0.3)
                 let items = DigestEngine.parse(reply: reply, day: day)
                 Store.shared.replaceItems(day: day, items: items.items)
                 Store.shared.saveDigest(day: day, summary: items.summary)

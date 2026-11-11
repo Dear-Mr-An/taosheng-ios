@@ -30,8 +30,8 @@ struct SettingsView: View {
                     .card(padding: 6)
 
                     VStack(spacing: 0) {
-                        nav(ModelSettingsView(), icon: "brain", title: "模型与转写",
-                            detail: settings.llmReady ? "\(settings.llmModel) · 已就绪" : "还没配密钥")
+                        nav(ModelSettingsView(), icon: "brain", title: "转写与大模型",
+                            detail: "\(settings.asrKind.title) · \(settings.llmReady ? settings.llmModel : "未配 Key")")
                         Divider().overlay(Theme.lineSoft).padding(.leading, 48)
                         nav(ReviewSettingsView(), icon: "text.badge.checkmark", title: "回顾与提醒",
                             detail: "每天 \(settings.reviewHour):00 生成")

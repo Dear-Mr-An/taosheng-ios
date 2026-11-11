@@ -61,9 +61,11 @@ struct AskView: View {
                 Text("问问")
                     .font(.system(size: 26, weight: .bold))
                     .foregroundStyle(Theme.text)
-                Text("问它哪天说过什么，答案都带原话出处")
+                Text(settings.llmReady
+                     ? "答句都带原话出处 · \(settings.llmModel)"
+                     : "还没配大模型，去设置 → 转写与大模型")
                     .font(.system(size: 12))
-                    .foregroundStyle(Theme.dim)
+                    .foregroundStyle(settings.llmReady ? Theme.dim : Theme.warn)
             }
             Spacer()
             Button {
