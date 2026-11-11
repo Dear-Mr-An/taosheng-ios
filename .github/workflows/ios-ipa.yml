@@ -9,6 +9,9 @@ on:
       - '.github/workflows/ios-ipa.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   ipa:
     name: 构建未签名 IPA
@@ -79,3 +82,18 @@ jobs:
           name: TaoSheng-unsigned-ipa
           path: ${{ runner.temp }}/TaoSheng-unsigned.ipa
           retention-days: 30
+
+      - name: 发布到 Release（公开直链，无需登录）
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG="ipa-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"
+          gh release create "$TAG" \
+            "$RUNNER_TEMP/TaoSheng-unsigned.ipa#TaoSheng-unsigned.ipa" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "TaoSheng 未签名 IPA $TAG" \
+            --notes "自动构建的未签名 IPA。commit ${GITHUB_SHA}。用 Sideloadly / AltStore 自签安装。" \
+            --latest
+          echo "已发布: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
