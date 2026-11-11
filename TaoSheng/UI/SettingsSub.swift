@@ -590,6 +590,9 @@ struct BackupView: View {
 // MARK: - 模型与转写
 struct ModelSettingsView: View {
     @EnvironmentObject var settings: Settings
+    @State private var testing = false
+    @State private var llmOK = false
+    @State private var llmMsg: String?
 
     var body: some View {
         Form {
@@ -634,11 +637,6 @@ struct ModelSettingsView: View {
             }
 
             Section {
-                Picker("服务商", selection: $settings.llmProviderID) {
-                    ForEach(settings.providers) { p in
-                        Text(p.name).tag(p.id)
-                    }
-                }
                 TextField("接口地址", text: $settings.llmBaseURL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -646,16 +644,32 @@ struct ModelSettingsView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 SecureField("API Key", text: $settings.llmKey)
+
+                Button {
+                    testLLM()
+                } label: {
+                    HStack {
+                        Label(testing ? "正在测…" : "测试连接", systemImage: "bolt.horizontal.circle")
+                        Spacer()
+                        if testing { ProgressView().scaleEffect(0.7) }
+                    }
+                }
+                .disabled(testing || settings.llmKey.isEmpty || settings.llmBaseURL.isEmpty || settings.llmModel.isEmpty)
+
+                if let llmMsg {
+                    Text(llmMsg)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(llmOK ? Theme.ok : Theme.bad)
+                }
             } header: {
                 Text("大模型（整理 / 问问 / 技能 / 回顾共用）")
             } footer: {
                 Text(settings.llmReady
-                     ? "已就绪。整理、问问、技能、回顾全部走这一个模型，不用分开配。"
+                     ? "已就绪。整理、问问、技能、回顾全部走这一个模型。填完点一下「测试连接」，通了再用。"
                      : "还没填 Key，整理和问问都用不了。")
             }
 
             Section {
-                Toggle("主模型出问题自动换备用", isOn: $settings.llmFallback).tint(Theme.accent)
                 ForEach(settings.providers) { p in
                     NavigationLink {
                         ProviderEditView(provider: p)
@@ -683,27 +697,10 @@ struct ModelSettingsView: View {
                     }
                 }
             } header: {
-                Text("预设与备用")
+                Text("服务商")
             } footer: {
-                Text("点一家可以预填密钥；主模型断网、余额不足或密钥失效时，按顺序换下一个，整理和回顾不中断。")
+                Text("填过 Key 的会当兜底：主模型断网、余额不足或 Key 失效时自动换下一个。点进去可以单独测连通。")
             }
-        }
-        .onChange(of: settings.llmProviderID) { newID in
-            guard let p = settings.providers.first(where: { $0.id == newID }) else { return }
-            settings.llmBaseURL = p.baseURL
-            settings.llmModel = p.model
-            settings.llmKey = p.key
-        }
-        .onChange(of: settings.llmKey) { _ in syncBack() }
-        .onChange(of: settings.llmBaseURL) { _ in syncBack() }
-        .onChange(of: settings.llmModel) { _ in syncBack() }
-        .onAppear {
-            guard settings.llmKey.isEmpty,
-                  let p = settings.providers.first(where: { $0.id == settings.llmProviderID }),
-                  !p.key.isEmpty else { return }
-            settings.llmBaseURL = p.baseURL
-            settings.llmModel = p.model
-            settings.llmKey = p.key
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
@@ -711,19 +708,32 @@ struct ModelSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    /// 就地把改动写回当前服务商，切走再切回来不会丢 Key
-    private func syncBack() {
-        guard var p = settings.providers.first(where: { $0.id == settings.llmProviderID }) else { return }
-        guard p.key != settings.llmKey
-            || p.baseURL != settings.llmBaseURL
-            || p.model != settings.llmModel else { return }
-        p.key = settings.llmKey
-        p.baseURL = settings.llmBaseURL
-        p.model = settings.llmModel
-        settings.updateProvider(p)
+    private func testLLM() {
+        testing = true
+        llmMsg = nil
+        let client = LLMClient(baseURL: settings.llmBaseURL,
+                               apiKey: settings.llmKey,
+                               model: settings.llmModel)
+        Task {
+            do {
+                let r = try await client.ping()
+                await MainActor.run {
+                    testing = false
+                    llmOK = true
+                    llmMsg = "通了 · \(settings.llmModel) 回：\(r.prefix(24))"
+                }
+            } catch {
+                await MainActor.run {
+                    testing = false
+                    llmOK = false
+                    llmMsg = "没通：\(error.localizedDescription)"
+                }
+            }
+        }
     }
 }
 
+// MARK: - 服务商
 struct ProviderEditView: View {
     @EnvironmentObject var settings: Settings
     let provider: LLMProvider
@@ -733,6 +743,9 @@ struct ProviderEditView: View {
     @State private var model = ""
     @State private var key = ""
     @State private var loaded = false
+    @State private var testing = false
+    @State private var ok = false
+    @State private var msg: String?
 
     var body: some View {
         Form {
@@ -742,8 +755,27 @@ struct ProviderEditView: View {
                     .autocorrectionDisabled()
                 TextField("模型", text: $model)
                     .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
                 SecureField("API Key", text: $key)
+
+                Button {
+                    test()
+                } label: {
+                    HStack {
+                        Label(testing ? "正在测…" : "测试连接", systemImage: "bolt.horizontal.circle")
+                        Spacer()
+                        if testing { ProgressView().scaleEffect(0.7) }
+                    }
+                }
+                .disabled(testing || key.isEmpty || base.isEmpty || model.isEmpty)
+
+                if let msg {
+                    Text(msg)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(ok ? Theme.ok : Theme.bad)
+                }
             }
+
             Section {
                 Button("设为主模型") {
                     save(main: true)
@@ -767,6 +799,28 @@ struct ProviderEditView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("保存") { save(main: false) }
+            }
+        }
+    }
+
+    private func test() {
+        testing = true
+        msg = nil
+        let client = LLMClient(baseURL: base, apiKey: key, model: model)
+        Task {
+            do {
+                let r = try await client.ping()
+                await MainActor.run {
+                    testing = false
+                    ok = true
+                    msg = "通了 · \(model) 回：\(r.prefix(24))"
+                }
+            } catch {
+                await MainActor.run {
+                    testing = false
+                    ok = false
+                    msg = "没通：\(error.localizedDescription)"
+                }
             }
         }
     }
