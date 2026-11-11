@@ -239,6 +239,11 @@ final class AppState: ObservableObject {
         refresh()
     }
 
+    func saveSkill(_ s: SkillDef) {
+        store.upsertSkill(s)
+        refresh()
+    }
+
     func deleteSkill(_ id: String) {
         store.deleteSkill(id: id)
         refresh()

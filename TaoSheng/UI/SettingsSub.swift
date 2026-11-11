@@ -243,6 +243,126 @@ struct PersonsView: View {
     }
 }
 
+// MARK: - 技能详情
+struct SkillDetailView: View {
+    @EnvironmentObject var app: AppState
+    @EnvironmentObject var settings: Settings
+
+    @State private var skill: SkillDef
+    @State private var busy = false
+    @State private var msg: String?
+    @State private var card: SkillCard?
+
+    init(skill: SkillDef) {
+        _skill = State(initialValue: skill)
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("名字", text: $skill.name)
+                TextField("说明", text: $skill.desc)
+            } header: {
+                Text("名字和说明")
+            }
+
+            Section {
+                Picker("什么时候运行", selection: $skill.schedule) {
+                    Text("说完自动识别").tag(SkillSchedule.afterDigest)
+                    Text("每天定时").tag(SkillSchedule.daily)
+                    Text("每周定时").tag(SkillSchedule.weekly)
+                    Text("只手动").tag(SkillSchedule.manual)
+                }
+                if skill.schedule == .daily || skill.schedule == .weekly {
+                    Stepper(value: $skill.hour, in: 0...23) {
+                        Text("时间 \(String(format: "%02d:%02d", skill.hour, skill.minute))")
+                    }
+                }
+                Toggle("生成后推送", isOn: $settings.pushOnDigest)
+            } header: {
+                Text("什么时候运行")
+            } footer: {
+                Text("改完保存，回到技能页可以「试一下」看效果。已出的旧卡不受影响。")
+            }
+
+            Section {
+                if skill.fields.isEmpty {
+                    Text("默认：一句话 + 要点").foregroundColor(Theme.dim)
+                }
+                ForEach(skill.fields) { f in
+                    HStack {
+                        Text(f.label).font(.system(size: 14))
+                        Spacer()
+                        Text(f.typeText + (f.required ? " · 必有" : ""))
+                            .font(.system(size: 12))
+                            .foregroundColor(Theme.dim)
+                    }
+                }
+            } header: {
+                Text("卡片上有什么")
+            }
+
+            Section {
+                Button {
+                    runNow()
+                } label: {
+                    HStack {
+                        Text(busy ? "正在生成…" : "试一下")
+                        Spacer()
+                        if busy { ProgressView().scaleEffect(0.7) }
+                    }
+                }
+                .disabled(busy)
+
+                if let m = msg {
+                    Text(m).font(.system(size: 12)).foregroundColor(Theme.dim)
+                }
+                if let c = card {
+                    ForEach(Array(c.fields.keys.sorted()), id: \.self) { k in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(k).font(.system(size: 11)).foregroundColor(Theme.dim)
+                            Text(c.fields[k] ?? "").font(.system(size: 13.5))
+                        }
+                    }
+                }
+            } header: {
+                Text("生成一张看看")
+            }
+
+            Section {
+                Button("保存") {
+                    app.saveSkill(skill)
+                    msg = "已保存"
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg)
+        .navigationTitle(skill.name)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func runNow() {
+        busy = true
+        msg = nil
+        Task {
+            do {
+                let c = try await SkillEngine.shared.run(skill, day: DayKey.of(Date()))
+                await MainActor.run {
+                    card = c
+                    busy = false
+                    msg = c.isNothing ? (c.nothingReason ?? "今天没有相关内容") : "生成完成，已放进今天的记忆里"
+                }
+            } catch {
+                await MainActor.run {
+                    busy = false
+                    msg = "没跑成：\(error.localizedDescription)"
+                }
+            }
+        }
+    }
+}
+
 // MARK: - 整理技能
 struct SkillsView: View {
     @EnvironmentObject var app: AppState
@@ -254,24 +374,28 @@ struct SkillsView: View {
         Form {
             Section {
                 ForEach(app.skills) { s in
-                    HStack(spacing: 10) {
-                        Image(systemName: s.symbol)
-                            .foregroundStyle(Theme.accent)
-                            .frame(width: 24)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(s.name).foregroundStyle(Theme.text)
-                            Text("\(s.desc) · \(s.scheduleText)")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Theme.dim)
-                                .lineLimit(2)
+                    NavigationLink {
+                        SkillDetailView(skill: s)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: s.symbol)
+                                .foregroundStyle(Theme.accent)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(s.name).foregroundStyle(Theme.text)
+                                Text("\(s.desc) · \(s.scheduleText)")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Theme.dim)
+                                    .lineLimit(2)
+                            }
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { s.enabled },
+                                set: { _ in app.toggleSkill(s.id) }
+                            ))
+                            .labelsHidden()
+                            .tint(Theme.accent)
                         }
-                        Spacer()
-                        Toggle("", isOn: Binding(
-                            get: { s.enabled },
-                            set: { _ in app.toggleSkill(s.id) }
-                        ))
-                        .labelsHidden()
-                        .tint(Theme.accent)
                     }
                 }
             } header: {
