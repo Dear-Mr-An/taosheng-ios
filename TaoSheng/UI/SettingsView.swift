@@ -209,7 +209,7 @@ struct FootprintView: View {
                 } else {
                     ForEach(places) { p in
                         HStack {
-                            Text(p.place).font(.system(size: 14))
+                            Text(p.name).font(.system(size: 14))
                             Spacer()
                             Text(p.durationText).font(.system(size: 12)).foregroundColor(Theme.dim)
                         }
