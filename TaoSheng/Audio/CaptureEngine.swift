@@ -43,10 +43,27 @@ final class CaptureEngine: ObservableObject {
 
     private init() {}
 
+    /// 是否处于「夜里不录」时段
+    static func inSilenceWindow() -> Bool {
+        let s = Settings.shared
+        guard s.silenceWindowOn else { return false }
+        let a = s.silenceStartHour, b = s.silenceEndHour
+        if a == b { return false }
+        let h = Calendar.current.component(.hour, from: Date())
+        if a < b { return h >= a && h < b }
+        return h >= a || h < b
+    }
+
     // MARK: - 生命周期
 
     func start() {
         guard !isRunning, !isStarting else { return }
+        if CaptureEngine.inSilenceWindow() {
+            let s = Settings.shared
+            lastError = "现在是停录时段（\(s.silenceStartHour) 点 — \(s.silenceEndHour) 点），可在 设置 → 录音与后台 里改。"
+            return
+        }
+        lastError = nil
         isStarting = true
         AVAudioSession.sharedInstance().requestRecordPermission { ok in
             DispatchQueue.main.async {
@@ -230,6 +247,15 @@ final class CaptureEngine: ObservableObject {
         held = nil
         let size = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.intValue ?? 0
         guard duration >= Settings.shared.minSegment, wroteAnyVoice || force else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        // 外放（视频/音乐）时不转写，直接丢掉这一段
+        if Settings.shared.skipWhenOutput, AVAudioSession.sharedInstance().isOtherAudioPlaying {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        if CaptureEngine.inSilenceWindow() {
             try? FileManager.default.removeItem(at: url)
             return
         }

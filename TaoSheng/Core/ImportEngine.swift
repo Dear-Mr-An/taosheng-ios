@@ -16,12 +16,14 @@ final class ImportEngine {
             defer { if access { url.stopAccessingSecurityScopedResource() } }
             do {
                 let name = try copyInto(fileURL: url)
-                let size = (try? FileManager.default.attributesOfItem(atPath: Store.audioDir.appendingPathComponent(name).path)[.size] as? Int) ?? 0
+                let dest = Store.audioDir.appendingPathComponent(name)
+                let size = (try? FileManager.default.attributesOfItem(atPath: dest.path)[.size] as? Int) ?? 0
+                let dur = await ImportEngine.duration(of: dest)
                 let seg = Segment(
                     id: shortID(),
                     startedAt: Date(),
                     endedAt: Date(),
-                    duration: 0,
+                    duration: dur,
                     fileName: name,
                     byteSize: size,
                     transcript: "",
@@ -43,8 +45,17 @@ final class ImportEngine {
         return "导入 \(ok) 个，失败 \(failed) 个"
     }
 
-    private func copyInto(fileURL: URL) throws -> String {
-        let ext = fileURL.pathExtension.lowercased()
+    /// 读音频时长（秒），读不到给 0
+    static func duration(of url: URL) async -> Double {
+        let asset = AVURLAsset(url: url)
+        if let d = try? await asset.load(.duration) {
+            let s = CMTimeGetSeconds(d)
+            if s.isFinite && s > 0 { return s }
+        }
+        return 0
+    }
+
+    private func copyInto(fileURL: URL) throws -> String {        let ext = fileURL.pathExtension.lowercased()
         let stamp = Int(Date().timeIntervalSince1970)
         let name = "\(DayKey.of(Date()))-\(stamp)-\(Int.random(in: 100...999)).\(ext.isEmpty ? "m4a" : ext)"
         let dest = Store.audioDir.appendingPathComponent(name)

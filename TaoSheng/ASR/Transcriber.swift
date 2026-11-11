@@ -29,6 +29,20 @@ struct OpenAICompatibleTranscriber: Transcriber {
     let model: String
     let language: String
 
+    static func mimeType(_ url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "mp3": return "audio/mpeg"
+        case "m4a", "mp4": return "audio/mp4"
+        case "aac": return "audio/aac"
+        case "caf": return "audio/x-caf"
+        case "amr": return "audio/amr"
+        case "flac": return "audio/flac"
+        case "ogg": return "audio/ogg"
+        case "opus": return "audio/opus"
+        default: return "audio/wav"
+        }
+    }
+
     func transcribe(fileURL: URL) async throws -> String {
         guard var base = URL(string: baseURL) else { throw TranscribeError.notConfigured }
         if !base.absoluteString.hasSuffix("/audio/transcriptions") {
@@ -49,7 +63,7 @@ struct OpenAICompatibleTranscriber: Transcriber {
         add("Content-Disposition: form-data; name=\"response_format\"\r\n\r\njson\r\n")
         add("--\(boundary)\r\n")
         add("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileURL.lastPathComponent)\"\r\n")
-        add("Content-Type: audio/wav\r\n\r\n")
+        add("Content-Type: \(OpenAICompatibleTranscriber.mimeType(fileURL))\r\n\r\n")
         body.append(try Data(contentsOf: fileURL))
         add("\r\n--\(boundary)--\r\n")
 
@@ -225,7 +239,9 @@ enum TranscriberFactory {
                                      resourceId: s.doubaoResourceId)
         case .openAICompatible:
             guard s.asrReady else { return nil }
-            return OpenAICompatibleTranscriber(baseURL: s.asrBaseURL, apiKey: s.asrKey, model: s.asrModel, language: s.asrLanguage)
+            let base = s.asrFullURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            return OpenAICompatibleTranscriber(baseURL: base.isEmpty ? s.asrBaseURL : base,
+                                               apiKey: s.asrKey, model: s.asrModel, language: s.asrLanguage)
         }
     }
 }

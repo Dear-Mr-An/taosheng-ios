@@ -29,7 +29,9 @@ struct TodayView: View {
     }
 
     private var digestAgo: String {
-        guard let t = digest.lastRunAt else { return "还没整理过" }
+        let today = DayKey.of(Date())
+        let t = digest.lastRunAt ?? Store.shared.digest(day: today)?.createdAt
+        guard let t else { return "还没整理过" }
         let m = Int(Date().timeIntervalSince(t) / 60)
         if m < 1 { return "刚刚整理过" }
         if m < 60 { return "\(m)分钟前整理过" }
@@ -54,6 +56,14 @@ struct TodayView: View {
                 ShareSheet(items: [u])
             }
         }
+        .alert("提示", isPresented: Binding(
+            get: { toast != nil },
+            set: { if !$0 { toast = nil } }
+        )) {
+            Button("好") { toast = nil }
+        } message: {
+            Text(toast ?? "")
+        }
     }
 
     // MARK: - 头部
@@ -72,6 +82,8 @@ struct TodayView: View {
                 if let url = writeExport() {
                     shareURL = url
                     showShare = true
+                } else {
+                    toast = "这一天还没有可导出的内容"
                 }
             } label: {
                 Image(systemName: "square.and.arrow.up")
@@ -87,6 +99,7 @@ struct TodayView: View {
 
     @State private var shareURL: URL?
     @State private var showShare = false
+    @State private var toast: String?
 
     // MARK: - 正在聆听
     private var heroCard: some View {
@@ -297,7 +310,6 @@ struct TimelineFullView: View {
     let day: String
     @EnvironmentObject var app: AppState
     @State private var asc = false
-    @State private var onlyStar = false
 
     private var items: [DigestItem] {
         let base = day == DayKey.of(Date()) ? app.todayItems : app.dayItems

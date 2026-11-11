@@ -92,6 +92,14 @@ final class AppState: ObservableObject {
 
     // MARK: - 刷新
 
+    /// 清空数据后重建内置人物与技能
+    func wipeAll() {
+        store.wipeAll()
+        seedIfNeeded()
+        refresh()
+        NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
+    }
+
     func refresh() {
         let today = DayKey.of(Date())
         let segs = store.segments(day: today, limit: 400)

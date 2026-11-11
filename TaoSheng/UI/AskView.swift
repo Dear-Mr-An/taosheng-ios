@@ -48,6 +48,11 @@ struct AskView: View {
                 .onChange(of: app.askMessages.count) { _ in
                     withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                        proxy.scrollTo("bottom", anchor: .bottom)
+                    }
+                }
                 .onChange(of: sending) { _ in
                     withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                 }

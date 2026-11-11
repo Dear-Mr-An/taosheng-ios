@@ -774,8 +774,21 @@ extension Store {
         }
     }
 
-    /// 关键词检索（给问问找原文出处）
-    func searchForAsk(_ q: String, limit: Int = 12) -> [Segment] {
+    /// 清空全部数据（含音频文件）
+    func wipeAll() {
+        queue.sync {
+            for t in ["segment", "item", "digest", "person", "voice_sample", "skill",
+                      "skill_run", "channel", "place", "reminder", "review", "ask", "hotword"] {
+                exec("DELETE FROM \(t);")
+            }
+        }
+        let dir = Store.audioDir
+        if let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+            for f in files { try? FileManager.default.removeItem(at: f) }
+        }
+    }
+
+    /// 关键词检索（给问问找原文出处）    func searchForAsk(_ q: String, limit: Int = 12) -> [Segment] {
         let kws = Store.keywords(from: q)
         guard !kws.isEmpty else { return [] }
         return queue.sync { () -> [Segment] in

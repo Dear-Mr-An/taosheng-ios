@@ -886,14 +886,12 @@ struct PrivacyView: View {
         .sheet(isPresented: $showExport) { ShareSheet(items: items) }
         .alert("确定清空？", isPresented: $confirmWipe) {
             Button("清空", role: .destructive) {
-                for s in Store.shared.segments(day: nil, limit: 10000) {
-                    Store.shared.deleteSegment(id: s.id, removeFile: true)
-                }
+                app.wipeAll()
                 app.refresh()
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("录音和原话会一起删掉，不能恢复。")
+            Text("录音、原话、待办、回顾、人物和通道全部删掉，不能恢复。")
         }
     }
 }
