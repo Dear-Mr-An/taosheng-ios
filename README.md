@@ -10,7 +10,7 @@
 
 ## 〇、ipa 已经出好了
 
-**产物：`C:\项目分区\涛声app\dist\TaoSheng-unsigned.ipa`**（388 KB，未签名，arm64，iOS 16.0+，仅 iPhone）
+**产物：`C:\项目分区\涛声app\dist\TaoSheng-unsigned.ipa`**（713 KB，未签名，arm64，iOS 16.0+，仅 iPhone）
 
 已在 GitHub Actions（`macos-15` + Xcode 最新版）真实编译通过，可直接拿去签：
 
@@ -19,7 +19,7 @@
 | Bundle ID | `app.taosheng.TaoSheng` |
 | 显示名 | 涛声 |
 | 版本 | 0.1.0 (1) |
-| 可执行文件 | `Payload/TaoSheng.app/TaoSheng`（arm64，MH_EXECUTE） |
+| 可执行文件 | `Payload/TaoSheng.app/TaoSheng`（arm64，1.34 MB，MH_EXECUTE） |
 | 最低系统 | iOS 16.0 |
 | 签名状态 | 无 `_CodeSignature`、无 `embedded.mobileprovision`（纯未签名，签名工具会补） |
 | 后台模式 | `audio` + `fetch` |
@@ -27,7 +27,54 @@
 仓库：<https://github.com/Dear-Mr-An/taosheng-ios>（public，改代码 push 后自动重出包，
 Actions → `build-ipa` → Artifacts → `TaoSheng-unsigned-ipa`）。
 
+### 这一版做了什么
+
+UI 全部按原版 Android 的浅色风格重做：米白画布 + 白卡 + 橙色 `#F0833E`，
+底部 5 个浮起 tab —— **今天 / 问问 / 记忆 / 待办 / 设置**。
+
+功能对照（✅ 已做，◐ 简化版，✗ 这版没做）：
+
+| 能力 | 状态 | 说明 |
+|---|---|---|
+| 手机麦克风 / 外接麦 / 蓝牙耳机 | ✅ | 设置→录音与后台里列设备，插拔自动切回，偏好不在线自动落回 |
+| 全天后台收音 | ✅ | `UIBackgroundModes: audio`，被系统回收后回前台自动续上 |
+| 只录人声（VAD） | ◐ | 本机 RMS 能量检测 + 停顿断句，不是 Silero 模型 |
+| 外放时不转写 | ✅ | 开关在录音设置里 |
+| 停录时段 | ✅ | 可设夜里 23:00–07:00 自动停 |
+| 自动转写，间隔可调 | ✅ | 15–720 分钟，默认 30 |
+| 云端转写 | ✅ | 豆包 / 任意 OpenAI 兼容 `/audio/transcriptions`，或填完整地址 |
+| 苹果本机识别 | ✅ | `SFSpeechRecognizer`，支持设备端识别时走端上 |
+| 本地离线大模型转写 | ✗ | SenseVoice / NPU 加速是 Android 侧能力 |
+| 声纹认人 | ◐ | 本机 48 维 mel 特征 + 余弦相似度（阈值 0.82），长按原话「这是谁」教一次就记住 |
+| 自动摘待办 / 约定 | ✅ | 整理时按提示词切事件、抽待办，`发了`这类完成语会标完成 |
+| 每日回顾 / 每周回顾 | ✅ | 五节 + 四节，生成后可推送 |
+| 整理技能（任务卡） | ✅ | 会议速记 / 收工打卡 / 每周回顾 / 情绪日记 + 「智能生成」新技能 |
+| AI 问问 + 原话出处 | ✅ | 检索本机原话 → 模型回答 → 标注（1）（2）可点回原话 |
+| 推送 10 种通道 | ✅ | Agent / 自定义接口 / 坚果云 / PushPlus / 企微 / 飞书 / Telegram / Bark / Server酱 / ntfy |
+| 增量推送 | ◐ | 每次推当天全量，不是 diff |
+| 云端备份 | ✅ | 坚果云 / WebDAV / S3（SigV4 手写签名），保留 3/7/30 份 |
+| 换机恢复 | ✅ | 从云端拉 `latest.json` 回灌 |
+| 模型随便换 + 余额 | ✅ | 10 家预置 + 自定义；余额查询未做 |
+| 主模型故障切备用 | ✅ | 按顺序试，全失败才报错 |
+| 热词纠错 | ✅ | 设置→录音与后台→热词表 |
+| 导入录音文件 | ✅ | m4a/mp3/wav/aac/caf/amr/flac/ogg，导入后自动转写认人整理 |
+| 时间轴回看 / 标星 / 删除 | ✅ | 记忆页按天回看，左滑标重点，长按删除 |
+| 寻物 | ◐ | 「记忆→寻物」用关键词检索原话 |
+| 闹钟式强提醒 | ✅ | `UNCalendarNotificationTrigger` + `.timeSensitive` |
+| 录音回放 | ✅ | 每段可播放，倍速/字幕播放器未做 |
+| 导出 Markdown | ✅ | 当天原话 + 整理结果 |
+| 多段合成 M4A | ✗ | — |
+| 语音输入记忆（输入法） | ✗ | 需要输入法扩展，iOS 不允许后台读别的 App 输入 |
+| 环境音识别 | ✗ | — |
+| 足迹 / 定位时间轴 | ✗ | 开关占位，未接 CoreLocation |
+| 专题录音（会议/培训） | ✗ | — |
+| 专用录音设备（Omi 等） | ✗ | 需要厂商 BLE 协议 |
+| 重复灵感合并 | ✗ | — |
+| App 内检查更新 | ✗ | 走签名工具更新即可 |
+| 开箱向导 | ✗ | 首次进设置页手动填两个 Key |
+
 ---
+
 
 ## 一、最快拿到 IPA：GitHub Actions（不需要 Mac）
 
