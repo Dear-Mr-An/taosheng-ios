@@ -7,6 +7,7 @@ final class CaptureEngine: ObservableObject {
     static let shared = CaptureEngine()
 
     @Published private(set) var isRunning = false
+    @Published private(set) var startedAt: Date?
     @Published private(set) var level: Double = 0          // 0...1，给 UI 的波形
     @Published private(set) var isSpeaking = false
     @Published private(set) var lastError: String?
@@ -63,6 +64,7 @@ final class CaptureEngine: ObservableObject {
             engine.prepare()
             try engine.start()
             isRunning = true
+            startedAt = Date()
             lastError = nil
             NSLog("涛声: 采集已启动 \(format.sampleRate)Hz \(format.channelCount)ch")
         } catch {
@@ -78,6 +80,7 @@ final class CaptureEngine: ObservableObject {
         closeSegment(force: true)
         try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
         isRunning = false
+        startedAt = nil
         isSpeaking = false
         level = 0
     }

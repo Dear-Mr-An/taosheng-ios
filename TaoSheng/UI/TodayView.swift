@@ -3,212 +3,302 @@ import SwiftUI
 struct TodayView: View {
     @EnvironmentObject var app: AppState
     @EnvironmentObject var capture: CaptureEngine
-    @EnvironmentObject var settings: Settings
     @EnvironmentObject var digest: DigestEngine
-    @EnvironmentObject var queue: TranscribeQueue
+    @EnvironmentObject var settings: Settings
 
-    @State private var showSettingsHint = false
+    private var dateText: String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = "M月d日"
+        return f.string(from: Date())
+    }
 
-    private var today: String { DayKey.of(Date()) }
+    private var weekText: String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = "EEEE"
+        return f.string(from: Date())
+    }
+
+    private var totalTalk: String {
+        let s = Int(app.todaySegments.reduce(0) { $0 + $1.duration })
+        if s < 60 { return "\(s)秒" }
+        let m = s / 60
+        if m < 60 { return "\(m)分钟" }
+        return "\(m / 60)小时\(m % 60)分"
+    }
+
+    private var digestAgo: String {
+        guard let t = digest.lastRunAt else { return "还没整理过" }
+        let m = Int(Date().timeIntervalSince(t) / 60)
+        if m < 1 { return "刚刚整理过" }
+        if m < 60 { return "\(m)分钟前整理过" }
+        return "\(m / 60)小时前整理过"
+    }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    captureCard
-                    if let e = capture.lastError {
-                        Text(e)
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.bad)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .card()
-                    }
-                    digestCard
-                    timelineSection
-                    Color.clear.frame(height: 8)
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 24)
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                header
+                heroCard
+                rhythmCard
+                timelineCard
             }
-            .background(Theme.bg.ignoresSafeArea())
-            .navigationTitle("今天")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 4) {
-                        Circle().fill(capture.isRunning ? Theme.ok : Theme.dim)
-                            .frame(width: 7, height: 7)
-                        Text(capture.isRunning ? "在听" : "已停")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Theme.dim)
-                    }
-                }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 110)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+    }
+
+    // MARK: - 头部
+    private var header: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("今天 · \(weekText)")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Theme.dim)
+                Text(dateText)
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(Theme.text)
             }
-            .refreshable { app.refresh() }
+            Spacer()
+            Button {
+                if let url = writeExport() {
+                    shareURL = url
+                }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.text2)
+                    .frame(width: 36, height: 36)
+                    .background(Theme.card)
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
         }
     }
 
-    // MARK: - 采集卡
+    @State private var shareURL: URL?
 
-    private var captureCard: some View {
-        VStack(spacing: 14) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(Date(), format: .dateTime.month().day().weekday(.wide))
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.dim)
-                    Text(capture.isRunning
-                         ? (capture.isSpeaking ? "有人在说话，正在录" : "安静，等着")
-                         : "没有在录")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Theme.text)
-                }
+    // MARK: - 正在聆听
+    private var heroCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 7, height: 7)
+                    .opacity(capture.isRunning ? 1 : 0.45)
+                Text(capture.isRunning ? "正在聆听" : "点这里开始聆听")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.75))
                 Spacer()
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text(hm(app.stats.seconds))
-                        .font(.system(size: 20, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Theme.accent)
-                    Text("今日人声")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.dim)
+                if capture.isRunning {
+                    LevelBars(level: capture.level, count: 14, color: .white)
                 }
             }
 
-            LevelBars(level: capture.level, active: capture.isRunning)
+            HStack(alignment: .firstTextBaseline, spacing: 14) {
+                Text(totalTalk)
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                Spacer()
+                VStack(spacing: 1) {
+                    Text("\(app.todaySegments.count)")
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("今天说话")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.white.opacity(0.82))
+                }
+                VStack(spacing: 1) {
+                    Text("\(app.openItems.count)")
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("待确认")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.white.opacity(0.82))
+                }
+            }
+
+            Rectangle()
+                .fill(Color.white.opacity(0.22))
+                .frame(height: 1)
 
             HStack(spacing: 10) {
+                Text(digestAgo)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.white.opacity(0.85))
+                Spacer()
                 Button {
-                    if capture.isRunning {
-                        capture.stop()
-                        UserDefaults.standard.set(false, forKey: "captureWanted")
-                    } else {
-                        capture.start()
-                        UserDefaults.standard.set(true, forKey: "captureWanted")
-                    }
+                    digest.digest(day: DayKey.of(Date()))
                 } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: capture.isRunning ? "stop.circle.fill" : "record.circle")
-                            .font(.system(size: 18))
-                        Text(capture.isRunning ? "停止收音" : "开始收音")
-                            .font(.system(size: 15, weight: .semibold))
+                    HStack(spacing: 4) {
+                        if digest.running {
+                            ProgressView().scaleEffect(0.6).tint(.white)
+                        } else {
+                            Image(systemName: "sparkles").font(.system(size: 10, weight: .semibold))
+                        }
+                        Text(digest.running ? "整理中" : "现在整理")
+                            .font(.system(size: 11.5, weight: .semibold))
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(capture.isRunning ? Theme.cardHi : Theme.accent)
-                    .foregroundStyle(capture.isRunning ? Theme.text : Color.black.opacity(0.85))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.white.opacity(0.22))
+                    .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
 
-                if app.stats.pending > 0 {
-                    Button {
-                        queue.transcribeNow()
-                    } label: {
-                        VStack(spacing: 1) {
-                            Text("\(app.stats.pending)")
-                                .font(.system(size: 16, weight: .bold, design: .rounded))
-                            Text("待转写")
-                                .font(.system(size: 9))
-                        }
-                        .frame(width: 62)
-                        .padding(.vertical, 8)
-                        .background(Theme.accentSoft)
-                        .foregroundStyle(Theme.accent)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                }
+                Text(settings.llmReady ? "模型已就绪" : "未配模型")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.75))
             }
         }
-        .card(padding: 16)
+        .padding(16)
+        .background(Theme.heroGradient)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+        .shadow(color: Theme.accent.opacity(0.28), radius: 14, x: 0, y: 6)
+        .contentShape(Rectangle())
+        .onTapGesture { toggleCapture() }
     }
 
-    // MARK: - 整理卡
-
-    private var digestCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    // MARK: - 今日节律
+    private var rhythmCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("AI 整理")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.dim)
-                Spacer()
-                if digest.running {
-                    ProgressView().scaleEffect(0.7)
-                } else {
-                    Button {
-                        digest.digest(day: today)
-                    } label: {
-                        Text(app.todayItems.isEmpty ? "整理今天" : "重新整理")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Theme.accent)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            if !app.todaySummary.isEmpty {
-                Text(app.todaySummary)
-                    .font(.system(size: 15, weight: .medium))
+                Text("今日节律")
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Theme.text)
-                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                if capture.isRunning {
+                    Text(capture.isSpeaking ? "有人在说话" : "环境安静")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.dim)
+                }
             }
 
-            if app.todayItems.isEmpty {
-                Text(settings.llmReady
-                     ? "还没整理。今天说的话会在整理后变成事件、待办和约定。"
-                     : "先在设置里填好整理模型（比如 DeepSeek），这里就能把原话变成待办和约定。")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.dim)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                let preview = app.todayItems.filter { $0.kind != .event }.prefix(4)
-                if preview.isEmpty {
-                    Text("今天只有事件记录，没有待办。")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.dim)
-                } else {
-                    ForEach(Array(preview)) { item in
-                        ItemRow(item: item) { app.toggleItem(item) }
-                        if item.id != preview.last?.id { Divider().overlay(Theme.line) }
-                    }
-                }
-                if let err = digest.lastError {
-                    Text(err).font(.system(size: 11)).foregroundStyle(Theme.bad)
+            HStack(spacing: 0) {
+                StatCell(value: shortDur(app.mySeconds), label: "我说了", color: Theme.accent)
+                StatCell(value: shortDur(app.otherSeconds), label: "别人说了", color: Theme.blue)
+                StatCell(value: "\(app.peopleCount)", label: "人聊过", color: Theme.purple)
+                StatCell(value: "\(app.todayItems.count)", label: "件事", color: Theme.ok)
+            }
+
+            HStack(alignment: .bottom, spacing: 3) {
+                ForEach(0..<28, id: \.self) { i in
+                    let h = barHeight(i)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Theme.accent.opacity(0.18 + 0.5 * h))
+                        .frame(height: max(4, h * 42))
                 }
             }
+            .frame(height: 44, alignment: .bottom)
         }
-        .card(padding: 14)
+        .card()
+    }
+
+    private func barHeight(_ i: Int) -> Double {
+        let base = Double((i * 53) % 17) / 17.0
+        let live = capture.isRunning ? capture.level : 0
+        return min(1.0, 0.15 + base * 0.6 + live * 0.9)
     }
 
     // MARK: - 时间线
-
-    private var timelineSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionTitle(text: "时间线", trailing: "\(app.todaySegments.count) 段")
-
-            if app.todaySegments.isEmpty {
-                EmptyHint(symbol: "waveform.slash",
-                          title: "今天还没有录到人声",
-                          detail: "打开上面的「开始收音」，把手机放在身边就行。\n只有有人说话时才录，安静时不耗电。")
-                    .card()
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(app.todaySegments) { seg in
-                        SegmentRow(segment: seg)
-                        if seg.id != app.todaySegments.last?.id {
-                            Divider().overlay(Theme.line)
-                        }
-                    }
+    private var timelineCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("时间线 · \(app.todayItems.count) 件事")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.text)
+                Spacer()
+                NavigationLink {
+                    TimelineFullView(day: DayKey.of(Date()))
+                } label: {
+                    Text("全部")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.accent)
                 }
-                .card(padding: 12)
             }
+
+            if app.todayItems.isEmpty {
+                EmptyHint(text: app.todaySegments.isEmpty
+                          ? "还没有录音。点上面的卡片开始，它会一直听着。"
+                          : "有 \(app.todaySegments.count) 段录音，点「现在整理」把它们变成事件。")
+                    .padding(.vertical, 10)
+            } else {
+                ForEach(app.todayItems.prefix(12)) { item in
+                    EventRow(item: item) { app.toggleItem(item.id) }
+                }
+            }
+        }
+        .card()
+    }
+
+    // MARK: - 动作
+    private func toggleCapture() {
+        if capture.isRunning {
+            capture.stop()
+            UserDefaults.standard.set(false, forKey: "captureWanted")
+        } else {
+            capture.start()
+            UserDefaults.standard.set(true, forKey: "captureWanted")
         }
     }
 
-    private func hm(_ seconds: Double) -> String {
-        let s = Int(seconds.rounded())
-        if s < 60 { return "\(s)秒" }
-        let h = s / 3600, m = (s % 3600) / 60
-        return h > 0 ? "\(h)时\(m)分" : "\(m)分"
+    private func shortDur(_ s: Double) -> String {
+        let v = Int(s)
+        if v < 60 { return "\(v)秒" }
+        return "\(v / 60)分"
+    }
+
+    private func writeExport() -> URL? {
+        let md = app.exportMarkdown(day: DayKey.of(Date()))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("涛声-\(DayKey.of(Date())).md")
+        do {
+            try md.write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            return nil
+        }
+    }
+}
+
+// MARK: - 完整时间线
+struct TimelineFullView: View {
+    let day: String
+    @EnvironmentObject var app: AppState
+    @State private var asc = false
+    @State private var onlyStar = false
+
+    private var items: [DigestItem] {
+        let base = day == DayKey.of(Date()) ? app.todayItems : app.dayItems
+        return asc ? base.reversed() : base
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Chip(text: asc ? "早的在上" : "晚的在上", selected: true) { asc.toggle() }
+                    Spacer()
+                }
+                if items.isEmpty {
+                    EmptyHint(text: "这一天还没有整理出事件。").padding(.top, 40)
+                } else {
+                    ForEach(items) { item in
+                        EventRow(item: item) { app.toggleItem(item.id) }
+                    }
+                }
+            }
+            .padding(16)
+            .padding(.bottom, 40)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle(DayKey.display(day))
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

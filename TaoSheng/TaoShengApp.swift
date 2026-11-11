@@ -10,7 +10,6 @@ struct TaoShengApp: App {
     @StateObject private var digest = DigestEngine.shared
 
     init() {
-        // 音频会话提前配好，避免首次点录音时被系统打断
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playAndRecord,
                                  mode: .default,
@@ -25,11 +24,16 @@ struct TaoShengApp: App {
                 .environmentObject(capture)
                 .environmentObject(queue)
                 .environmentObject(digest)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(.light)
                 .onAppear {
                     app.refresh()
                     queue.start()
                     digest.start()
+                    ReviewEngine.shared.start()
+                    SkillEngine.shared.start()
+                    ReminderEngine.shared.requestAuth()
+                    ReminderEngine.shared.rescheduleAll(Store.shared.reminders())
+                    MicRouter.shared.applyPreferred()
                     if UserDefaults.standard.bool(forKey: "captureWanted") && !capture.isRunning {
                         capture.start()
                     }

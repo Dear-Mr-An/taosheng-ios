@@ -2,6 +2,7 @@ import Foundation
 import Combine
 
 /// 转写队列：定时扫「已录音未转写」的段，串行送给转写服务，结果写回数据库。
+/// 转写完顺手做热词纠错 + 声纹认人。
 final class TranscribeQueue: ObservableObject {
     static let shared = TranscribeQueue()
 
@@ -11,12 +12,13 @@ final class TranscribeQueue: ObservableObject {
 
     private var timer: Timer?
     private var working = false
+    private var lastRun = Date.distantPast
 
     private init() {}
 
     func start() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             self?.tick()
         }
         tick()
@@ -33,9 +35,12 @@ final class TranscribeQueue: ObservableObject {
             refreshPending()
             return
         }
+        let interval = Double(max(s.transcribeIntervalMin, 1)) * 60
+        if Date().timeIntervalSince(lastRun) < interval && !pendingCountImmediate() { return }
         guard !working else { return }
         working = true
         busy = true
+        lastRun = Date()
 
         Task.detached(priority: .utility) {
             defer {
@@ -48,7 +53,7 @@ final class TranscribeQueue: ObservableObject {
             }
 
             guard let transcriber = TranscriberFactory.make() else { return }
-            let batch = Store.shared.pendingSegments(limit: 6)
+            let batch = Store.shared.pendingSegments(limit: 8)
             for seg in batch {
                 if Task.isCancelled { return }
                 let url = Store.audioDir.appendingPathComponent(seg.fileName)
@@ -57,24 +62,43 @@ final class TranscribeQueue: ObservableObject {
                     continue
                 }
                 do {
-                    let text = try await transcriber.transcribe(fileURL: url)
-                    let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if cleaned.isEmpty {
-                        // 静音段：标记完成但无文字，稍后由清理逻辑删除音频
-                        Store.shared.updateTranscript(id: seg.id, transcript: "", state: .transcribed)
-                    } else {
-                        Store.shared.updateTranscript(id: seg.id, transcript: cleaned, state: .transcribed)
+                    let raw = try await transcriber.transcribe(fileURL: url)
+                    var cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !cleaned.isEmpty {
+                        cleaned = HotwordFix.apply(cleaned)
+                    }
+                    Store.shared.updateTranscript(id: seg.id, transcript: cleaned, state: .transcribed)
+
+                    // 声纹认人
+                    if !cleaned.isEmpty {
+                        await TranscribeQueue.identifySpeaker(segmentId: seg.id, url: url)
                     }
                     await MainActor.run { self.lastMessage = "已转写 \(seg.timeText) 的 \(Int(seg.duration)) 秒" }
                 } catch {
                     Store.shared.updateTranscript(id: seg.id, transcript: "", state: .failed)
                     await MainActor.run { self.lastMessage = error.localizedDescription }
                     NSLog("涛声: 转写失败 \(error)")
-                    // 一次失败就先歇一会，避免刷爆接口
                     try? await Task.sleep(nanoseconds: 5_000_000_000)
                 }
             }
         }
+    }
+
+    /// 声纹比对：命中就写 speaker，没命中留空（用户可长按指定）
+    static func identifySpeaker(segmentId: String, url: URL) async {
+        let samples = Store.shared.allVoiceSamples()
+        guard !samples.isEmpty else { return }
+        guard let v = Voiceprint.vector(from: url) else { return }
+        if let m = Voiceprint.match(v, samples: samples) {
+            let persons = Store.shared.persons()
+            if let p = persons.first(where: { $0.id == m.personId }) {
+                Store.shared.setSpeaker(id: segmentId, speaker: p.name)
+            }
+        }
+    }
+
+    private func pendingCountImmediate() -> Bool {
+        !Store.shared.pendingSegments(limit: 1).isEmpty
     }
 
     func refreshPending() {
@@ -85,10 +109,7 @@ final class TranscribeQueue: ObservableObject {
     /// 用户手动触发一次
     func transcribeNow() {
         working = false
+        lastRun = .distantPast
         tick()
     }
-}
-
-extension Notification.Name {
-    static let taoshengDataChanged = Notification.Name("taosheng.data.changed")
 }

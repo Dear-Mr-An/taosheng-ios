@@ -8,6 +8,27 @@
 
 ---
 
+## 〇、ipa 已经出好了
+
+**产物：`C:\项目分区\涛声app\dist\TaoSheng-unsigned.ipa`**（388 KB，未签名，arm64，iOS 16.0+，仅 iPhone）
+
+已在 GitHub Actions（`macos-15` + Xcode 最新版）真实编译通过，可直接拿去签：
+
+| 项 | 值 |
+|---|---|
+| Bundle ID | `app.taosheng.TaoSheng` |
+| 显示名 | 涛声 |
+| 版本 | 0.1.0 (1) |
+| 可执行文件 | `Payload/TaoSheng.app/TaoSheng`（arm64，MH_EXECUTE） |
+| 最低系统 | iOS 16.0 |
+| 签名状态 | 无 `_CodeSignature`、无 `embedded.mobileprovision`（纯未签名，签名工具会补） |
+| 后台模式 | `audio` + `fetch` |
+
+仓库：<https://github.com/Dear-Mr-An/taosheng-ios>（public，改代码 push 后自动重出包，
+Actions → `build-ipa` → Artifacts → `TaoSheng-unsigned-ipa`）。
+
+---
+
 ## 一、最快拿到 IPA：GitHub Actions（不需要 Mac）
 
 这个目录本身就是一个可推送的仓库根（`.github/workflows/ios-ipa.yml` 已在里面）。

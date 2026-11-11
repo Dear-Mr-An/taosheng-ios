@@ -1,129 +1,296 @@
 import SwiftUI
 
-// MARK: - 一段录音的行
-struct SegmentRow: View {
-    let segment: Segment
-    @ObservedObject private var player = SegmentPlayer.shared
+// MARK: - 录音波形
+struct LevelBars: View {
+    var level: Double
+    var count: Int = 26
+    var color: Color = Theme.accent
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(spacing: 2) {
-                Text(segment.timeText)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Theme.text)
-                Text(segment.durationText)
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.dim)
-            }
-            .frame(width: 46, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 5) {
-                if segment.state == .transcribed {
-                    if segment.isEmptySpeech {
-                        Text("（这一段没识别出人声）")
-                            .font(.system(size: 13))
-                            .foregroundStyle(Theme.dim.opacity(0.7))
-                    } else {
-                        Text(segment.transcript)
-                            .font(.system(size: 14))
-                            .foregroundStyle(Theme.text)
-                            .lineSpacing(3)
-                    }
-                } else if segment.state == .failed {
-                    Text("转写失败，稍后自动重试")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Theme.bad.opacity(0.9))
-                } else {
-                    HStack(spacing: 6) {
-                        ProgressView().scaleEffect(0.6).frame(width: 12, height: 12)
-                        Text("等待转写 · \(Int(segment.duration))秒")
-                            .font(.system(size: 13))
-                            .foregroundStyle(Theme.dim)
-                    }
+        TimelineView(.animation(minimumInterval: 0.09)) { _ in
+            HStack(alignment: .center, spacing: 2.5) {
+                ForEach(0..<count, id: \.self) { i in
+                    let base = 3.0 + Double((i * 37) % 11)
+                    let amp = max(0.08, level)
+                    let h = min(26.0, base * (0.5 + amp * 9.0) * (0.6 + 0.4 * sin(Double(i))))
+                    Capsule()
+                        .fill(color.opacity(level > 0.02 ? 0.85 : 0.25))
+                        .frame(width: 3, height: max(3, h))
                 }
             }
-
-            Spacer(minLength: 4)
-
-            Button {
-                player.toggle(segment: segment)
-            } label: {
-                Image(systemName: player.playingID == segment.id ? "stop.fill" : "play.fill")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Theme.accent)
-                    .frame(width: 28, height: 28)
-                    .background(Theme.accentSoft)
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
+            .frame(height: 28)
         }
-        .padding(.vertical, 8)
     }
 }
 
-// MARK: - 整理条目行
-struct ItemRow: View {
-    let item: DigestItem
-    var onToggle: () -> Void
+// MARK: - 说话人色点
+struct SpeakerDot: View {
+    let name: String
+    var size: CGFloat = 6
+
+    private var color: Color {
+        if name.isEmpty { return Theme.dim2 }
+        if name == "我" { return Theme.accent }
+        let idx = abs(name.hashValue) % personPalette.count
+        let rgb = hexToRGB(personPalette[idx])
+        return Color(red: rgb.0, green: rgb.1, blue: rgb.2)
+    }
+
+    var body: some View {
+        Circle().fill(color).frame(width: size, height: size)
+    }
+}
+
+// MARK: - 原话一行
+struct SegmentRow: View {
+    let seg: Segment
+    var onPlay: () -> Void = {}
+    var onStar: () -> Void = {}
+    var onAssign: () -> Void = {}
+    var onDelete: () -> Void = {}
+
+    @State private var playing = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Button(action: onToggle) {
-                Image(systemName: item.status == .done ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 17))
-                    .foregroundStyle(item.status == .done ? Theme.ok : Theme.dim)
+            VStack(spacing: 3) {
+                Text(seg.timeText)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(Theme.dim)
+                Text(seg.durationText)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.dim2)
             }
-            .buttonStyle(.plain)
+            .frame(width: 46, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(item.title)
-                    .font(.system(size: 14, weight: item.kind == .todo ? .medium : .regular))
-                    .foregroundStyle(item.status == .done ? Theme.dim : Theme.text)
-                    .strikethrough(item.status == .done, color: Theme.dim)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if !item.detail.isEmpty && item.kind != .event {
-                    Text(item.detail)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.dim)
-                }
-                if !item.due.isEmpty {
-                    Text(item.due)
+                HStack(spacing: 5) {
+                    SpeakerDot(name: seg.speaker)
+                    Text(seg.speaker.isEmpty ? "未识别" : seg.speaker)
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Theme.warn)
+                        .foregroundStyle(seg.speaker.isEmpty ? Theme.dim2 : Theme.text2)
+                    if seg.state != .transcribed {
+                        Pill(text: seg.state == .failed ? "转写失败" : "待转写",
+                             color: seg.state == .failed ? Theme.bad : Theme.warn)
+                    }
+                    Spacer()
                 }
-                if item.kind == .event && !item.detail.isEmpty {
+                Text(seg.isEmptySpeech ? "（这段没有识别出文字）" : seg.transcript)
+                    .font(.system(size: 14))
+                    .foregroundStyle(seg.isEmptySpeech ? Theme.dim2 : Theme.text)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button(action: onPlay) {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(Theme.accent.opacity(0.85))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button { onPlay() } label: { Label("播放", systemImage: "play") }
+            Button { onStar() } label: { Label("标为重点", systemImage: "star") }
+            Button { onAssign() } label: { Label("这是谁", systemImage: "person.crop.circle.badge.questionmark") }
+            Divider()
+            Button(role: .destructive) { onDelete() } label: { Label("删除", systemImage: "trash") }
+        }
+    }
+}
+
+// MARK: - 时间线事件行
+struct EventRow: View {
+    let item: DigestItem
+    var onToggle: () -> Void = {}
+
+    private var dotColor: Color {
+        switch item.kind {
+        case .event: return Theme.blue
+        case .todo: return Theme.accent
+        case .promise: return Theme.purple
+        case .idea: return Theme.warn
+        case .memory: return Theme.ok
+        }
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(spacing: 0) {
+                Circle().fill(dotColor).frame(width: 7, height: 7).padding(.top, 6)
+                Rectangle().fill(Theme.line).frame(width: 1).frame(maxHeight: .infinity)
+            }
+            .frame(width: 8)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(item.kind.title)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(dotColor)
+                    if !item.due.isEmpty {
+                        Text(item.due)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.dim2)
+                    }
+                    Spacer()
+                    if item.kind == .todo || item.kind == .promise {
+                        Button(action: onToggle) {
+                            Image(systemName: item.status == .done ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 17))
+                                .foregroundStyle(item.status == .done ? Theme.ok : Theme.dim2)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Text(item.title)
+                    .font(.system(size: 14.5, weight: .medium))
+                    .foregroundStyle(item.status == .done ? Theme.dim2 : Theme.text)
+                    .strikethrough(item.status == .done, color: Theme.dim2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !item.detail.isEmpty {
                     Text(item.detail)
-                        .font(.system(size: 12))
+                        .font(.system(size: 12.5))
                         .foregroundStyle(Theme.dim)
                         .lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Spacer(minLength: 0)
+            .padding(.bottom, 12)
         }
-        .padding(.vertical, 7)
     }
 }
 
-// MARK: - 波形
-struct LevelBars: View {
-    let level: Double
-    let active: Bool
-    private let count = 26
+// MARK: - 统计小格
+struct StatCell: View {
+    let value: String
+    let label: String
+    var color: Color = Theme.text
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 0.12, paused: !active)) { _ in
-            HStack(alignment: .center, spacing: 3) {
-                ForEach(0..<count, id: \.self) { i in
-                    let seed = Double((i * 37) % 11) / 11.0
-                    let base = active ? max(0.06, level * (0.45 + seed * 0.9)) : 0.05
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(active ? Theme.accent.opacity(0.85) : Theme.dim.opacity(0.35))
-                        .frame(width: 3, height: max(3, base * 46))
+        VStack(spacing: 3) {
+            Text(value)
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .foregroundStyle(color)
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.dim)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - 设置行
+struct SettingRow: View {
+    let icon: String
+    let title: String
+    var detail: String = ""
+    var tint: Color = Theme.accent
+    var chevron: Bool = true
+
+    var body: some View {
+        HStack(spacing: 11) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 30, height: 30)
+                .background(tint.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 14.5)).foregroundStyle(Theme.text)
+                if !detail.isEmpty {
+                    Text(detail).font(.system(size: 11.5)).foregroundStyle(Theme.dim)
+                        .lineLimit(2)
                 }
             }
-            .frame(height: 46)
+            Spacer()
+            if chevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.dim2)
+            }
+        }
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+    }
+}
+
+// MARK: - 开关行
+struct ToggleRow: View {
+    let title: String
+    var detail: String = ""
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 14.5)).foregroundStyle(Theme.text)
+                if !detail.isEmpty {
+                    Text(detail).font(.system(size: 11.5)).foregroundStyle(Theme.dim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .tint(Theme.accent)
+        .padding(.vertical, 6)
+    }
+}
+
+// MARK: - 筛选 chip
+struct Chip: View {
+    let text: String
+    var selected: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: 12.5, weight: selected ? .semibold : .regular))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(selected ? Theme.accent : Theme.card)
+                .foregroundStyle(selected ? Color.white : Theme.text2)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule().stroke(selected ? Color.clear : Theme.line, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - 页面标题
+struct PageTitle: View {
+    let title: String
+    var subtitle: String = ""
+    var trailing: AnyView? = nil
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundStyle(Theme.text)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Theme.dim)
+                }
+            }
+            Spacer()
+            if let t = trailing { t }
         }
     }
+}
+
+// MARK: - 分享面板
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }

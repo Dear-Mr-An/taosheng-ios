@@ -7,8 +7,8 @@ private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.sel
 final class Store {
     static let shared = Store()
 
-    private var db: OpaquePointer?
-    private let queue = DispatchQueue(label: "app.taosheng.db")
+    var db: OpaquePointer?
+    let queue = DispatchQueue(label: "app.taosheng.db")
 
     private init() {
         let dir = Store.supportDir
@@ -37,7 +37,7 @@ final class Store {
     // MARK: - 底层
 
     @discardableResult
-    private func exec(_ sql: String) -> Bool {
+    func exec(_ sql: String) -> Bool {
         var err: UnsafeMutablePointer<CChar>?
         if sqlite3_exec(db, sql, nil, nil, &err) != SQLITE_OK {
             if let e = err { NSLog("涛声 SQL 错误: \(String(cString: e)) — \(sql)") }
@@ -334,11 +334,11 @@ final class Store {
 
     // MARK: - 助手
 
-    private func bind(_ st: OpaquePointer?, _ idx: Int32, _ value: String) {
+    func bind(_ st: OpaquePointer?, _ idx: Int32, _ value: String) {
         sqlite3_bind_text(st, idx, (value as NSString).utf8String, -1, SQLITE_TRANSIENT)
     }
 
-    private func col(_ st: OpaquePointer?, _ idx: Int32) -> String {
+    func col(_ st: OpaquePointer?, _ idx: Int32) -> String {
         guard let c = sqlite3_column_text(st, idx) else { return "" }
         return String(cString: c)
     }
