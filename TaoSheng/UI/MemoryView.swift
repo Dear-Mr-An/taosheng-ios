@@ -5,6 +5,7 @@ struct MemoryView: View {
     @EnvironmentObject var settings: Settings
 
     @State private var mode = 0            // 0 = 事件，1 = 原话
+    @State private var onlyStar = false
     @State private var showReview = false
     @State private var exportItems: [Any] = []
     @State private var showExport = false
@@ -24,6 +25,12 @@ struct MemoryView: View {
 
     private var items: [DigestItem] { isToday ? app.todayItems : app.dayItems }
     private var segs: [Segment] { isToday ? app.todaySegments : app.daySegments }
+
+    private var shownSegs: [Segment] {
+        guard onlyStar else { return segs }
+        let starred = Set(Store.shared.starredSegments(limit: 500).map { $0.id })
+        return segs.filter { starred.contains($0.id) }
+    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -230,6 +237,9 @@ struct MemoryView: View {
             HStack(spacing: 8) {
                 Chip(text: "事件 · \(items.count)", selected: mode == 0) { mode = 0 }
                 Chip(text: "原话 · \(segs.count)", selected: mode == 1) { mode = 1 }
+                if mode == 1 {
+                    Chip(text: "★ 重点", selected: onlyStar) { onlyStar.toggle() }
+                }
                 Spacer()
             }
 
@@ -242,10 +252,10 @@ struct MemoryView: View {
                     }
                 }
             } else {
-                if segs.isEmpty {
-                    EmptyHint(text: "这一天没有录音。").padding(.vertical, 20)
+                if shownSegs.isEmpty {
+                    EmptyHint(text: onlyStar ? "这一天还没有标重点的原话。长按一段原话可以标。" : "这一天没有录音。").padding(.vertical, 20)
                 } else {
-                    ForEach(segs) { seg in
+                    ForEach(shownSegs) { seg in
                         SegmentRow(seg: seg,
                                    onPlay: { SegmentPlayer.shared.toggle(segment: seg) },
                                    onStar: {

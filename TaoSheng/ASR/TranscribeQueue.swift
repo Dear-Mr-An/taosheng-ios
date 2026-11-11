@@ -38,7 +38,11 @@ final class TranscribeQueue: ObservableObject {
             return
         }
         let interval = Double(max(s.transcribeIntervalMin, 1)) * 60
-        if Date().timeIntervalSince(lastRun) < interval && !pendingCountImmediate() { return }
+        // 严格按用户设的间隔跑，不再「有待转写就每 30 秒一轮」
+        guard Date().timeIntervalSince(lastRun) >= interval else {
+            refreshPending()
+            return
+        }
         guard !working else { return }
         working = true
         busy = true

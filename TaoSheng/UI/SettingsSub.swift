@@ -246,6 +246,7 @@ struct PersonsView: View {
 // MARK: - 整理技能
 struct SkillsView: View {
     @EnvironmentObject var app: AppState
+    @ObservedObject private var engine = SkillEngine.shared
     @State private var busy = false
     @State private var err: String?
 
@@ -297,6 +298,16 @@ struct SkillsView: View {
                     Text(err)
                         .font(.system(size: 12.5))
                         .foregroundStyle(Theme.bad)
+                }
+            }
+
+            if let autoErr = engine.lastError {
+                Section {
+                    Text(autoErr)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Theme.bad)
+                } header: {
+                    Text("自动运行出错")
                 }
             }
 

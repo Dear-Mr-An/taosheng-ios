@@ -122,7 +122,7 @@ final class DigestEngine: ObservableObject {
                 }
                 out.append(DigestItem(
                     id: shortID(), day: day, kind: .event,
-                    title: scene.isEmpty ? title : "\(title)",
+                    title: scene.isEmpty ? title : "\(title) · \(scene)",
                     detail: detail, due: "", status: .open, createdAt: now
                 ))
             }

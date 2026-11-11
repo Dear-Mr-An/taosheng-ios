@@ -1,8 +1,10 @@
 import Foundation
 
 /// 整理技能：内置四种 + 自定义（JSON 提示词）
-final class SkillEngine {
+final class SkillEngine: ObservableObject {
     static let shared = SkillEngine()
+
+    @Published private(set) var lastError: String?
 
     private let store = Store.shared
     private var timer: Timer?
@@ -33,15 +35,28 @@ final class SkillEngine {
                 guard hour > s.hour || (hour == s.hour && minute >= s.minute) else { continue }
                 let done = store.skillRuns(day: today, limit: 80).contains { $0.skillId == s.id }
                 if !done {
-                    Task { _ = try? await self.run(s, day: today) }
+                    fire(s, day: today)
                 }
             case .weekly:
                 guard passedTarget, weekday == s.weekday else { continue }
                 guard hour > s.hour || (hour == s.hour && minute >= s.minute) else { continue }
                 let done = store.skillRuns(day: today, limit: 80).contains { $0.skillId == s.id }
                 if !done {
-                    Task { _ = try? await self.run(s, day: today) }
+                    fire(s, day: today)
                 }
+            }
+        }
+    }
+
+    private func fire(_ skill: SkillDef, day: String) {
+        Task {
+            do {
+                _ = try await self.run(skill, day: day)
+                await MainActor.run { self.lastError = nil }
+            } catch {
+                let msg = "「\(skill.name)」没跑成：\(error.localizedDescription)"
+                await MainActor.run { self.lastError = msg }
+                NSLog("涛声: \(msg)")
             }
         }
     }
