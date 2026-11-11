@@ -99,7 +99,7 @@ final class CaptureEngine: ObservableObject {
         let threshold = Float(s.sensitivity)
 
         let now = Date()
-        queue.async { [weak self] in
+        let work: () -> Void = { [weak self] in
             guard let self else { return }
             DispatchQueue.main.async {
                 self.level = min(1.0, Double(rms) * 12)
@@ -137,6 +137,7 @@ final class CaptureEngine: ObservableObject {
                 }
             }
         }
+        queue.async(execute: work)
     }
 
     // MARK: - 段落文件
