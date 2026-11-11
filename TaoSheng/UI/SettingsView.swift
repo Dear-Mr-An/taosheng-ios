@@ -203,7 +203,7 @@ struct FootprintView: View {
             } footer: {
                 Text("跟随收音服务，约每 5 分钟记一个点；位置记录只存手机本地。")
             }
-            Section {
+            Section(header: Text("今天")) {
                 if places.isEmpty {
                     Text("这一天没有位置记录").foregroundColor(Theme.dim)
                 } else {
@@ -215,8 +215,6 @@ struct FootprintView: View {
                         }
                     }
                 }
-            } header: {
-                Text("今天")
             }
         }
         .scrollContentBackground(.hidden)
