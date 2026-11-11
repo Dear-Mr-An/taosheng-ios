@@ -1,0 +1,77 @@
+name: build-ipa
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  ipa:
+    name: 构建未签名 IPA
+    runs-on: macos-14
+    timeout-minutes: 40
+
+    steps:
+      - name: 取出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成 Xcode 工程
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          if [ -f project.yml ]; then
+            xcodegen generate
+          else
+            cd ios && xcodegen generate && cd ..
+          fi
+          ls -la
+
+      - name: 显示 Xcode 版本
+        run: xcodebuild -version
+
+      - name: 编译（不签名）
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          if [ -f project.yml ]; then ROOT="."; else ROOT="ios"; fi
+          cd "$ROOT"
+          xcodebuild \
+            -project TaoSheng.xcodeproj \
+            -scheme TaoSheng \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/TaoSheng.xcarchive" \
+            archive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            ONLY_ACTIVE_ARCH=NO \
+            -quiet
+
+      - name: 打包成 IPA
+        run: |
+          set -e
+          APP="$RUNNER_TEMP/TaoSheng.xcarchive/Products/Applications/TaoSheng.app"
+          if [ ! -d "$APP" ]; then
+            echo "找不到 .app，列出 archive 内容："
+            find "$RUNNER_TEMP/TaoSheng.xcarchive" -maxdepth 4 -name "*.app"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP"
+          zip -qr "TaoSheng-unsigned.ipa" Payload
+          ls -lh "TaoSheng-unsigned.ipa"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist" || true
+          lipo -info "$APP/TaoSheng" || true
+
+      - name: 上传 IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: TaoSheng-unsigned-ipa
+          path: ${{ runner.temp }}/TaoSheng-unsigned.ipa
+          retention-days: 30
