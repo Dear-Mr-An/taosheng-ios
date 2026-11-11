@@ -117,3 +117,63 @@ enum DayKey {
 func shortID() -> String {
     String(UUID().uuidString.prefix(8)).lowercased()
 }
+
+// MARK: - 待办时间解析（due 可能是 "明天 15:00" / "2026-11-12 15:00" / "15:00"）
+extension DigestItem {
+    static func parseHM(_ s: String) -> (Int, Int)? {
+        let t = s.trimmingCharacters(in: CharacterSet(charactersIn: " 点时"))
+        let parts = t.split(separator: ":")
+        guard parts.count == 2,
+              let h = Int(parts[0].trimmingCharacters(in: .whitespaces)),
+              let m = Int(parts[1].prefix(2).trimmingCharacters(in: .whitespaces)) else { return nil }
+        guard h >= 0, h < 24, m >= 0, m < 60 else { return nil }
+        return (h, m)
+    }
+
+    var dueDate: Date? {
+        let s = due.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return nil }
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+
+        for (prefix, offset) in [("今天", 0), ("明天", 1), ("后天", 2)] {
+            guard s.hasPrefix(prefix) else { continue }
+            let rest = String(s.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+            let base = cal.date(byAdding: .day, value: offset, to: today) ?? today
+            if let hm = DigestItem.parseHM(rest) {
+                return cal.date(bySettingHour: hm.0, minute: hm.1, second: 0, of: base) ?? base
+            }
+            return base
+        }
+
+        let f1 = DateFormatter()
+        f1.locale = Locale(identifier: "en_US_POSIX")
+        f1.dateFormat = "yyyy-MM-dd HH:mm"
+        if let d = f1.date(from: s) { return d }
+
+        let f2 = DateFormatter()
+        f2.locale = Locale(identifier: "zh_CN")
+        f2.defaultDate = Date()
+        f2.dateFormat = "M月d日 HH:mm"
+        if let d = f2.date(from: s) { return d }
+
+        if let hm = DigestItem.parseHM(s) {
+            return cal.date(bySettingHour: hm.0, minute: hm.1, second: 0, of: Date())
+        }
+        return nil
+    }
+
+    var dueDisplay: String {
+        guard let d = dueDate else { return due }
+        let cal = Calendar.current
+        let g = DateFormatter()
+        g.locale = Locale(identifier: "zh_CN")
+        if cal.isDateInToday(d) { g.dateFormat = "今天 HH:mm" }
+        else if cal.isDateInTomorrow(d) { g.dateFormat = "明天 HH:mm" }
+        else { g.dateFormat = "M月d日 HH:mm" }
+        return g.string(from: d)
+    }
+
+    /// 排序键：解析不出来的排最后
+    var dueSortKey: Double { dueDate?.timeIntervalSince1970 ?? Double.greatestFiniteMagnitude }
+}

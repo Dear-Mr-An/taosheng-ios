@@ -249,6 +249,8 @@ final class CaptureEngine: ObservableObject {
         Store.shared.insert(seg)
         DispatchQueue.main.async {
             self.onSegmentSaved?(seg)
+            AppState.shared.refresh()
+            NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
         }
     }
 }

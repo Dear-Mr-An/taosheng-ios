@@ -22,23 +22,25 @@ final class SkillEngine {
         let weekday = cal.component(.weekday, from: Date())
         let today = DayKey.of(Date())
         let list = store.skills().filter { $0.enabled }
+        // 「已过点且当天没跑过」就算到期——App 在后台时 Timer 不跑，回前台补跑
+        let passedTarget = (hour > 0 || minute > 0) && (hour > 0)
         for s in list {
             switch s.schedule {
             case .manual, .afterDigest:
                 continue
             case .daily:
-                if hour == s.hour && minute < 5 {
-                    let done = store.skillRuns(day: today, limit: 50).contains { $0.skillId == s.id }
-                    if !done {
-                        Task { _ = try? await self.run(s, day: today) }
-                    }
+                guard passedTarget else { continue }
+                guard hour > s.hour || (hour == s.hour && minute >= s.minute) else { continue }
+                let done = store.skillRuns(day: today, limit: 80).contains { $0.skillId == s.id }
+                if !done {
+                    Task { _ = try? await self.run(s, day: today) }
                 }
             case .weekly:
-                if weekday == s.weekday && hour == s.hour && minute < 5 {
-                    let done = store.skillRuns(day: today, limit: 50).contains { $0.skillId == s.id }
-                    if !done {
-                        Task { _ = try? await self.run(s, day: today) }
-                    }
+                guard passedTarget, weekday == s.weekday else { continue }
+                guard hour > s.hour || (hour == s.hour && minute >= s.minute) else { continue }
+                let done = store.skillRuns(day: today, limit: 80).contains { $0.skillId == s.id }
+                if !done {
+                    Task { _ = try? await self.run(s, day: today) }
                 }
             }
         }

@@ -247,6 +247,7 @@ struct PersonsView: View {
 struct SkillsView: View {
     @EnvironmentObject var app: AppState
     @State private var busy = false
+    @State private var err: String?
 
     var body: some View {
         Form {
@@ -291,6 +292,14 @@ struct SkillsView: View {
                 .disabled(busy)
             }
 
+            if let err {
+                Section {
+                    Text(err)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Theme.bad)
+                }
+            }
+
             if !app.skillRuns.isEmpty {
                 Section("最近的产出") {
                     ForEach(app.skillRuns) { r in
@@ -318,12 +327,15 @@ struct SkillsView: View {
     private func generate() {
         guard !busy else { return }
         busy = true
+        err = nil
         Task {
             do {
-                _ = try await SkillEngine.shared.suggestSkill(day: DayKey.of(Date()))
+                let s = try await SkillEngine.shared.suggestSkill(day: DayKey.of(Date()))
+                Store.shared.upsertSkill(s)
                 await MainActor.run { busy = false; app.refresh() }
             } catch {
-                await MainActor.run { busy = false }
+                let msg = error.localizedDescription
+                await MainActor.run { busy = false; err = "生成失败：\(msg)" }
             }
         }
     }

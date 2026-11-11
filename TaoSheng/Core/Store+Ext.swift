@@ -776,21 +776,66 @@ extension Store {
 
     /// 关键词检索（给问问找原文出处）
     func searchForAsk(_ q: String, limit: Int = 12) -> [Segment] {
-        let words = q.split(separator: " ").map { String($0) }.filter { $0.count >= 1 }
-        let kw = words.isEmpty ? q : words[0]
+        let kws = Store.keywords(from: q)
+        guard !kws.isEmpty else { return [] }
         return queue.sync { () -> [Segment] in
+            let clauses = Array(repeating: "transcript LIKE ?", count: kws.count).joined(separator: " OR ")
             let sql = """
             SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at
-            FROM segment WHERE transcript LIKE ? ORDER BY started_at DESC LIMIT \(limit);
+            FROM segment WHERE state='transcribed' AND (\(clauses))
+            ORDER BY started_at DESC LIMIT \(min(limit * 4, 80));
             """
             var st: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
             defer { sqlite3_finalize(st) }
-            bind(st, 1, "%\(kw)%")
-            var out: [Segment] = []
-            while sqlite3_step(st) == SQLITE_ROW { out.append(readSegRow(st)) }
-            return out
+            for (i, k) in kws.enumerated() { bind(st, Int32(i + 1), "%\(k)%") }
+            var rows: [Segment] = []
+            while sqlite3_step(st) == SQLITE_ROW { rows.append(readSegRow(st)) }
+            // 命中词多的排前面，同分按时间新→旧
+            let scored = rows.map { seg -> (Segment, Int) in
+                (seg, kws.reduce(0) { $0 + (seg.transcript.contains($1) ? 1 : 0) })
+            }
+            let sorted = scored.sorted { a, b in
+                if a.1 != b.1 { return a.1 > b.1 }
+                return a.0.startedAt > b.0.startedAt
+            }
+            return sorted.prefix(limit).map { $0.0 }
         }
+    }
+
+    /// 把一句中文问句切成可检索的关键词：去疑问词 → 长串按 2-gram 切
+    static func keywords(from q: String) -> [String] {
+        let stop = ["请问", "帮我", "什么", "怎么", "哪些", "哪个", "哪儿", "哪里", "是否", "有没有",
+                    "还记得", "记得", "上次", "之前", "那天", "时候", "我们", "他们", "一下",
+                    "吗", "呢", "吧", "啊", "了", "的", "我", "你", "他", "她", "它", "是", "在",
+                    "和", "有", "把", "给", "说", "过", "这", "那", "个", "就", "都", "还", "又"]
+        var cleaned = q
+        for s in stop { cleaned = cleaned.replacingOccurrences(of: s, with: " ") }
+        let parts = cleaned
+            .split(whereSeparator: { $0 == " " || $0.isWhitespace || $0.isPunctuation })
+            .map(String.init)
+            .filter { $0.count >= 2 }
+        var out: [String] = []
+        func push(_ s: String) {
+            if !out.contains(s) && out.count < 6 { out.append(s) }
+        }
+        for p in parts {
+            if p.count <= 4 {
+                push(p)
+            } else {
+                let chars = Array(p)
+                var i = 0
+                while i + 2 <= chars.count {
+                    push(String(chars[i..<(i + 2)]))
+                    i += 2
+                }
+            }
+        }
+        if out.isEmpty {
+            let chars = Array(q.trimmingCharacters(in: .whitespacesAndNewlines))
+            if chars.count >= 2 { out.append(String(chars.prefix(min(4, chars.count)))) }
+        }
+        return out
     }
 
     /// 最近 N 天的转写文本（给回顾 / 周报）

@@ -20,6 +20,7 @@ final class Store {
         exec("PRAGMA journal_mode=WAL;")
         exec("PRAGMA synchronous=NORMAL;")
         migrate()
+        migrateExtra()
     }
 
     static var supportDir: URL {

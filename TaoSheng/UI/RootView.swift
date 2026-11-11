@@ -18,6 +18,10 @@ struct RootView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                // 给浮起的 TabBar 留出空间，避免列表最后一行被压住
+                Color.clear.frame(height: kb.isVisible ? 0 : 58)
+            }
 
             if !kb.isVisible {
                 TabBar(selected: $tab)

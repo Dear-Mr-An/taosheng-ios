@@ -12,6 +12,7 @@ struct TodosView: View {
 
     private var timed: [DigestItem] {
         all.filter { $0.status == .open && !$0.due.isEmpty }
+            .sorted { $0.dueSortKey < $1.dueSortKey }
     }
 
     private var anytime: [DigestItem] {
@@ -236,8 +237,8 @@ struct TodosView: View {
         var due = ""
         if hasDue {
             let f = DateFormatter()
-            f.locale = Locale(identifier: "zh_CN")
-            f.dateFormat = "M月d日 HH:mm"
+            f.locale = Locale(identifier: "en_US_POSIX")
+            f.dateFormat = "yyyy-MM-dd HH:mm"
             due = f.string(from: dueDate)
         }
         app.addTodo(title: t, due: due)

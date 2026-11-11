@@ -77,7 +77,7 @@ struct SegmentRow: View {
     var onAssign: () -> Void = {}
     var onDelete: () -> Void = {}
 
-    @State private var playing = false
+    @ObservedObject private var player = SegmentPlayer.shared
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -111,7 +111,7 @@ struct SegmentRow: View {
             }
 
             Button(action: onPlay) {
-                Image(systemName: "play.circle.fill")
+                Image(systemName: player.playingID == seg.id ? "pause.circle.fill" : "play.circle.fill")
                     .font(.system(size: 20))
                     .foregroundStyle(Theme.accent.opacity(0.85))
             }
@@ -158,7 +158,7 @@ struct EventRow: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(dotColor)
                     if !item.due.isEmpty {
-                        Text(item.due)
+                        Text(item.dueDisplay)
                             .font(.system(size: 11))
                             .foregroundStyle(Theme.dim2)
                     }

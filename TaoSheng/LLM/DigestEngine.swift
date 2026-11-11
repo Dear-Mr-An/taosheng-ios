@@ -76,6 +76,12 @@ final class DigestEngine: ObservableObject {
                 let items = DigestEngine.parse(reply: reply, day: day)
                 Store.shared.replaceItems(day: day, items: items.items)
                 Store.shared.saveDigest(day: day, summary: items.summary)
+                PushEngine.shared.pushDigest(
+                    day: day,
+                    summary: items.summary,
+                    items: items.items,
+                    transcript: lines.joined(separator: "\n")
+                )
                 await MainActor.run {
                     self.running = false
                     self.lastRunAt = Date()

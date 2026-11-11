@@ -13,6 +13,8 @@ final class TranscribeQueue: ObservableObject {
     private var timer: Timer?
     private var working = false
     private var lastRun = Date.distantPast
+    /// 同一段连续失败 3 次就不再自动重试，免得 Key 填错时一直烧请求
+    private var failCount: [String: Int] = [:]
 
     private init() {}
 
@@ -54,6 +56,7 @@ final class TranscribeQueue: ObservableObject {
 
             guard let transcriber = TranscriberFactory.make() else { return }
             let batch = Store.shared.pendingSegments(limit: 8)
+                .filter { (self.failCount[$0.id] ?? 0) < 3 }
             for seg in batch {
                 if Task.isCancelled { return }
                 let url = Store.audioDir.appendingPathComponent(seg.fileName)
@@ -74,9 +77,13 @@ final class TranscribeQueue: ObservableObject {
                         await TranscribeQueue.identifySpeaker(segmentId: seg.id, url: url)
                     }
                     await MainActor.run { self.lastMessage = "已转写 \(seg.timeText) 的 \(Int(seg.duration)) 秒" }
+                    await MainActor.run { self.failCount.removeValue(forKey: seg.id) }
                 } catch {
                     Store.shared.updateTranscript(id: seg.id, transcript: "", state: .failed)
-                    await MainActor.run { self.lastMessage = error.localizedDescription }
+                    await MainActor.run {
+                        self.failCount[seg.id, default: 0] += 1
+                        self.lastMessage = error.localizedDescription
+                    }
                     NSLog("涛声: 转写失败 \(error)")
                     try? await Task.sleep(nanoseconds: 5_000_000_000)
                 }
@@ -108,7 +115,6 @@ final class TranscribeQueue: ObservableObject {
 
     /// 用户手动触发一次
     func transcribeNow() {
-        working = false
         lastRun = .distantPast
         tick()
     }
