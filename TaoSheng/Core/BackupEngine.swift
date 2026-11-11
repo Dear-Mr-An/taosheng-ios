@@ -7,6 +7,32 @@ final class BackupEngine {
 
     private let store = Store.shared
 
+    private var timer: Timer?
+
+    // MARK: - 自动备份
+
+    func start() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak self] _ in
+            self?.autoBackupIfNeeded()
+        }
+        autoBackupIfNeeded()
+    }
+
+    private func autoBackupIfNeeded() {
+        let s = Settings.shared
+        guard s.backupAuto, s.backupKind != .none else { return }
+        guard !s.backupURL.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        let today = DayKey.of(Date())
+        if UserDefaults.standard.string(forKey: "ts.lastBackupDay") == today { return }
+        Task {
+            let msg = await self.backupNow(day: today)
+            if !msg.contains("失败") {
+                UserDefaults.standard.set(today, forKey: "ts.lastBackupDay")
+            }
+        }
+    }
+
     // MARK: - 快照
 
     func snapshot(day: String) -> String {

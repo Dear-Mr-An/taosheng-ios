@@ -77,13 +77,11 @@ final class TranscribeQueue: ObservableObject {
                         await TranscribeQueue.identifySpeaker(segmentId: seg.id, url: url)
                     }
                     await MainActor.run { self.lastMessage = "已转写 \(seg.timeText) 的 \(Int(seg.duration)) 秒" }
-                    await MainActor.run { self.failCount.removeValue(forKey: seg.id) }
+                    self.failCount.removeValue(forKey: seg.id)
                 } catch {
                     Store.shared.updateTranscript(id: seg.id, transcript: "", state: .failed)
-                    await MainActor.run {
-                        self.failCount[seg.id, default: 0] += 1
-                        self.lastMessage = error.localizedDescription
-                    }
+                    self.failCount[seg.id, default: 0] += 1
+                    await MainActor.run { self.lastMessage = error.localizedDescription }
                     NSLog("涛声: 转写失败 \(error)")
                     try? await Task.sleep(nanoseconds: 5_000_000_000)
                 }

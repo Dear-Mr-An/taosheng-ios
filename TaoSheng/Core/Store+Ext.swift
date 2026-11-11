@@ -788,7 +788,8 @@ extension Store {
         }
     }
 
-    /// 关键词检索（给问问找原文出处）    func searchForAsk(_ q: String, limit: Int = 12) -> [Segment] {
+    /// 关键词检索（给问问找原文出处）
+    func searchForAsk(_ q: String, limit: Int = 12) -> [Segment] {
         let kws = Store.keywords(from: q)
         guard !kws.isEmpty else { return [] }
         return queue.sync { () -> [Segment] in

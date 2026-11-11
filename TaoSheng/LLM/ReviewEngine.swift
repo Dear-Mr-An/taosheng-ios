@@ -20,9 +20,15 @@ final class ReviewEngine {
         let cal = Calendar.current
         let hour = cal.component(.hour, from: Date())
         let today = DayKey.of(Date())
+        guard !s.effectiveLLM.key.isEmpty else { return }
         let existing = store.reviews(limit: 20).first { $0.day == today && $0.kind == .daily }
-        if existing == nil && hour >= s.reviewHour {
-            Task { _ = try? await self.generateDaily(day: today) }
+        guard existing == nil, hour >= s.reviewHour else { return }
+        // 同一天只自动试一次，失败也不反复烧请求
+        if UserDefaults.standard.string(forKey: "ts.lastReviewTry") == today { return }
+        UserDefaults.standard.set(today, forKey: "ts.lastReviewTry")
+        Task {
+            do { _ = try await self.generateDaily(day: today) }
+            catch { NSLog("涛声: 自动回顾失败 \(error)") }
         }
     }
 

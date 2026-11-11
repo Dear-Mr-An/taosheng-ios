@@ -32,6 +32,7 @@ struct TaoShengApp: App {
                     digest.start()
                     ReviewEngine.shared.start()
                     SkillEngine.shared.start()
+                    BackupEngine.shared.start()
                     ReminderEngine.shared.requestAuth()
                     ReminderEngine.shared.rescheduleAll(Store.shared.reminders())
                     MicRouter.shared.applyPreferred()

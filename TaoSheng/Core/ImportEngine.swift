@@ -55,7 +55,8 @@ final class ImportEngine {
         return 0
     }
 
-    private func copyInto(fileURL: URL) throws -> String {        let ext = fileURL.pathExtension.lowercased()
+    private func copyInto(fileURL: URL) throws -> String {
+        let ext = fileURL.pathExtension.lowercased()
         let stamp = Int(Date().timeIntervalSince1970)
         let name = "\(DayKey.of(Date()))-\(stamp)-\(Int.random(in: 100...999)).\(ext.isEmpty ? "m4a" : ext)"
         let dest = Store.audioDir.appendingPathComponent(name)
