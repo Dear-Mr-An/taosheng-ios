@@ -254,7 +254,7 @@ struct MemoryView: View {
                                    },
                                    onAssign: { assignSpeaker(seg) },
                                    onDelete: {
-                                       Store.shared.deleteSegment(id: seg.id)
+                                       Store.shared.deleteSegment(id: seg.id, removeFile: true)
                                        app.refreshDay(app.selectedDay)
                                    })
                         Divider().overlay(Theme.lineSoft)

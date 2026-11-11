@@ -86,15 +86,33 @@ struct EmptyHint: View {
     let symbol: String
     let title: String
     let detail: String
+
+    init(symbol: String, title: String, detail: String = "") {
+        self.symbol = symbol
+        self.title = title
+        self.detail = detail
+    }
+
+    /// 只有一句话的用法
+    init(text: String) {
+        self.symbol = "waveform"
+        self.title = ""
+        self.detail = text
+    }
+
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: symbol).font(.system(size: 30)).foregroundStyle(Theme.dim2)
-            Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text)
-            Text(detail).font(.system(size: 12)).foregroundStyle(Theme.dim)
+            if !title.isEmpty {
+                Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text)
+            }
+            Text(detail).font(.system(size: 12.5)).foregroundStyle(Theme.dim)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 34)
+        .padding(.vertical, 30)
+        .padding(.horizontal, 8)
     }
 }
 

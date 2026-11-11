@@ -813,7 +813,7 @@ struct PrivacyView: View {
         .alert("确定清空？", isPresented: $confirmWipe) {
             Button("清空", role: .destructive) {
                 for s in Store.shared.segments(day: nil, limit: 10000) {
-                    Store.shared.deleteSegment(id: s.id)
+                    Store.shared.deleteSegment(id: s.id, removeFile: true)
                 }
                 app.refresh()
             }
