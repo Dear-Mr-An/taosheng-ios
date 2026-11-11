@@ -181,9 +181,11 @@ struct PlaceVisit: Identifiable, Codable, Hashable {
     var isHome: Bool
 
     var durationText: String {
-        let s = Int(leaveAt.timeIntervalSince(arriveAt).rounded())
-        if s < 60 { return "\(s)分钟" }
-        return "\(s / 60)小时\(s % 60)分"
+        let s = max(0, Int(leaveAt.timeIntervalSince(arriveAt).rounded()))
+        if s < 60 { return "\(s)秒" }
+        let m = s / 60
+        if m < 60 { return "\(m)分钟" }
+        return "\(m / 60)小时\(m % 60)分"
     }
 }
 

@@ -212,6 +212,7 @@ struct TodosView: View {
             }
             .navigationTitle("加一件事")
             .navigationBarTitleDisplayMode(.inline)
+            .scrollDismissesKeyboard(.interactively)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消") { resetDraft() }
@@ -222,7 +223,8 @@ struct TodosView: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     private func resetDraft() {
