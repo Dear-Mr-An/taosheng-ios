@@ -8,6 +8,7 @@ struct AskView: View {
     @State private var sending = false
     @State private var errorText: String?
     @FocusState private var focused: Bool
+    @StateObject private var kb = KeyboardObserver.shared
 
     private let samples = [
         "上周我答应老王什么了？",
@@ -42,16 +43,27 @@ struct AskView: View {
                     .padding(.top, 12)
                     .padding(.bottom, 16)
                 }
+                .scrollDismissesKeyboard(.interactively)
+                .simultaneousGesture(TapGesture().onEnded { focused = false })
                 .onChange(of: app.askMessages.count) { _ in
                     withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
                 .onChange(of: sending) { _ in
                     withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
+                .onChange(of: kb.isVisible) { vis in
+                    if vis {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                            withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                        }
+                    }
+                }
             }
-            inputBar
         }
         .background(Theme.bg.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            inputBar
+        }
     }
 
     // MARK: - 头部
@@ -61,11 +73,11 @@ struct AskView: View {
                 Text("问问")
                     .font(.system(size: 26, weight: .bold))
                     .foregroundStyle(Theme.text)
-                Text(settings.llmReady
-                     ? "答句都带原话出处 · \(settings.llmModel)"
-                     : "还没配大模型，去设置 → 转写与大模型")
+                Text(settings.effectiveLLM.key.isEmpty
+                     ? "还没配大模型，去设置 → 转写与大模型"
+                     : "答句都带原话出处 · \(settings.llmModel)")
                     .font(.system(size: 12))
-                    .foregroundStyle(settings.llmReady ? Theme.dim : Theme.warn)
+                    .foregroundStyle(settings.effectiveLLM.key.isEmpty ? Theme.warn : Theme.dim)
             }
             Spacer()
             Button {
@@ -203,6 +215,21 @@ struct AskView: View {
                         .stroke(Theme.line, lineWidth: 1)
                 )
                 .onSubmit { send() }
+                .submitLabel(.send)
+
+            if kb.isVisible {
+                Button {
+                    focused = false
+                } label: {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.text2)
+                        .frame(width: 34, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("收起键盘")
+            }
 
             Button(action: send) {
                 Image(systemName: sending ? "ellipsis" : "arrow.up")
@@ -217,7 +244,7 @@ struct AskView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
-        .padding(.bottom, 78)
+        .padding(.bottom, kb.isVisible ? 8 : 76)
         .background(Theme.bg)
     }
 

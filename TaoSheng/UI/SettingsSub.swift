@@ -671,6 +671,9 @@ struct ModelSettingsView: View {
             settings.llmModel = p.model
             settings.llmKey = p.key
         }
+        .onChange(of: settings.llmKey) { _ in syncBack() }
+        .onChange(of: settings.llmBaseURL) { _ in syncBack() }
+        .onChange(of: settings.llmModel) { _ in syncBack() }
         .onAppear {
             guard settings.llmKey.isEmpty,
                   let p = settings.providers.first(where: { $0.id == settings.llmProviderID }),
@@ -683,6 +686,18 @@ struct ModelSettingsView: View {
         .background(Theme.bg)
         .navigationTitle("转写与大模型")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// 就地把改动写回当前服务商，切走再切回来不会丢 Key
+    private func syncBack() {
+        guard var p = settings.providers.first(where: { $0.id == settings.llmProviderID }) else { return }
+        guard p.key != settings.llmKey
+            || p.baseURL != settings.llmBaseURL
+            || p.model != settings.llmModel else { return }
+        p.key = settings.llmKey
+        p.baseURL = settings.llmBaseURL
+        p.model = settings.llmModel
+        settings.updateProvider(p)
     }
 }
 

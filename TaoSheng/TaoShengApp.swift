@@ -8,6 +8,7 @@ struct TaoShengApp: App {
     @StateObject private var capture = CaptureEngine.shared
     @StateObject private var queue = TranscribeQueue.shared
     @StateObject private var digest = DigestEngine.shared
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         let session = AVAudioSession.sharedInstance()
@@ -34,6 +35,13 @@ struct TaoShengApp: App {
                     ReminderEngine.shared.requestAuth()
                     ReminderEngine.shared.rescheduleAll(Store.shared.reminders())
                     MicRouter.shared.applyPreferred()
+                    if UserDefaults.standard.bool(forKey: "captureWanted") && !capture.isRunning {
+                        capture.start()
+                    }
+                }
+                .onChange(of: scenePhase) { phase in
+                    guard phase == .active else { return }
+                    app.refresh()
                     if UserDefaults.standard.bool(forKey: "captureWanted") && !capture.isRunning {
                         capture.start()
                     }

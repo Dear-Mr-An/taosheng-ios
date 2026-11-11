@@ -1,4 +1,32 @@
 import SwiftUI
+import UIKit
+
+// MARK: - 键盘状态
+/// 全局键盘可见性。用于：键盘弹出时收起底部 TabBar、让输入栏贴住键盘。
+final class KeyboardObserver: ObservableObject {
+    static let shared = KeyboardObserver()
+
+    @Published private(set) var isVisible = false
+    /// 键盘高度（含安全区），键盘不可见时为 0。
+    @Published private(set) var height: CGFloat = 0
+
+    private var tokens: [NSObjectProtocol] = []
+
+    private init() {
+        let c = NotificationCenter.default
+        tokens.append(c.addObserver(forName: UIResponder.keyboardWillShowNotification,
+                                   object: nil, queue: .main) { [weak self] n in
+            let f = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+            self?.isVisible = true
+            self?.height = f?.height ?? 0
+        })
+        tokens.append(c.addObserver(forName: UIResponder.keyboardWillHideNotification,
+                                   object: nil, queue: .main) { [weak self] _ in
+            self?.isVisible = false
+            self?.height = 0
+        })
+    }
+}
 
 // MARK: - 录音波形
 struct LevelBars: View {

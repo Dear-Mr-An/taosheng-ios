@@ -1,5 +1,17 @@
 import Foundation
 
+/// 大模型侧的错误，文案要和「转写」区分开，否则用户会被误导去改转写设置
+enum LLMError: LocalizedError {
+    case notConfigured
+
+    var errorDescription: String? {
+        switch self {
+        case .notConfigured:
+            return "还没配置大模型。去 设置 → 转写与大模型，选一家填上 API Key。"
+        }
+    }
+}
+
 /// 多模型自动切换：主模型失败（断网 / 余额 / 密钥失效）按顺序换备用
 extension LLMClient {
     static func auto() -> LLMClient? {
@@ -19,9 +31,9 @@ extension LLMClient {
                 chain = [LLMProvider(id: "main", name: "主模型", baseURL: eff.base, model: eff.model, key: eff.key, note: "", builtin: false)]
             }
         }
-        guard !chain.isEmpty else { throw TranscribeError.notConfigured }
+        guard !chain.isEmpty else { throw LLMError.notConfigured }
 
-        var lastError: Error = TranscribeError.notConfigured
+        var lastError: Error = LLMError.notConfigured
         for p in chain {
             do {
                 let client = LLMClient(baseURL: p.baseURL, apiKey: p.key, model: p.model)

@@ -19,6 +19,7 @@ final class CaptureEngine: ObservableObject {
     private var lastVoiceAt: Date?
     private var silentFrames = 0
     private var wroteAnyVoice = false
+    private var isStarting = false
 
     private let queue = DispatchQueue(label: "app.taosheng.capture")
 
@@ -45,9 +46,11 @@ final class CaptureEngine: ObservableObject {
     // MARK: - 生命周期
 
     func start() {
-        guard !isRunning else { return }
+        guard !isRunning, !isStarting else { return }
+        isStarting = true
         AVAudioSession.sharedInstance().requestRecordPermission { ok in
             DispatchQueue.main.async {
+                self.isStarting = false
                 guard ok else {
                     self.lastError = "没有麦克风权限，请到 设置 → 涛声 打开。"
                     return

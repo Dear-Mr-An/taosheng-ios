@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @State private var tab: Int = 0
+    @StateObject private var kb = KeyboardObserver.shared
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -18,9 +19,12 @@ struct RootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            TabBar(selected: $tab)
+            if !kb.isVisible {
+                TabBar(selected: $tab)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .animation(.easeOut(duration: 0.18), value: kb.isVisible)
     }
 }
 

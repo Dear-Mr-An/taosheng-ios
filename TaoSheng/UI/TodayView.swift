@@ -49,6 +49,11 @@ struct TodayView: View {
             .padding(.bottom, 110)
         }
         .background(Theme.bg.ignoresSafeArea())
+        .sheet(isPresented: $showShare) {
+            if let u = shareURL {
+                ShareSheet(items: [u])
+            }
+        }
     }
 
     // MARK: - 头部
@@ -66,6 +71,7 @@ struct TodayView: View {
             Button {
                 if let url = writeExport() {
                     shareURL = url
+                    showShare = true
                 }
             } label: {
                 Image(systemName: "square.and.arrow.up")
@@ -80,6 +86,7 @@ struct TodayView: View {
     }
 
     @State private var shareURL: URL?
+    @State private var showShare = false
 
     // MARK: - 正在聆听
     private var heroCard: some View {
@@ -100,6 +107,8 @@ struct TodayView: View {
                     LevelBars(level: capture.level, count: 14, color: .white)
                 }
             }
+            .contentShape(Rectangle())
+            .onTapGesture { toggleCapture() }
 
             HStack(alignment: .firstTextBaseline, spacing: 14) {
                 Text(totalTalk)
@@ -153,17 +162,33 @@ struct TodayView: View {
                 }
                 .buttonStyle(.plain)
 
-                Text(settings.llmReady ? "模型已就绪" : "未配模型")
+                Text(settings.effectiveLLM.key.isEmpty ? "未配模型" : "模型已就绪")
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.75))
+            }
+
+            if let e = capture.lastError {
+                heroNote(e)
+            }
+            if let e = digest.lastError {
+                heroNote(e)
             }
         }
         .padding(16)
         .background(Theme.heroGradient)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
         .shadow(color: Theme.accent.opacity(0.28), radius: 14, x: 0, y: 6)
-        .contentShape(Rectangle())
-        .onTapGesture { toggleCapture() }
+    }
+
+    private func heroNote(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11.5))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white.opacity(0.18))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     // MARK: - 今日节律

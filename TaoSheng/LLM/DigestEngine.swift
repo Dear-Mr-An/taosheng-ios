@@ -41,8 +41,8 @@ final class DigestEngine: ObservableObject {
     func digest(day: String) {
         guard !running else { return }
         let s = Settings.shared
-        guard s.llmReady else {
-            lastError = "先在设置里填好整理模型（Base URL / 模型 / Key）"
+        guard !s.effectiveLLM.key.isEmpty else {
+            lastError = "还没配置大模型。去 设置 → 转写与大模型 填一个 API Key。"
             return
         }
         let segs = Store.shared.segments(day: day, limit: 800)
