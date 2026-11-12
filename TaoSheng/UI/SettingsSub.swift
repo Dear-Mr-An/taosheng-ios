@@ -790,7 +790,7 @@ struct ModelSettingsView: View {
             if case .success(let urls) = result {
                 Task {
                     let msg = await ImportEngine.shared.importFiles(urls)
-                    await MainActor.run { testResult = msg; reload() }
+                    await MainActor.run { exportError = msg; reload() }
                 }
             }
         }
