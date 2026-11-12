@@ -48,7 +48,18 @@ Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 Swift
 
 首次配置
 
-1. 设置 → 原话与转写：填写豆包语音 API Key；其他转写服务和系统识别在折叠区配置。
+1. 设置 → 原话与转写：填写豆包语音 API Key，并选对「识别档位」（默认 `volc.seedasr.auc`，即豆包语音识别大模型）；其他转写服务和系统识别在折叠区配置。
+
+豆包语音转写怎么填（2026-11-13 实测）
+
+- 端点固定 `https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash`，音频 base64 直传，不需要公网地址。
+- 请求头：`X-Api-Key`（控制台 API Key）、`X-Api-Resource-Id`（识别档位）、`X-Api-Request-Id`、`X-Api-Sequence: -1`。
+- **识别档位必须和账号开通的一致**，否则返回 `45000030 requested resource not granted`，这就是之前转写失败的根因：
+  - `volc.seedasr.auc` 豆包语音识别大模型（默认，实测可用）
+  - `volc.bigasr.auc_turbo` 录音文件识别极速版（需单独开通）
+  - `volc.bigasr.auc_idle` 录音文件识别闲时版
+- 状态码在响应头：`20000000` 成功、`20000003` 静音（按空结果处理）、其余失败；失败原因会翻成人话显示在原话与转写页。
+- 旧版本默认写的是 `volc.bigasr.auc_turbo`，升级后会自动迁移成 `volc.seedasr.auc`，不用手动改。
 2. 设置 → 整理模型 → 编辑：填写 DeepSeek API Key，选择 Flash 或 V4 Pro。整理、问问、回顾、技能共用这一份配置。
 3. 回到今天页，选择模式并点「开始聆听」。
 

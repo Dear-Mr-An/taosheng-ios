@@ -1412,6 +1412,29 @@ struct TranscribeSettingsSheet: View {
                     .font(.system(size: 11.5))
                     .foregroundColor(Theme.dim2)
                     .fixedSize(horizontal: false, vertical: true)
+
+                Text("识别档位")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(Theme.text)
+                    .padding(.top, 4)
+
+                Picker("识别档位", selection: $settings.doubaoResourceId) {
+                    ForEach(DoubaoResource.all, id: \.id) { item in
+                        Text(item.title).tag(item.id)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if let note = DoubaoResource.all.first(where: { $0.id == settings.doubaoResourceId })?.note {
+                    Text(note)
+                        .font(.system(size: 11.5))
+                        .foregroundColor(Theme.dim2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text("账号没开通的档位会报「未授权」，换另一个档位即可；这一项和密钥配套使用。")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(Theme.dim2)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
                     if settings.asrKind == .appleSpeech {

@@ -20,11 +20,34 @@ enum ASRKind: String, CaseIterable, Identifiable {
 
     var hint: String {
         switch self {
-        case .doubao: return "填火山引擎语音控制台拿到的 API Key（x-api-key）。走录音文件识别极速版，音频直接 base64 上传，不用公网地址。"
+        case .doubao: return "填火山引擎语音控制台拿到的 API Key（X-Api-Key）。走录音文件识别，音频直接 base64 上传，不用公网地址。"
         case .openAICompatible: return "Whisper / 硅基流动 / Groq / 自建服务走这个：POST {base}/audio/transcriptions。豆包语音不兼容这套，请选上面那个。"
         case .appleSpeech: return "免费、离线（需在系统设置里下载中文包），准确率一般"
         case .off: return "录音照常保存，随时可以在设置里打开转写再补"
         }
+    }
+}
+
+/// 火山引擎语音识别的资源档位。账号开通了哪个，就必须传哪个，
+/// 传错会返回 45000030「requested resource not granted」。
+enum DoubaoResource {
+    /// 豆包语音识别大模型（SeedASR）录音文件识别，控制台默认开通的就是这一档。
+    static let seedASR = "volc.seedasr.auc"
+    /// 大模型录音文件识别极速版，需要单独开通。
+    static let turbo = "volc.bigasr.auc_turbo"
+    /// 大模型录音文件识别闲时版。
+    static let idle = "volc.bigasr.auc_idle"
+
+    static let fallback = seedASR
+
+    static let all: [(id: String, title: String, note: String)] = [
+        (seedASR, "豆包语音识别大模型", "控制台「录音文件识别」默认档，识别准、支持标点与数字规整"),
+        (turbo, "录音文件识别极速版", "需在控制台单独开通，速度更快"),
+        (idle, "录音文件识别闲时版", "需单独开通，便宜但排队较久"),
+    ]
+
+    static func title(_ id: String) -> String {
+        all.first(where: { $0.id == id })?.title ?? id
     }
 }
 
@@ -170,7 +193,15 @@ final class Settings: ObservableObject {
         doubaoApiKey = d.string(forKey: "doubaoApiKey") ?? ""
         doubaoAppKey = d.string(forKey: "doubaoAppKey") ?? ""
         doubaoAccessKey = d.string(forKey: "doubaoAccessKey") ?? ""
-        doubaoResourceId = d.string(forKey: "doubaoResourceId") ?? "volc.bigasr.auc_turbo"
+        // 旧版本默认写的是极速版资源（volc.bigasr.auc_turbo），多数账号只开通了
+        // 豆包语音识别大模型的 volc.seedasr.auc，命中旧默认值时自动迁移。
+        let savedResource = d.string(forKey: "doubaoResourceId") ?? ""
+        if savedResource.isEmpty || savedResource == "volc.bigasr.auc_turbo" {
+            doubaoResourceId = DoubaoResource.fallback
+            d.set(DoubaoResource.fallback, forKey: "doubaoResourceId")
+        } else {
+            doubaoResourceId = savedResource
+        }
 
         let migrated = DeepSeekConfiguration.migrated(
             baseURL: d.string(forKey: "llmBaseURL") ?? DeepSeekConfiguration.baseURL,

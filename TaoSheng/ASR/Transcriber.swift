@@ -123,6 +123,28 @@ struct DoubaoTranscriber: Transcriber {
 
     static let endpoint = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash"
 
+    /// 把服务端状态码翻成人话，避免用户只看到一串数字。
+    static func explain(code: String, hint: String) -> String {
+        let raw = hint.trimmingCharacters(in: .whitespacesAndNewlines)
+        let detail = raw.isEmpty ? "" : "（\(raw.prefix(160))）"
+        switch code {
+        case "45000030":
+            return "这个密钥没开通当前识别档位。到火山引擎「语音技术」控制台确认已开通「录音文件识别」，再把资源档位改成已开通的那个。" + detail
+        case "45000010", "45000000":
+            return "密钥无效或没带上。请重新复制语音控制台的 API Key。" + detail
+        case "45000001":
+            return "请求参数不对，通常是音频格式或时长不满足要求。" + detail
+        case "45000002":
+            return "音频太长或文件过大，这一档有长度上限。" + detail
+        case "45000003":
+            return "服务端处理失败，稍后重试即可。" + detail
+        case "":
+            return "转写服务没有返回状态码，检查网络后重试。" + detail
+        default:
+            return "[\(code)] " + (raw.isEmpty ? "转写失败" : String(raw.prefix(200)))
+        }
+    }
+
     private static func audioFormat(_ ext: String) -> String {
         switch ext.lowercased() {
         case "m4a", "mp4": return "m4a"
@@ -166,7 +188,7 @@ struct DoubaoTranscriber: Transcriber {
             req.setValue(appKey, forHTTPHeaderField: "X-Api-App-Key")
             req.setValue(accessKey, forHTTPHeaderField: "X-Api-Access-Key")
         }
-        req.setValue(resourceId.isEmpty ? "volc.bigasr.auc_turbo" : resourceId, forHTTPHeaderField: "X-Api-Resource-Id")
+        req.setValue(resourceId.isEmpty ? DoubaoResource.fallback : resourceId, forHTTPHeaderField: "X-Api-Resource-Id")
         req.setValue(UUID().uuidString, forHTTPHeaderField: "X-Api-Request-Id")
         req.setValue("-1", forHTTPHeaderField: "X-Api-Sequence")
         req.timeoutInterval = 300
@@ -182,7 +204,7 @@ struct DoubaoTranscriber: Transcriber {
         if code == "20000003" { return "" }
         if code != "20000000" {
             let hint = message.isEmpty ? (String(data: data, encoding: .utf8) ?? "") : message
-            throw TranscribeError.http(http.statusCode, "[\(code.isEmpty ? "无状态码" : code)] \(hint.prefix(200))")
+            throw TranscribeError.http(http.statusCode, Self.explain(code: code, hint: hint))
         }
 
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
