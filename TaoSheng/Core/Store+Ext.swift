@@ -660,6 +660,40 @@ extension Store {
         queue.sync { exec("DELETE FROM ask;") }
     }
 
+    /// 搜历史问答：问题或答案里含关键词
+    func searchAsk(_ keyword: String, limit: Int = 300) -> [AskMessage] {
+        let k = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        if k.isEmpty { return askMessages(limit: limit) }
+        return queue.sync { () -> [AskMessage] in
+            var st: OpaquePointer?
+            let sql = "SELECT id,role,text,citations,created_at FROM ask WHERE text LIKE ? ORDER BY created_at ASC LIMIT \(limit);"
+            guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
+            defer { sqlite3_finalize(st) }
+            bind(st, 1, "%\(k)%")
+            var out: [AskMessage] = []
+            while sqlite3_step(st) == SQLITE_ROW {
+                out.append(AskMessage(
+                    id: col(st, 0),
+                    role: AskRole(rawValue: col(st, 1)) ?? .me,
+                    text: col(st, 2),
+                    citations: Store.decodeStringArray(col(st, 3)),
+                    createdAt: Date(timeIntervalSince1970: sqlite3_column_double(st, 4))
+                ))
+            }
+            return out
+        }
+    }
+
+    func deleteAsk(id: String) {
+        queue.sync {
+            var st: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "DELETE FROM ask WHERE id=?;", -1, &st, nil) == SQLITE_OK else { return }
+            defer { sqlite3_finalize(st) }
+            bind(st, 1, id)
+            sqlite3_step(st)
+        }
+    }
+
     static func decodeStringArray(_ text: String) -> [String] {
         guard let data = text.data(using: .utf8) else { return [] }
         if let arr = try? JSONSerialization.jsonObject(with: data, options: []) as? [String] {

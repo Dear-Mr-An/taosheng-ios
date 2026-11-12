@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct AskView: View {
     @EnvironmentObject var app: AppState
@@ -71,8 +72,11 @@ struct AskView: View {
             inputBar
         }
         .sheet(isPresented: $showHistory) {
-            AskHistoryView()
-                .environmentObject(app)
+            AskHistoryView { q in
+                input = q
+                focused = true
+            }
+            .environmentObject(app)
         }
     }
 
@@ -286,61 +290,370 @@ struct AskView: View {
     }
 }
 
-// MARK: - 历史
+// MARK: - 历史对话
+
+struct AskThread: Identifiable {
+    let id: String
+    let question: AskMessage
+    let answer: AskMessage?
+}
+
+struct DayGroup: Identifiable {
+    let id: String
+    let day: String
+    let items: [AskThread]
+}
 
 struct AskHistoryView: View {
-    @EnvironmentObject var app: AppState
     @Environment(\.dismiss) private var dismiss
+    var onPick: ((String) -> Void)? = nil
+
+    @State private var keyword = ""
+    @State private var results: [AskMessage] = []
+    @State private var detail: AskThread?
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         NavigationStack {
-            Group {
-                if app.askMessages.isEmpty {
-                    VStack(spacing: 8) {
-                        Image(systemName: "clock")
-                            .font(.system(size: 26))
-                            .foregroundStyle(Theme.dim2)
-                        Text("还没有问过")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Theme.dim)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Theme.bg)
+            VStack(spacing: 0) {
+                searchBar
+                if groups.isEmpty {
+                    emptyState
                 } else {
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 10) {
-                            ForEach(app.askMessages) { m in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(m.role == .me ? "我" : "涛声")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundStyle(m.role == .me ? Theme.accent : Theme.text2)
-                                    Text(m.text)
-                                        .font(.system(size: 14))
-                                        .foregroundStyle(Theme.text)
-                                        .fixedSize(horizontal: false, vertical: true)
+                        LazyVStack(alignment: .leading, spacing: 14) {
+                            ForEach(groups) { g in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(dayLabel(g.day))
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(Theme.dim)
+                                        .padding(.leading, 2)
+                                    VStack(spacing: 8) {
+                                        ForEach(g.items) { t in
+                                            row(t)
+                                        }
+                                    }
                                 }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(12)
-                                .background(Theme.card)
-                                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
                             }
                         }
-                        .padding(16)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                        .padding(.bottom, 28)
                     }
-                    .background(Theme.bg)
                 }
             }
-            .navigationTitle("问过的")
+            .background(Theme.bg)
+            .navigationTitle("历史对话")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("关闭") { dismiss() }
+                        .foregroundStyle(Theme.text2)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("清空") { app.clearAsk() }
-                        .disabled(app.askMessages.isEmpty)
+                    Menu {
+                        Button(role: .destructive) {
+                            Store.shared.clearAsk()
+                            reload()
+                        } label: {
+                            Label("清空全部", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .foregroundStyle(Theme.text2)
+                    }
+                }
+            }
+            .sheet(item: $detail) { t in
+                AskThreadDetail(thread: t) { q in
+                    detail = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        onPick?(q)
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear { reload() }
+        }
+    }
+
+    // MARK: - 搜索框
+
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Theme.dim2)
+            TextField("搜问过的话、答案里的字", text: $keyword)
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.text)
+                .focused($searchFocused)
+                .submitLabel(.search)
+                .onChange(of: keyword) { _ in reload() }
+            if !keyword.isEmpty {
+                Button {
+                    keyword = ""
+                    reload()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Theme.dim2)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 40)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: keyword.isEmpty ? "clock" : "magnifyingglass")
+                .font(.system(size: 28))
+                .foregroundStyle(Theme.dim2)
+            Text(keyword.isEmpty ? "还没有问过" : "没搜到")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Theme.text2)
+            if !keyword.isEmpty {
+                Text("换个说法，或者只搜一两个关键字")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Theme.dim)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - 一行
+
+    private func row(_ t: AskThread) -> some View {
+        Button {
+            detail = t
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .top, spacing: 8) {
+                    Text(t.question.text)
+                        .font(.system(size: 14.5, weight: .medium))
+                        .foregroundStyle(Theme.text)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(2)
+                    Spacer(minLength: 6)
+                    Text(clock(t.question.createdAt))
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.dim2)
+                }
+                if let a = t.answer {
+                    Text(a.text.replacingOccurrences(of: "\n", with: " "))
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Theme.dim)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                } else {
+                    Text("没有答出来")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Theme.bad.opacity(0.8))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(Theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                UIPasteboard.general.string = t.question.text
+            } label: {
+                Label("复制问题", systemImage: "doc.on.doc")
+            }
+            if let a = t.answer {
+                Button {
+                    UIPasteboard.general.string = a.text
+                } label: {
+                    Label("复制答案", systemImage: "doc.on.doc")
+                }
+            }
+            Button(role: .destructive) {
+                Store.shared.deleteAsk(id: t.question.id)
+                if let a = t.answer { Store.shared.deleteAsk(id: a.id) }
+                reload()
+            } label: {
+                Label("删除这一条", systemImage: "trash")
+            }
+        }
+    }
+
+    // MARK: - 数据
+
+    private func reload() {
+        results = Store.shared.searchAsk(keyword)
+    }
+
+    private var groups: [DayGroup] {
+        var order: [String] = []
+        var map: [String: [AskThread]] = [:]
+        for t in threads {
+            let d = DayKey.of(t.question.createdAt)
+            if map[d] == nil {
+                order.append(d)
+                map[d] = []
+            }
+            map[d]?.append(t)
+        }
+        return order.map { DayGroup(id: $0, day: $0, items: map[$0] ?? []) }
+    }
+
+    /// 把 me / ai 两条消息配成一轮对话，新的排前面
+    private var threads: [AskThread] {
+        var out: [AskThread] = []
+        for m in results {
+            if m.role == .me {
+                out.append(AskThread(id: m.id, question: m, answer: nil))
+            } else if let last = out.popLast() {
+                out.append(AskThread(id: last.id, question: last.question, answer: m))
+            }
+        }
+        return out.reversed()
+    }
+
+    private func dayLabel(_ day: String) -> String {
+        let today = DayKey.of(Date())
+        if day == today { return "今天" }
+        let cal = Calendar.current
+        if let d = DayKey.date(from: day) {
+            if cal.isDateInYesterday(d) { return "昨天" }
+            let f = DateFormatter()
+            f.locale = Locale(identifier: "zh_CN")
+            f.dateFormat = "M月d日"
+            return f.string(from: d)
+        }
+        return day
+    }
+
+    private func clock(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = "HH:mm"
+        return f.string(from: d)
+    }
+}
+
+// MARK: - 一轮对话详情
+
+struct AskThreadDetail: View {
+    let thread: AskThread
+    var onAskAgain: ((String) -> Void)? = nil
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("你问")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Theme.dim)
+                        Text(thread.question.text)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(Theme.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+                    .background(Theme.accentSoft)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+
+                    if let a = thread.answer {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("涛声答")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Theme.dim)
+                            Text(a.text)
+                                .font(.system(size: 14.5))
+                                .foregroundStyle(Theme.text)
+                                .lineSpacing(4)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .background(Theme.card)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+
+                        if !a.citations.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("原话出处")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(Theme.dim)
+                                ForEach(Array(a.citations.enumerated()), id: \.offset) { i, c in
+                                    HStack(alignment: .top, spacing: 6) {
+                                        Text("\(i + 1)")
+                                            .font(.system(size: 10.5, weight: .bold))
+                                            .foregroundStyle(Theme.accent)
+                                            .frame(width: 16, height: 16)
+                                            .background(Theme.accentSoft)
+                                            .clipShape(Circle())
+                                        Text(c)
+                                            .font(.system(size: 12.5))
+                                            .foregroundStyle(Theme.text2)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(14)
+                            .background(Theme.cardSoft)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+                        }
+                    } else {
+                        Text("这一轮没有答出来。检查一下大模型设置再问一次。")
+                            .font(.system(size: 13.5))
+                            .foregroundStyle(Theme.dim)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(14)
+                            .background(Theme.card)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+                    }
+
+                    Button {
+                        onAskAgain?(thread.question.text)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("再问一次")
+                                .font(.system(size: 14.5, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(Theme.heroGradient)
+                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 4)
+                }
+                .padding(16)
+            }
+            .background(Theme.bg)
+            .navigationTitle(clock(thread.question.createdAt))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("关闭") { dismiss() }
+                        .foregroundStyle(Theme.text2)
                 }
             }
         }
+    }
+
+    private func clock(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = "M月d日 HH:mm"
+        return f.string(from: d)
     }
 }
