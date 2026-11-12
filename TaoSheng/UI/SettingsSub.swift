@@ -729,8 +729,9 @@ struct ModelSettingsView: View {
     @State private var showImport = false
     @State private var showKeepDays = false
     @State private var testResult: String?
-    @State private var testing = false
     @State private var stats = Stats()
+    @State private var showTranscribe = false
+    @State private var todaySegments: [Segment] = []
 
     private struct Stats {
         var todayMinutes: Double = 0
@@ -749,12 +750,8 @@ struct ModelSettingsView: View {
                 if asrPart {
                     statusCard
                     asrCard
-                    intervalCard
-                    switchCard
-                    testCard
                     langCard
-                    audioCard
-                    hotwordRow
+                    rawLinesCard
                 }
                 if llmPart && part == .llm {
                     modelEntryCard
@@ -766,6 +763,27 @@ struct ModelSettingsView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(part == .llm ? "整理模型" : "原话与转写")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if asrPart {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showTranscribe = true
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text("模型和转写设置")
+                                .font(.system(size: 12.5, weight: .medium))
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundStyle(Theme.accent)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showTranscribe) {
+            TranscribeSettingsSheet()
+                .environmentObject(settings)
+        }
         .onAppear { reload() }
         .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
             if asrPart { reload() }
@@ -1063,96 +1081,44 @@ struct ModelSettingsView: View {
 
     // MARK: 多久转写一次
 
-    private var intervalCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("多久转写一次").font(.system(size: 17, weight: .semibold)).foregroundColor(Theme.text)
+    // MARK: 语言 / 原声 / 热词
 
-            HStack(spacing: 0) {
-                intervalSeg("实时", 1)
-                intervalSeg("15 分钟", 15)
-                intervalSeg("30 分钟", 30)
-                intervalSeg("自定义", -1)
-            }
-            .padding(3)
-            .background(Theme.cardSoft)
-            .clipShape(Capsule())
-
-            if settings.transcribeIntervalMin > 0 && ![1, 15, 30].contains(settings.transcribeIntervalMin) {
-                Stepper("每 \(settings.transcribeIntervalMin) 分钟",
-                        value: $settings.transcribeIntervalMin, in: 1...720)
-                    .font(.system(size: 14))
-            }
-
-            Text("每 \(max(1, settings.transcribeIntervalMin)) 分钟把攒下的录音转写一次。整理成事件另在「整理模型」里设置。")
-                .font(.system(size: 11.5)).foregroundColor(Theme.dim2)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
-    }
-
-    private func intervalSeg(_ title: String, _ minutes: Int) -> some View {
-        let on: Bool = minutes > 0
-            ? settings.transcribeIntervalMin == minutes
-            : (settings.transcribeIntervalMin > 0 && ![1, 15, 30].contains(settings.transcribeIntervalMin))
-        return Button {
-            if minutes > 0 {
-                settings.transcribeIntervalMin = minutes
-            } else if [1, 15, 30].contains(settings.transcribeIntervalMin) {
-                settings.transcribeIntervalMin = 45
-            }
-        } label: {
-            Text(title)
-                .font(.system(size: 13, weight: on ? .semibold : .regular))
-                .foregroundColor(on ? Theme.text : Theme.dim)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 7)
-                .background(on ? Theme.card : Color.clear)
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: 开关
-
-    private var switchCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            toggleLine("只在 WiFi 下转写",
-                       "关掉后用流量也会上传，每小时录音约 10 MB",
-                       $settings.wifiOnlyTranscribe)
-            Divider().overlay(Theme.lineSoft).padding(.vertical, 12)
-            toggleLine("外放声音时不转写",
-                       "手机扬声器在放视频、音乐时录到的先不转写，原话里可单段「仍然转写」；戴耳机不受影响",
-                       $settings.skipWhenOutput)
-            Divider().overlay(Theme.lineSoft).padding(.vertical, 12)
-            toggleLine("区分说话人与认人",
-                       "原话标出谁在说，认出「我」和已命名的人",
-                       $settings.speakerSplitOn)
-            Divider().overlay(Theme.lineSoft).padding(.vertical, 12)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("临时不区分说话人")
-                    .font(.system(size: 15.5, weight: .medium))
+    private var rawLinesCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("今天的原话")
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(Theme.text)
-                Text("上课、听讲座时开始一个「培训」专题：这段时间不分人，结束后出培训笔记")
+                Spacer()
+                Text("\(todaySegments.count) 段")
                     .font(.system(size: 12))
                     .foregroundColor(Theme.dim)
+            }
+
+            if todaySegments.isEmpty {
+                Text("今天还没有录到原话。回「今天」页点「开始聆听」。")
+                    .font(.system(size: 12.5))
+                    .foregroundColor(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)
-                Button {
-                    settings.captureMode = .training
-                    if !CaptureEngine.shared.isRunning { CaptureEngine.shared.start() }
-                    testResult = "已切到培训模式，这段时间不分人。"
+            } else {
+                ForEach(todaySegments.prefix(5)) { s in
+                    SegmentRow(seg: s,
+                               onPlay: { SegmentPlayer.shared.toggle(segment: s) },
+                               onStar: { Store.shared.setStar(id: s.id, starred: !Store.shared.isStarred(id: s.id)) })
+                }
+                NavigationLink {
+                    RawLinesView(day: DayKey.of(Date()))
                 } label: {
-                    HStack(spacing: 3) {
-                        Text("开始培训专题").font(.system(size: 13, weight: .medium))
-                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+                    HStack(spacing: 4) {
+                        Text(todaySegments.count > 5 ? "看全部 \(todaySegments.count) 段" : "打开原话页")
+                            .font(.system(size: 13, weight: .medium))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
                     }
                     .foregroundColor(Theme.accent)
+                    .padding(.top, 2)
                 }
                 .buttonStyle(.plain)
-                .padding(.top, 2)
             }
         }
         .padding(18)
@@ -1160,99 +1126,6 @@ struct ModelSettingsView: View {
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
     }
-
-    private func toggleLine(_ title: String, _ detail: String, _ on: Binding<Bool>) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(title)
-                    .font(.system(size: 15.5, weight: .medium))
-                    .foregroundColor(Theme.text)
-                Text(detail)
-                    .font(.system(size: 12))
-                    .foregroundColor(Theme.dim)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-            Toggle("", isOn: on)
-                .labelsHidden()
-                .tint(Theme.accent)
-        }
-    }
-
-    // MARK: 测试
-
-    private var testCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("测试一下")
-                        .font(.system(size: 15.5, weight: .medium))
-                        .foregroundColor(Theme.text)
-                    Text("发一小段测试音频，确认密钥和服务可用")
-                        .font(.system(size: 12))
-                        .foregroundColor(Theme.dim)
-                }
-                Spacer(minLength: 0)
-                Button {
-                    runTest()
-                } label: {
-                    Text(testing ? "测试中…" : "测试")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(Theme.accent)
-                        .padding(.horizontal, 16).padding(.vertical, 7)
-                        .background(Theme.accentSoft).clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(testing || !settings.asrReady)
-            }
-            if let r = testResult {
-                Text(r)
-                    .font(.system(size: 12.5))
-                    .foregroundColor(Theme.text2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
-    }
-
-    private func runTest() {
-        guard let t = TranscriberFactory.make() else {
-            testResult = "还没有可用的转写服务，先填豆包密钥。"
-            return
-        }
-        let recent = Store.shared.segments(day: DayKey.of(Date()), limit: 1)
-        guard let seg = recent.first else {
-            testResult = "今天还没有录音，先说一句话再测。"
-            return
-        }
-        let url = Store.audioDir.appendingPathComponent(seg.fileName)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            testResult = "这段录音的原声已经按保留规则删掉了，换一段再测。"
-            return
-        }
-        testing = true
-        testResult = nil
-        Task {
-            do {
-                let text = try await t.transcribe(fileURL: url)
-                await MainActor.run {
-                    testing = false
-                    let head = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    testResult = head.isEmpty ? "服务通了，但这小段没识别出字。" : "通了：\(head.prefix(50))"
-                }
-            } catch {
-                await MainActor.run {
-                    testing = false
-                    testResult = "失败：\(error.localizedDescription)"
-                }
-            }
-        }
-    }
-
-    // MARK: 语言 / 原声 / 热词
 
     private var langCard: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1276,111 +1149,6 @@ struct ModelSettingsView: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
     }
 
-    private var audioCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("原声").font(.system(size: 17, weight: .semibold)).foregroundColor(Theme.text)
-
-            HStack {
-                Text("保留 \(settings.keepAudioDays) 天").font(.system(size: 14)).foregroundColor(Theme.text2)
-                Spacer()
-                Stepper("", value: $settings.keepAudioDays, in: 1...365).labelsHidden()
-            }
-            Text("标了重点的那段会长期保留；删掉就找不回来了。现在占用 \(ByteText.short(stats.bytes))。")
-                .font(.system(size: 11.5)).foregroundColor(Theme.dim2)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Divider().overlay(Theme.lineSoft)
-
-            Button { exportAudio() } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("录音包").font(.system(size: 14.5, weight: .medium)).foregroundColor(Theme.text)
-                        Text("把手机里的原始录音打包导出").font(.system(size: 11.5)).foregroundColor(Theme.dim)
-                    }
-                    Spacer()
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 14))
-                        .foregroundColor(Theme.accent)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
-    }
-
-    private var hotwordRow: some View {
-        NavigationLink { HotwordView() } label: {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("热词识别").font(.system(size: 14.5, weight: .medium)).foregroundColor(Theme.text)
-                    Text("人名、公司名、专有名词，转写时优先认成这些词")
-                        .font(.system(size: 11.5)).foregroundColor(Theme.dim)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(Theme.dim2)
-            }
-            .padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.card)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var modelEntryCard: some View {
-        Button { showModel = true } label: {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("整理用的大模型").font(.system(size: 14.5, weight: .medium)).foregroundColor(Theme.text)
-                    Text(settings.effectiveLLM.key.isEmpty ? "还没填密钥" : "\(settings.llmModel)")
-                        .font(.system(size: 11.5)).foregroundColor(Theme.dim)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold)).foregroundColor(Theme.dim2)
-            }
-            .padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.card)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var keepDaysSheet: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("原声保留 \(settings.keepAudioDays) 天")
-                    .font(.system(size: 18, weight: .semibold))
-                Stepper("保留天数", value: $settings.keepAudioDays, in: 1...365)
-                Text("标了重点的录音长期保留。现在占用 \(ByteText.short(stats.bytes))。")
-                    .font(.system(size: 12)).foregroundColor(Theme.dim)
-                Button {
-                    AppState.shared.purgeOldAudio()
-                    reload()
-                } label: {
-                    Text("立即清理过期录音")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 18).padding(.vertical, 10)
-                        .background(Theme.accent).clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                Spacer()
-            }
-            .padding(20)
-            .navigationTitle("原声")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("关闭") { showKeepDays = false } } }
-        }
-    }
-
     // MARK: 工具
 
     private func reload() {
@@ -1389,6 +1157,7 @@ struct ModelSettingsView: View {
         let bytes = Store.shared.audioBytes()
         let p = Store.shared.todayTranscribeProgress()
         stats = Stats(todayMinutes: today, monthMinutes: month, bytes: bytes, total: p.total, done: p.done)
+        todaySegments = Store.shared.segments(day: DayKey.of(Date()), limit: 200)
         queue.refreshPending()
     }
 
@@ -1657,5 +1426,227 @@ struct AboutView: View {
         .background(Theme.bg)
         .navigationTitle("关于涛声")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - 模型和转写设置（弹窗）
+
+struct TranscribeSettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var settings: Settings
+
+    @State private var testResult: String?
+    @State private var testing = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 14) {
+                    intervalCard
+                    switchCard
+                    testCard
+                }
+                .padding(16)
+                .padding(.bottom, 40)
+            }
+            .background(Theme.bg.ignoresSafeArea())
+            .navigationTitle("模型和转写设置")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") { dismiss() }
+                        .foregroundStyle(Theme.accent)
+                }
+            }
+        }
+    }
+
+    private var intervalCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("多久转写一次").font(.system(size: 17, weight: .semibold)).foregroundColor(Theme.text)
+
+            HStack(spacing: 0) {
+                intervalSeg("实时", 1)
+                intervalSeg("15 分钟", 15)
+                intervalSeg("30 分钟", 30)
+                intervalSeg("自定义", -1)
+            }
+            .padding(3)
+            .background(Theme.cardSoft)
+            .clipShape(Capsule())
+
+            if settings.transcribeIntervalMin > 0 && ![1, 15, 30].contains(settings.transcribeIntervalMin) {
+                Stepper("每 \(settings.transcribeIntervalMin) 分钟",
+                        value: $settings.transcribeIntervalMin, in: 1...720)
+                    .font(.system(size: 14))
+            }
+
+            Text("每 \(max(1, settings.transcribeIntervalMin)) 分钟把攒下的录音转写一次。整理成事件另在「整理模型」里设置。")
+                .font(.system(size: 11.5)).foregroundColor(Theme.dim2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
+    private func intervalSeg(_ title: String, _ minutes: Int) -> some View {
+        let on: Bool = minutes > 0
+            ? settings.transcribeIntervalMin == minutes
+            : (settings.transcribeIntervalMin > 0 && ![1, 15, 30].contains(settings.transcribeIntervalMin))
+        return Button {
+            if minutes > 0 {
+                settings.transcribeIntervalMin = minutes
+            } else if [1, 15, 30].contains(settings.transcribeIntervalMin) {
+                settings.transcribeIntervalMin = 45
+            }
+        } label: {
+            Text(title)
+                .font(.system(size: 13, weight: on ? .semibold : .regular))
+                .foregroundColor(on ? Theme.text : Theme.dim)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 7)
+                .background(on ? Theme.card : Color.clear)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: 开关
+
+    private var switchCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            toggleLine("只在 WiFi 下转写",
+                       "关掉后用流量也会上传，每小时录音约 10 MB",
+                       $settings.wifiOnlyTranscribe)
+            Divider().overlay(Theme.lineSoft).padding(.vertical, 12)
+            toggleLine("外放声音时不转写",
+                       "手机扬声器在放视频、音乐时录到的先不转写，原话里可单段「仍然转写」；戴耳机不受影响",
+                       $settings.skipWhenOutput)
+            Divider().overlay(Theme.lineSoft).padding(.vertical, 12)
+            toggleLine("区分说话人与认人",
+                       "原话标出谁在说，认出「我」和已命名的人",
+                       $settings.speakerSplitOn)
+            Divider().overlay(Theme.lineSoft).padding(.vertical, 12)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("临时不区分说话人")
+                    .font(.system(size: 15.5, weight: .medium))
+                    .foregroundColor(Theme.text)
+                Text("上课、听讲座时开始一个「培训」专题：这段时间不分人，结束后出培训笔记")
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    settings.captureMode = .training
+                    if !CaptureEngine.shared.isRunning { CaptureEngine.shared.start() }
+                    testResult = "已切到培训模式，这段时间不分人。"
+                } label: {
+                    HStack(spacing: 3) {
+                        Text("开始培训专题").font(.system(size: 13, weight: .medium))
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundColor(Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
+    private func toggleLine(_ title: String, _ detail: String, _ on: Binding<Bool>) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title)
+                    .font(.system(size: 15.5, weight: .medium))
+                    .foregroundColor(Theme.text)
+                Text(detail)
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Toggle("", isOn: on)
+                .labelsHidden()
+                .tint(Theme.accent)
+        }
+    }
+
+    // MARK: 测试
+
+    private var testCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("测试一下")
+                        .font(.system(size: 15.5, weight: .medium))
+                        .foregroundColor(Theme.text)
+                    Text("发一小段测试音频，确认密钥和服务可用")
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.dim)
+                }
+                Spacer(minLength: 0)
+                Button {
+                    runTest()
+                } label: {
+                    Text(testing ? "测试中…" : "测试")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Theme.accent)
+                        .padding(.horizontal, 16).padding(.vertical, 7)
+                        .background(Theme.accentSoft).clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(testing || !settings.asrReady)
+            }
+            if let r = testResult {
+                Text(r)
+                    .font(.system(size: 12.5))
+                    .foregroundColor(Theme.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
+    private func runTest() {
+        guard let t = TranscriberFactory.make() else {
+            testResult = "还没有可用的转写服务，先填豆包密钥。"
+            return
+        }
+        let recent = Store.shared.segments(day: DayKey.of(Date()), limit: 1)
+        guard let seg = recent.first else {
+            testResult = "今天还没有录音，先说一句话再测。"
+            return
+        }
+        let url = Store.audioDir.appendingPathComponent(seg.fileName)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            testResult = "这段录音的原声已经按保留规则删掉了，换一段再测。"
+            return
+        }
+        testing = true
+        testResult = nil
+        Task {
+            do {
+                let text = try await t.transcribe(fileURL: url)
+                await MainActor.run {
+                    testing = false
+                    let head = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    testResult = head.isEmpty ? "服务通了，但这小段没识别出字。" : "通了：\(head.prefix(50))"
+                }
+            } catch {
+                await MainActor.run {
+                    testing = false
+                    testResult = "失败：\(error.localizedDescription)"
+                }
+            }
+        }
     }
 }

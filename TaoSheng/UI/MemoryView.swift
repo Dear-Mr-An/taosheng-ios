@@ -6,7 +6,6 @@ struct MemoryView: View {
     @State private var showShare = false
     @State private var showReview = false
     @State private var showThings = false
-    @State private var showRaw = false
     @State private var toast: String?
     @State private var cat = "重点"
 
@@ -22,7 +21,6 @@ struct MemoryView: View {
                     dayStrip
                     reviewCard
                     eventList
-                    rawEntry
                 } else {
                     catChips
                     catList
@@ -42,9 +40,6 @@ struct MemoryView: View {
         }
         .sheet(isPresented: $showThings) {
             NavigationStack { ThingsView() }
-        }
-        .sheet(isPresented: $showRaw) {
-            NavigationStack { RawLinesView(day: day) }
         }
         .alert("提示", isPresented: Binding(get: { toast != nil }, set: { if !$0 { toast = nil } })) {
             Button("好") { toast = nil }
@@ -194,10 +189,6 @@ struct MemoryView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(Theme.text)
                 Spacer()
-                Button { showRaw = true } label: {
-                    Text("原话").font(.system(size: 12.5)).foregroundColor(Theme.accent)
-                }
-                .buttonStyle(.plain)
             }
             if app.dayEvents.isEmpty {
                 EmptyHint(text: "这一天还没有整理出内容")
@@ -217,24 +208,6 @@ struct MemoryView: View {
         .padding(14)
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
-    }
-
-    private var rawEntry: some View {
-        Button { showRaw = true } label: {
-            HStack {
-                Image(systemName: "text.alignleft")
-                    .font(.system(size: 13)).foregroundColor(Theme.dim)
-                Text("这一天的原话 · \(app.daySegments.count) 段")
-                    .font(.system(size: 13)).foregroundColor(Theme.text2)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11)).foregroundColor(Theme.dim2)
-            }
-            .padding(14)
-            .background(Theme.card)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: 按类
