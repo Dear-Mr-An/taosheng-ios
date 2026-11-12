@@ -67,8 +67,8 @@ DeepSeek 固定使用 `https://api.deepseek.com`，余额为 `GET /user/balance`
 
 本次验证
 
-- 0.4.12 源码由 GitHub Actions（`macos-15`）构建；最终 run 号与产物验证见交付记录。
-- 目标产物：`../dist/TaoSheng-v0.4.12.ipa`（arm64，Info.plist 转 XML，未签名）。
+- 0.4.12 源码由 GitHub Actions（`macos-15`）构建通过：run 43228439150 success（commit dbc79b5）。
+- 产物：`../dist/TaoSheng-v0.4.12.ipa`（1165659 B，iOS 16+ arm64，版本 0.4.12 (19)，Info.plist 已转 XML，无签名文件与描述文件）。
 - `node --test Tests/segment-sql.test.mjs`：8 项通过，使用内存 SQLite 执行应用 SQL，覆盖迁移、积压查询、事件标星、清空表以及最近原话截取。SQL 检查不验证设备录音和云服务行为。
 - `swift test`：本机 Windows 未安装 Swift，8 项纯逻辑测试未执行；编译正确性由 CI 的 xcodebuild 保证，不等于运行期行为正确。
 - 尚未在 iPhone 上验证手势、后台收音、真实密钥余额联调与通知投递时机。
