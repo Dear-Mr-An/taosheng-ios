@@ -222,7 +222,7 @@ struct TodayView: View {
             return "填好大模型密钥后，转写出的原话会自动整理成一件件事"
         }
         if app.todayEvents.isEmpty {
-            return "录到人声 → 转写成原话 → 说完约 10 分钟后整理成一件件事"
+            return "录到人声 → 转写成原话 → 整理成一件件事"
         }
         return "模型已就绪 · \(settings.llmModel)"
     }
