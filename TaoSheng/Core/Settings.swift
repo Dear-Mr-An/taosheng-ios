@@ -124,6 +124,12 @@ final class Settings: ObservableObject {
     var modeMaxSegment: Double { captureMode.maxSegment }
     @Published var preferredInputUID: String { didSet { d.set(preferredInputUID, forKey: "preferredInputUID") } }
     @Published var skipWhenOutput: Bool { didSet { d.set(skipWhenOutput, forKey: "skipWhenOutput") } }
+    /// 只在 WiFi 下转写：关掉后蜂窝网络也会上传录音
+    @Published var wifiOnlyTranscribe: Bool { didSet { d.set(wifiOnlyTranscribe, forKey: "wifiOnlyTranscribe") } }
+    /// 自定义转写请求头，一行一个 "Key: Value"
+    @Published var asrCustomHeaders: String { didSet { d.set(asrCustomHeaders, forKey: "asrCustomHeaders") } }
+    /// 区分说话人与认人
+    @Published var speakerSplitOn: Bool { didSet { d.set(speakerSplitOn, forKey: "speakerSplitOn") } }
     @Published var silenceWindowOn: Bool { didSet { d.set(silenceWindowOn, forKey: "silenceWindowOn") } }
     @Published var silenceStartHour: Int { didSet { d.set(silenceStartHour, forKey: "silenceStartHour") } }
     @Published var silenceEndHour: Int { didSet { d.set(silenceEndHour, forKey: "silenceEndHour") } }
@@ -198,6 +204,9 @@ final class Settings: ObservableObject {
         maxSegment = d.object(forKey: "maxSegment") as? Double ?? 180.0
         preferredInputUID = d.string(forKey: "preferredInputUID") ?? ""
         skipWhenOutput = d.object(forKey: "skipWhenOutput") as? Bool ?? true
+        wifiOnlyTranscribe = d.object(forKey: "wifiOnlyTranscribe") as? Bool ?? true
+        asrCustomHeaders = d.string(forKey: "asrCustomHeaders") ?? ""
+        speakerSplitOn = d.object(forKey: "speakerSplitOn") as? Bool ?? true
         silenceWindowOn = d.object(forKey: "silenceWindowOn") as? Bool ?? false
         silenceStartHour = d.object(forKey: "silenceStartHour") as? Int ?? 23
         silenceEndHour = d.object(forKey: "silenceEndHour") as? Int ?? 7

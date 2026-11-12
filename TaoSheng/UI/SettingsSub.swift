@@ -7,7 +7,6 @@ struct RecordingSettingsView: View {
     @EnvironmentObject var capture: CaptureEngine
     @EnvironmentObject var app: AppState
     @State private var inputs: [MicRouter.Input] = []
-    @State private var tick = 0
 
     var body: some View {
         Form {
@@ -720,106 +719,310 @@ struct ModelSettingsView: View {
     var part: Part = .both
 
     @EnvironmentObject var settings: Settings
+    @ObservedObject private var queue = TranscribeQueue.shared
 
     @State private var exportURL: URL?
     @State private var exportError: String?
     @State private var showAdvanced = false
+    @State private var showModel = false
+    @State private var showImport = false
+    @State private var showKeepDays = false
+    @State private var testResult: String?
+    @State private var testing = false
+    @State private var stats = Stats()
+
+    private struct Stats {
+        var todayMinutes: Double = 0
+        var monthMinutes: Double = 0
+        var bytes: Int64 = 0
+        var total: Int = 0
+        var done: Int = 0
+    }
+
+    private var asrPart: Bool { part != .llm }
+    private var llmPart: Bool { part != .asr }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(spacing: 16) {
-                statusCard
-                asrCard
-                langCard
-                audioCard
-                hotwordRow
+            VStack(spacing: 14) {
+                if asrPart {
+                    statusCard
+                    asrCard
+                    intervalCard
+                    switchCard
+                    testCard
+                    langCard
+                    audioCard
+                    hotwordRow
+                }
+                if llmPart && part == .llm {
+                    modelEntryCard
+                }
             }
             .padding(16)
             .padding(.bottom, 100)
         }
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("原话与转写")
+        .navigationTitle(part == .llm ? "整理模型" : "原话与转写")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { reload() }
+        .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
+            if asrPart { reload() }
+        }
         .sheet(isPresented: Binding(get: { exportURL != nil },
                                     set: { if !$0 { exportURL = nil } })) {
             if let u = exportURL { ShareSheet(items: [u]) }
         }
+        .sheet(isPresented: $showModel) {
+            NavigationStack { DeepSeekSettingsView() }
+                .environmentObject(settings)
+        }
+        .sheet(isPresented: $showKeepDays) {
+            keepDaysSheet
+        }
+        .fileImporter(isPresented: $showImport,
+                      allowedContentTypes: [.audio, .mpeg4Audio, .wav, .mp3],
+                      allowsMultipleSelection: true) { result in
+            if case .success(let urls) = result {
+                Task {
+                    let msg = await ImportEngine.shared.importFiles(urls)
+                    await MainActor.run { testResult = msg; reload() }
+                }
+            }
+        }
+        .alert("提示", isPresented: Binding(get: { exportError != nil },
+                                            set: { if !$0 { exportError = nil } })) {
+            Button("好") { exportError = nil }
+        } message: { Text(exportError ?? "") }
     }
 
+    // MARK: 状态卡
+
     private var statusCard: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: settings.asrReady ? "waveform.badge.checkmark" : "exclamationmark.triangle.fill")
-                .font(.system(size: 20))
-                .foregroundStyle(settings.asrReady ? Theme.ok : Theme.warn)
-                .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(settings.asrReady ? "转写已就绪" : "转写尚未就绪")
-                    .font(.system(size: 16, weight: .semibold))
-                Text(settings.asrReady
-                     ? "录完一分钟就自动转写，不用手动点。"
-                     : "填好下面的豆包语音 API Key 就能开始转写。")
-                    .font(.system(size: 12.5)).foregroundStyle(Theme.dim)
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Circle()
+                    .fill(queue.pendingCount > 0 ? Theme.warn : Theme.ok)
+                    .frame(width: 9, height: 9)
+                    .offset(y: -1)
+                Text(statusTitle)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(Theme.text)
+                Spacer(minLength: 0)
+                Button { showModel = true } label: {
+                    Text("模型和转写设置")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Theme.accent)
+                }
+                .buttonStyle(.plain)
             }
-            Spacer(minLength: 0)
+
+            Text(statusLine)
+                .font(.system(size: 12.5))
+                .foregroundColor(Theme.dim)
+                .padding(.top, 6)
+
+            HStack(spacing: 10) {
+                Button {
+                    queue.transcribeNow()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { reload() }
+                } label: {
+                    Text(queue.busy ? "转写中…" : "现在转写")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 9)
+                        .background(Theme.accent)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(queue.busy || !settings.asrReady)
+
+                Button { showImport = true } label: {
+                    Text("导入录音")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Theme.accent)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 9)
+                        .background(Theme.accentSoft)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 14)
+
+            Divider().overlay(Theme.lineSoft).padding(.vertical, 12)
+
+            statRow("云端转写", cloudLine) { testResult = cloudDetail }
+            Divider().overlay(Theme.lineSoft)
+            statRow("原声", audioLine) { showKeepDays = true }
+            Divider().overlay(Theme.lineSoft)
+            statRow("录音包", "把手机里的原始录音打包导出") { exportAudio() }
+
+            HStack {
+                Text("录音原话")
+                    .font(.system(size: 13))
+                    .foregroundColor(Theme.dim)
+                Spacer()
+                Text("\(stats.total) 段 · 已转 \(stats.done)")
+                    .font(.system(size: 13))
+                    .foregroundColor(Theme.text2)
+            }
+            .padding(.top, 12)
         }
-        .foregroundStyle(Theme.text)
-        .padding(16)
+        .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
     }
+
+    private var statusTitle: String {
+        if queue.busy { return "正在转写" }
+        if !settings.asrReady { return "转写尚未就绪" }
+        if queue.pendingCount > 0 { return "还有 \(queue.pendingCount) 段待转写" }
+        return "都转完了"
+    }
+
+    private var statusLine: String {
+        if !settings.asrReady { return settings.asrReadyHint }
+        var parts: [String] = []
+        if let last = queue.lastRunAt {
+            parts.append("上次 \(Self.timeText(last))")
+        } else {
+            parts.append("还没转过")
+        }
+        if let next = queue.nextRunAt {
+            let m = max(1, Int(next.timeIntervalSinceNow / 60))
+            parts.append("约 \(m) 分钟后下一轮")
+        } else {
+            parts.append("有新的原话就自动转")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private var cloudLine: String {
+        let today = Self.minutesText(stats.todayMinutes)
+        let month = Self.minutesText(stats.monthMinutes)
+        if stats.monthMinutes <= 0 { return "今天 0 分 · 近 30 天 0 分" }
+        return "今天 \(today) · 近 30 天 \(month) · 约 ¥\(Self.cost(stats.monthMinutes))"
+    }
+
+    private var cloudDetail: String {
+        "云端转写按分钟计费，豆包录音文件识别约 ¥0.8/小时。\n今天 \(Self.minutesText(stats.todayMinutes))，近 30 天 \(Self.minutesText(stats.monthMinutes))，估算 ¥\(Self.cost(stats.monthMinutes))。\n只有转写时才会把录音发出去。"
+    }
+
+    private var audioLine: String {
+        "保留 \(settings.keepAudioDays) 天 · 重点长期保留 · 占用 \(ByteText.short(stats.bytes))"
+    }
+
+    private func statRow(_ label: String, _ value: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text(label)
+                    .font(.system(size: 13))
+                    .foregroundColor(Theme.dim)
+                    .frame(width: 62, alignment: .leading)
+                Text(value)
+                    .font(.system(size: 13.5))
+                    .foregroundColor(Theme.text)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Theme.dim2)
+            }
+            .padding(.vertical, 11)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: 语音转写
 
     private var asrCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("语音转写").font(.system(size: 20, weight: .semibold))
-                Text("录音只在转写时发给你选的服务。豆包最省事，填一个 Key 就行。")
-                    .font(.system(size: 13)).foregroundStyle(Theme.dim)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text("语音转写").font(.system(size: 17, weight: .semibold)).foregroundColor(Theme.text)
 
-            SecureField("豆包语音 API Key", text: $settings.doubaoApiKey)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .font(.system(size: 14))
-                .padding(12)
-                .background(Theme.cardSoft)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
-                .onChange(of: settings.doubaoApiKey) { v in
-                    if !v.isEmpty && settings.asrKind != .doubao {
-                        settings.asrKind = .doubao
+            HStack(spacing: 0) {
+                asrSeg("豆包", .doubao)
+                asrSeg("本地", .appleSpeech)
+                asrSeg("自定义", .openAICompatible)
+            }
+            .padding(3)
+            .background(Theme.cardSoft)
+            .clipShape(Capsule())
+
+            if settings.asrKind == .doubao {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { showAdvanced.toggle() }
+                } label: {
+                    HStack(spacing: 3) {
+                        Text("自定义请求头（可选）").font(.system(size: 13))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .rotationEffect(.degrees(showAdvanced ? 90 : 0))
                     }
+                    .foregroundColor(Theme.accent)
+                }
+                .buttonStyle(.plain)
+
+                if showAdvanced {
+                    field("一行一个，例如 X-Api-Key: xxx", text: $settings.asrCustomHeaders)
                 }
 
-            Text(settings.asrReadyHint)
-                .font(.system(size: 12))
-                .foregroundStyle(settings.asrReady ? Theme.ok : Theme.warn)
+                Text("豆包语音密钥")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(Theme.text)
 
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) { showAdvanced.toggle() }
-            } label: {
-                HStack(spacing: 4) {
-                    Text("用别的转写服务（可选）").font(.system(size: 13))
-                    Image(systemName: showAdvanced ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 10, weight: .semibold))
-                }
-                .foregroundStyle(Theme.accent)
-            }
-            .buttonStyle(.plain)
-
-            if showAdvanced {
-                VStack(alignment: .leading, spacing: 10) {
-                    Picker("方式", selection: $settings.asrKind) {
-                        ForEach(ASRKind.allCases) { k in
-                            Text(k.title).tag(k)
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(settings.doubaoApiKey.isEmpty ? Theme.warn : Theme.ok)
+                        .frame(width: 8, height: 8)
+                    Text(settings.doubaoApiKey.isEmpty ? "未填写" : "已填写")
+                        .font(.system(size: 13.5))
+                        .foregroundColor(Theme.text2)
+                    Spacer(minLength: 0)
+                    Button { showAdvanced = true } label: {
+                        Text(settings.doubaoApiKey.isEmpty ? "填写" : "更换")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(Theme.accent)
+                            .padding(.horizontal, 14).padding(.vertical, 6)
+                            .background(Theme.accentSoft).clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    if !settings.doubaoApiKey.isEmpty {
+                        Button { settings.doubaoApiKey = "" } label: {
+                            Text("清除")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(Theme.accent)
+                                .padding(.horizontal, 14).padding(.vertical, 6)
+                                .background(Theme.accentSoft).clipShape(Capsule())
                         }
+                        .buttonStyle(.plain)
                     }
-                    .tint(Theme.accent)
+                }
 
-                    if settings.asrKind == .doubao {
-                        field("Resource Id", text: $settings.doubaoResourceId)
-                        field("老版 App Key", text: $settings.doubaoAppKey)
-                        secure("老版 Access Key", text: $settings.doubaoAccessKey)
+                if showAdvanced || settings.doubaoApiKey.isEmpty {
+                    SecureField("豆包语音 API Key", text: $settings.doubaoApiKey)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.system(size: 14))
+                        .padding(11)
+                        .background(Theme.cardSoft)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                Text("只存在这台手机的安全区里，填好后任何地方都不再显示。")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(Theme.dim2)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    if settings.asrKind == .appleSpeech {
+                        Text("用手机自带的中文识别，录音不出手机。识别完仍然会发给你配的大模型去整理。")
+                            .font(.system(size: 12.5)).foregroundColor(Theme.dim)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     if settings.asrKind == .openAICompatible {
                         field("接口地址", text: $settings.asrBaseURL)
@@ -829,22 +1032,230 @@ struct ModelSettingsView: View {
                     }
                     if !settings.asrKind.hint.isEmpty {
                         Text(settings.asrKind.hint)
-                            .font(.system(size: 11.5)).foregroundStyle(Theme.dim2)
+                            .font(.system(size: 11.5)).foregroundColor(Theme.dim2)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
+    private func asrSeg(_ title: String, _ kind: ASRKind) -> some View {
+        let on = settings.asrKind == kind
+        return Button {
+            settings.asrKind = kind
+        } label: {
+            Text(title)
+                .font(.system(size: 13.5, weight: on ? .semibold : .regular))
+                .foregroundColor(on ? Theme.text : Theme.dim)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 7)
+                .background(on ? Theme.card : Color.clear)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: 多久转写一次
+
+    private var intervalCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("多久转写一次").font(.system(size: 17, weight: .semibold)).foregroundColor(Theme.text)
+
+            HStack(spacing: 0) {
+                intervalSeg("实时", 1)
+                intervalSeg("15 分钟", 15)
+                intervalSeg("30 分钟", 30)
+                intervalSeg("自定义", -1)
+            }
+            .padding(3)
+            .background(Theme.cardSoft)
+            .clipShape(Capsule())
+
+            if settings.transcribeIntervalMin > 0 && ![1, 15, 30].contains(settings.transcribeIntervalMin) {
+                Stepper("每 \(settings.transcribeIntervalMin) 分钟",
+                        value: $settings.transcribeIntervalMin, in: 1...720)
+                    .font(.system(size: 14))
+            }
+
+            Text("每 \(max(1, settings.transcribeIntervalMin)) 分钟把攒下的录音转写一次。整理成事件另在「整理模型」里设置。")
+                .font(.system(size: 11.5)).foregroundColor(Theme.dim2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
+    private func intervalSeg(_ title: String, _ minutes: Int) -> some View {
+        let on: Bool = minutes > 0
+            ? settings.transcribeIntervalMin == minutes
+            : (settings.transcribeIntervalMin > 0 && ![1, 15, 30].contains(settings.transcribeIntervalMin))
+        return Button {
+            if minutes > 0 {
+                settings.transcribeIntervalMin = minutes
+            } else if [1, 15, 30].contains(settings.transcribeIntervalMin) {
+                settings.transcribeIntervalMin = 45
+            }
+        } label: {
+            Text(title)
+                .font(.system(size: 13, weight: on ? .semibold : .regular))
+                .foregroundColor(on ? Theme.text : Theme.dim)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 7)
+                .background(on ? Theme.card : Color.clear)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: 开关
+
+    private var switchCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            toggleLine("只在 WiFi 下转写",
+                       "关掉后用流量也会上传，每小时录音约 10 MB",
+                       $settings.wifiOnlyTranscribe)
+            Divider().overlay(Theme.lineSoft).padding(.vertical, 12)
+            toggleLine("外放声音时不转写",
+                       "手机扬声器在放视频、音乐时录到的先不转写，原话里可单段「仍然转写」；戴耳机不受影响",
+                       $settings.skipWhenOutput)
+            Divider().overlay(Theme.lineSoft).padding(.vertical, 12)
+            toggleLine("区分说话人与认人",
+                       "原话标出谁在说，认出「我」和已命名的人",
+                       $settings.speakerSplitOn)
+            Divider().overlay(Theme.lineSoft).padding(.vertical, 12)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("临时不区分说话人")
+                    .font(.system(size: 15.5, weight: .medium))
+                    .foregroundColor(Theme.text)
+                Text("上课、听讲座时开始一个「培训」专题：这段时间不分人，结束后出培训笔记")
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    settings.captureMode = .training
+                    if !CaptureEngine.shared.isRunning { CaptureEngine.shared.start() }
+                    testResult = "已切到培训模式，这段时间不分人。"
+                } label: {
+                    HStack(spacing: 3) {
+                        Text("开始培训专题").font(.system(size: 13, weight: .medium))
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundColor(Theme.accent)
+                }
+                .buttonStyle(.plain)
                 .padding(.top, 2)
             }
         }
-        .foregroundStyle(Theme.text)
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
     }
+
+    private func toggleLine(_ title: String, _ detail: String, _ on: Binding<Bool>) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title)
+                    .font(.system(size: 15.5, weight: .medium))
+                    .foregroundColor(Theme.text)
+                Text(detail)
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Toggle("", isOn: on)
+                .labelsHidden()
+                .tint(Theme.accent)
+        }
+    }
+
+    // MARK: 测试
+
+    private var testCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("测试一下")
+                        .font(.system(size: 15.5, weight: .medium))
+                        .foregroundColor(Theme.text)
+                    Text("发一小段测试音频，确认密钥和服务可用")
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.dim)
+                }
+                Spacer(minLength: 0)
+                Button {
+                    runTest()
+                } label: {
+                    Text(testing ? "测试中…" : "测试")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Theme.accent)
+                        .padding(.horizontal, 16).padding(.vertical, 7)
+                        .background(Theme.accentSoft).clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(testing || !settings.asrReady)
+            }
+            if let r = testResult {
+                Text(r)
+                    .font(.system(size: 12.5))
+                    .foregroundColor(Theme.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
+    private func runTest() {
+        guard let t = TranscriberFactory.make() else {
+            testResult = "还没有可用的转写服务，先填豆包密钥。"
+            return
+        }
+        let recent = Store.shared.segments(day: DayKey.of(Date()), limit: 1)
+        guard let seg = recent.first else {
+            testResult = "今天还没有录音，先说一句话再测。"
+            return
+        }
+        let url = Store.audioDir.appendingPathComponent(seg.fileName)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            testResult = "这段录音的原声已经按保留规则删掉了，换一段再测。"
+            return
+        }
+        testing = true
+        testResult = nil
+        Task {
+            do {
+                let text = try await t.transcribe(fileURL: url)
+                await MainActor.run {
+                    testing = false
+                    let head = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    testResult = head.isEmpty ? "服务通了，但这小段没识别出字。" : "通了：\(head.prefix(50))"
+                }
+            } catch {
+                await MainActor.run {
+                    testing = false
+                    testResult = "失败：\(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    // MARK: 语言 / 原声 / 热词
 
     private var langCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("主要识别语言").font(.system(size: 17, weight: .semibold))
+            Text("主要识别语言").font(.system(size: 17, weight: .semibold)).foregroundColor(Theme.text)
             Picker("语言", selection: $settings.asrLanguage) {
                 Text("自动识别").tag("auto")
                 Text("普通话").tag("zh")
@@ -855,75 +1266,138 @@ struct ModelSettingsView: View {
             .pickerStyle(.menu)
             .tint(Theme.accent)
             Text("只影响之后的转写，已经转好的原话不会重算。带口音的普通话建议选普通话。")
-                .font(.system(size: 11.5)).foregroundStyle(Theme.dim2)
+                .font(.system(size: 11.5)).foregroundColor(Theme.dim2)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .foregroundStyle(Theme.text)
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
     }
 
     private var audioCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("原声").font(.system(size: 20, weight: .semibold))
-                Text("录音默认只留几天，标了重点的长期保留。删掉就找不回来了。")
-                    .font(.system(size: 13)).foregroundStyle(Theme.dim)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text("原声").font(.system(size: 17, weight: .semibold)).foregroundColor(Theme.text)
 
             HStack {
-                Text("保留 \(settings.keepAudioDays) 天").font(.system(size: 14))
+                Text("保留 \(settings.keepAudioDays) 天").font(.system(size: 14)).foregroundColor(Theme.text2)
                 Spacer()
                 Stepper("", value: $settings.keepAudioDays, in: 1...365).labelsHidden()
             }
+            Text("标了重点的那段会长期保留；删掉就找不回来了。现在占用 \(ByteText.short(stats.bytes))。")
+                .font(.system(size: 11.5)).foregroundColor(Theme.dim2)
+                .fixedSize(horizontal: false, vertical: true)
 
-            Button {
-                exportAudio()
-            } label: {
-                Label("导出录音包（zip）", systemImage: "square.and.arrow.up")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
-                    .frame(maxWidth: .infinity).padding(.vertical, 11)
-                    .background(Theme.accent.opacity(0.1)).clipShape(Capsule())
+            Divider().overlay(Theme.lineSoft)
+
+            Button { exportAudio() } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("录音包").font(.system(size: 14.5, weight: .medium)).foregroundColor(Theme.text)
+                        Text("把手机里的原始录音打包导出").font(.system(size: 11.5)).foregroundColor(Theme.dim)
+                    }
+                    Spacer()
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 14))
+                        .foregroundColor(Theme.accent)
+                }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-
-            if let e = exportError {
-                Text(e).font(.system(size: 12)).foregroundStyle(Theme.bad)
-            }
-            Text("导出本机 wav 原声，最多最近 200 段。")
-                .font(.system(size: 11.5)).foregroundStyle(Theme.dim2)
         }
-        .foregroundStyle(Theme.text)
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
     }
 
     private var hotwordRow: some View {
-        NavigationLink {
-            HotwordView()
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "textformat.abc").font(.system(size: 16))
-                    .foregroundStyle(Theme.accent)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("热词识别").font(.system(size: 15, weight: .medium))
-                    Text("人名、公司名、行业词，转写时优先认成这些")
-                        .font(.system(size: 12)).foregroundStyle(Theme.dim)
+        NavigationLink { HotwordView() } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("热词识别").font(.system(size: 14.5, weight: .medium)).foregroundColor(Theme.text)
+                    Text("人名、公司名、专有名词，转写时优先认成这些词")
+                        .font(.system(size: 11.5)).foregroundColor(Theme.dim)
                 }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.dim2)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Theme.dim2)
             }
-            .foregroundStyle(Theme.text)
-            .padding(16)
+            .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+            .background(Theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
         }
         .buttonStyle(.plain)
+    }
+
+    private var modelEntryCard: some View {
+        Button { showModel = true } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("整理用的大模型").font(.system(size: 14.5, weight: .medium)).foregroundColor(Theme.text)
+                    Text(settings.effectiveLLM.key.isEmpty ? "还没填密钥" : "\(settings.llmModel)")
+                        .font(.system(size: 11.5)).foregroundColor(Theme.dim)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold)).foregroundColor(Theme.dim2)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var keepDaysSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("原声保留 \(settings.keepAudioDays) 天")
+                    .font(.system(size: 18, weight: .semibold))
+                Stepper("保留天数", value: $settings.keepAudioDays, in: 1...365)
+                Text("标了重点的录音长期保留。现在占用 \(ByteText.short(stats.bytes))。")
+                    .font(.system(size: 12)).foregroundColor(Theme.dim)
+                Button {
+                    AppState.shared.purgeOldAudio()
+                    reload()
+                } label: {
+                    Text("立即清理过期录音")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 18).padding(.vertical, 10)
+                        .background(Theme.accent).clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                Spacer()
+            }
+            .padding(20)
+            .navigationTitle("原声")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("关闭") { showKeepDays = false } } }
+        }
+    }
+
+    // MARK: 工具
+
+    private func reload() {
+        let today = Store.shared.transcribedMinutes(days: 1)
+        let month = Store.shared.transcribedMinutes(days: 30)
+        let bytes = Store.shared.audioBytes()
+        let p = Store.shared.todayTranscribeProgress()
+        stats = Stats(todayMinutes: today, monthMinutes: month, bytes: bytes, total: p.total, done: p.done)
+        queue.refreshPending()
+    }
+
+    private func exportAudio() {
+        exportError = nil
+        do {
+            exportURL = try AudioExport.zipAudio()
+        } catch {
+            exportError = error.localizedDescription
+        }
     }
 
     private func field(_ title: String, text: Binding<String>) -> some View {
@@ -931,7 +1405,7 @@ struct ModelSettingsView: View {
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .font(.system(size: 14))
-            .padding(10)
+            .padding(11)
             .background(Theme.cardSoft)
             .clipShape(RoundedRectangle(cornerRadius: 10))
     }
@@ -941,17 +1415,27 @@ struct ModelSettingsView: View {
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .font(.system(size: 14))
-            .padding(10)
+            .padding(11)
             .background(Theme.cardSoft)
             .clipShape(RoundedRectangle(cornerRadius: 10))
     }
-    private func exportAudio() {
-        exportError = nil
-        do {
-            exportURL = try AudioExport.zipAudio()
-        } catch {
-            exportError = error.localizedDescription
-        }
+
+    private static func minutesText(_ m: Double) -> String {
+        if m < 1 { return "\(Int((m * 60).rounded())) 秒" }
+        if m < 60 { return "\(Int(m.rounded())) 分" }
+        return String(format: "%.1f 小时", m / 60)
+    }
+
+    private static func cost(_ minutes: Double) -> String {
+        // 豆包录音文件识别极速版约 ¥0.8/小时
+        String(format: "%.2f", minutes / 60 * 0.8)
+    }
+
+    private static func timeText(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = Calendar.current.isDateInToday(d) ? "今天 HH:mm" : "M月d日 HH:mm"
+        return f.string(from: d)
     }
 }
 

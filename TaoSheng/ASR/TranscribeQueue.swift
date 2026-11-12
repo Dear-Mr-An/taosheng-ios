@@ -9,6 +9,8 @@ final class TranscribeQueue: ObservableObject {
     @Published private(set) var busy = false
     @Published private(set) var pendingCount = 0
     @Published private(set) var lastMessage: String?
+    /// 上一轮转写开始的时间，界面用它算「约 N 分钟后下一轮」
+    @Published private(set) var lastRunAt: Date?
 
     private var timer: Timer?
     private var working = false
@@ -37,8 +39,13 @@ final class TranscribeQueue: ObservableObject {
             refreshPending()
             return
         }
-        // 不再让用户调间隔：录完 1 分钟就转，避免边录边转抢麦克风
-        let interval: Double = 60
+        // 只在 WiFi 下转写：蜂窝/热点时不传，等连上 WiFi 再补
+        guard NetWatcher.shared.canUpload else {
+            refreshPending()
+            return
+        }
+        // 间隔由「多久转写一次」决定；实时档就是每 60 秒看一次
+        let interval = Double(max(1, s.transcribeIntervalMin)) * 60
         guard Date().timeIntervalSince(lastRun) >= interval else {
             refreshPending()
             return
@@ -47,6 +54,7 @@ final class TranscribeQueue: ObservableObject {
         working = true
         busy = true
         lastRun = Date()
+        lastRunAt = Date()
 
         Task.detached(priority: .utility) {
             defer {
@@ -77,7 +85,7 @@ final class TranscribeQueue: ObservableObject {
                     Store.shared.updateTranscript(id: seg.id, transcript: cleaned, state: .transcribed)
 
                     // 使用录制时保存的模式，切换当前模式不改变旧录音的分人策略。
-                    if !cleaned.isEmpty && seg.captureMode.separateSpeakers {
+                    if !cleaned.isEmpty && Settings.shared.speakerSplitOn && seg.captureMode.separateSpeakers {
                         await TranscribeQueue.identifySpeaker(segmentId: seg.id, url: url)
                     }
 
@@ -124,5 +132,14 @@ final class TranscribeQueue: ObservableObject {
     func transcribeNow() {
         lastRun = .distantPast
         tick()
+    }
+
+    /// 下一轮大约什么时候开始；没有待转写内容时为 nil
+    var nextRunAt: Date? {
+        guard pendingCount > 0 else { return nil }
+        let base = lastRunAt ?? Date()
+        let interval = Double(max(1, Settings.shared.transcribeIntervalMin)) * 60
+        let next = base.addingTimeInterval(interval)
+        return next > Date() ? next : Date()
     }
 }

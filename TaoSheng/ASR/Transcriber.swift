@@ -43,6 +43,20 @@ struct OpenAICompatibleTranscriber: Transcriber {
         }
     }
 
+    static func customHeaders() -> [(String, String)] {
+        let raw = Settings.shared.asrCustomHeaders
+        guard !raw.isEmpty else { return [] }
+        var out: [(String, String)] = []
+        for line in raw.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
+            let s = String(line)
+            guard let i = s.firstIndex(of: ":") else { continue }
+            let k = String(s[s.startIndex..<i]).trimmingCharacters(in: .whitespaces)
+            let v = String(s[s.index(after: i)...]).trimmingCharacters(in: .whitespaces)
+            if !k.isEmpty && !v.isEmpty { out.append((k, v)) }
+        }
+        return out
+    }
+
     func transcribe(fileURL: URL) async throws -> String {
         guard var base = URL(string: baseURL) else { throw TranscribeError.notConfigured }
         if !base.absoluteString.hasSuffix("/audio/transcriptions") {
@@ -72,6 +86,9 @@ struct OpenAICompatibleTranscriber: Transcriber {
         req.httpMethod = "POST"
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        for (k, v) in Self.customHeaders() {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
         req.timeoutInterval = 180
         req.httpBody = body
 
