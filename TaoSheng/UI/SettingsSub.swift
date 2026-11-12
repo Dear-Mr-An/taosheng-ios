@@ -7,6 +7,7 @@ struct RecordingSettingsView: View {
     @EnvironmentObject var capture: CaptureEngine
     @EnvironmentObject var app: AppState
     @State private var inputs: [MicRouter.Input] = []
+    @State private var tick = 0
 
     var body: some View {
         Form {
