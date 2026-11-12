@@ -41,6 +41,29 @@ final class ReminderEngine {
         for r in list { schedule(r) }
     }
 
+    /// 整理出「有明确时间」的待办时顺手排一条，不写 reminder 表
+    /// （避免和手动添加的提醒重复，取消也不会互相影响）
+    func scheduleQuick(id: String, title: String, at date: Date) {
+        guard date > Date() else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "涛声 · 该做了"
+        content.body = title
+        content.sound = .default
+        if #available(iOS 15.0, *) {
+            content.interruptionLevel = .timeSensitive
+        }
+        content.userInfo = ["quick": id]
+
+        let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+        let req = UNNotificationRequest(identifier: "ts-quick-\(id)", content: content, trigger: trigger)
+        UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
+    }
+
+    func cancelQuick(_ id: String) {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["ts-quick-\(id)"])
+    }
+
     /// 每日回顾 / 整理完成的轻提醒
     func scheduleDaily(kind: String, title: String, body: String, hour: Int, minute: Int) {
         let content = UNMutableNotificationContent()

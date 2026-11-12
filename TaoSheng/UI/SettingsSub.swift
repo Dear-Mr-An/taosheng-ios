@@ -90,7 +90,7 @@ struct RecordingSettingsView: View {
             } header: {
                 Text("只录人声")
             } footer: {
-                Text("停顿多久算断句跟着「今天」页的模式走：会议 2.5 秒、培训 3 秒、通话 1.8 秒、口播 2 秒、普通 1.5 秒。")
+                Text("停顿多久算断句跟着「今天」页的模式走：日常 1.5 秒、会议 2.5 秒、培训 3 秒、通话 1.8 秒。")
             }
 
             Section("停录时段") {
@@ -720,9 +720,6 @@ struct ModelSettingsView: View {
     var part: Part = .both
 
     @EnvironmentObject var settings: Settings
-    @State private var testing = false
-    @State private var llmOK = false
-    @State private var llmMsg: String?
 
     var body: some View {
         Form {
@@ -784,210 +781,11 @@ struct ModelSettingsView: View {
             }
             }
 
-            if part != .asr {
-            Section {
-                TextField("接口地址", text: $settings.llmBaseURL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                TextField("模型", text: $settings.llmModel)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                SecureField("API Key", text: $settings.llmKey)
-
-                Button {
-                    testLLM()
-                } label: {
-                    HStack {
-                        Label(testing ? "正在测…" : "测试连接", systemImage: "bolt.horizontal.circle")
-                        Spacer()
-                        if testing { ProgressView().scaleEffect(0.7) }
-                    }
-                }
-                .disabled(testing || settings.llmKey.isEmpty || settings.llmBaseURL.isEmpty || settings.llmModel.isEmpty)
-
-                if let llmMsg {
-                    Text(llmMsg)
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(llmOK ? Theme.ok : Theme.bad)
-                }
-            } header: {
-                Text("大模型（整理 / 问问 / 技能 / 回顾共用）")
-            } footer: {
-                Text(settings.llmReady
-                     ? "已就绪。整理、问问、技能、回顾全部走这一个模型。填完点一下「测试连接」，通了再用。"
-                     : "还没填 Key，整理和问问都用不了。")
-            }
-
-            Section {
-                ForEach(settings.providers) { p in
-                    NavigationLink {
-                        ProviderEditView(provider: p)
-                    } label: {
-                        HStack(spacing: 10) {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(p.name).foregroundStyle(Theme.text)
-                                Text(p.model)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(Theme.dim)
-                            }
-                            Spacer()
-                            if settings.llmProviderID == p.id {
-                                Text("主")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(Theme.accent)
-                                    .clipShape(Capsule())
-                            }
-                            Image(systemName: p.key.isEmpty ? "circle.dashed" : "checkmark.circle.fill")
-                                .font(.system(size: 13))
-                                .foregroundStyle(p.key.isEmpty ? Theme.dim2 : Theme.ok)
-                        }
-                    }
-                }
-            } header: {
-                Text("服务商")
-            } footer: {
-                Text("填过 Key 的会当兜底：主模型断网、余额不足或 Key 失效时自动换下一个。点进去可以单独测连通。")
-            }
-            }
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
-        .navigationTitle(part == .asr ? "原话与转写" : (part == .llm ? "整理模型" : "转写与大模型"))
+        .navigationTitle("原话与转写")
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func testLLM() {
-        testing = true
-        llmMsg = nil
-        let client = LLMClient(baseURL: settings.llmBaseURL,
-                               apiKey: settings.llmKey,
-                               model: settings.llmModel)
-        Task {
-            do {
-                let r = try await client.ping()
-                await MainActor.run {
-                    testing = false
-                    llmOK = true
-                    llmMsg = "通了 · \(settings.llmModel) 回：\(r.prefix(24))"
-                }
-            } catch {
-                await MainActor.run {
-                    testing = false
-                    llmOK = false
-                    llmMsg = "没通：\(error.localizedDescription)"
-                }
-            }
-        }
-    }
-}
-
-// MARK: - 服务商
-struct ProviderEditView: View {
-    @EnvironmentObject var settings: Settings
-    let provider: LLMProvider
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var base = ""
-    @State private var model = ""
-    @State private var key = ""
-    @State private var loaded = false
-    @State private var testing = false
-    @State private var ok = false
-    @State private var msg: String?
-
-    var body: some View {
-        Form {
-            Section(provider.name) {
-                TextField("接口地址", text: $base)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                TextField("模型", text: $model)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                SecureField("API Key", text: $key)
-
-                Button {
-                    test()
-                } label: {
-                    HStack {
-                        Label(testing ? "正在测…" : "测试连接", systemImage: "bolt.horizontal.circle")
-                        Spacer()
-                        if testing { ProgressView().scaleEffect(0.7) }
-                    }
-                }
-                .disabled(testing || key.isEmpty || base.isEmpty || model.isEmpty)
-
-                if let msg {
-                    Text(msg)
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(ok ? Theme.ok : Theme.bad)
-                }
-            }
-
-            Section {
-                Button("设为主模型") {
-                    save(main: true)
-                }
-                .disabled(key.isEmpty)
-            } footer: {
-                if !provider.note.isEmpty { Text(provider.note) }
-            }
-        }
-        .scrollContentBackground(.hidden)
-        .background(Theme.bg)
-        .navigationTitle(provider.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            guard !loaded else { return }
-            base = provider.baseURL
-            model = provider.model
-            key = provider.key
-            loaded = true
-        }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("保存") { save(main: false) }
-            }
-        }
-    }
-
-    private func test() {
-        testing = true
-        msg = nil
-        let client = LLMClient(baseURL: base, apiKey: key, model: model)
-        Task {
-            do {
-                let r = try await client.ping()
-                await MainActor.run {
-                    testing = false
-                    ok = true
-                    msg = "通了 · \(model) 回：\(r.prefix(24))"
-                }
-            } catch {
-                await MainActor.run {
-                    testing = false
-                    ok = false
-                    msg = "没通：\(error.localizedDescription)"
-                }
-            }
-        }
-    }
-
-    private func save(main: Bool) {
-        var p = provider
-        p.baseURL = base
-        p.model = model
-        p.key = key
-        settings.updateProvider(p)
-        if main {
-            settings.llmProviderID = p.id
-            settings.llmBaseURL = p.baseURL
-            settings.llmModel = p.model
-            settings.llmKey = p.key
-        }
-        dismiss()
     }
 }
 
@@ -1004,9 +802,8 @@ struct ReviewSettingsView: View {
                 Stepper(value: $settings.reviewHour, in: 0...23) {
                     Text("每天 \(settings.reviewHour):00 生成")
                 }
-                Stepper(value: $settings.digestHour, in: 0...23) {
-                    Text("每天 \(settings.digestHour):00 整理")
-                }
+                Text("自动整理的间隔和时间点在「整理模型」里设置。")
+                    .font(.caption).foregroundColor(Theme.dim)
             }
 
             Section("每周回顾") {
@@ -1083,7 +880,7 @@ struct PrivacyView: View {
                 Toggle("整理时参考地点和环境音", isOn: $settings.usePlaceInDigest).tint(Theme.accent)
                 Toggle("识别环境音", isOn: $settings.envSoundOn).tint(Theme.accent)
             } footer: {
-                Text("定位只存在手机里，不会上传。")
+                Text("地点默认只保存在本机；开启「整理时参考地点和环境音」后，会随原话发送给 DeepSeek。")
             }
 
             Section {

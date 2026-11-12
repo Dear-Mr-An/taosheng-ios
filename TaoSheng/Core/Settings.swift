@@ -39,91 +39,12 @@ struct LLMProvider: Identifiable, Codable, Hashable {
     var builtin: Bool
 
     static let presets: [LLMProvider] = [
-        LLMProvider(id: "deepseek", name: "DeepSeek", baseURL: "https://api.deepseek.com/v1", model: "deepseek-chat", key: "", note: "便宜、中文稳，默认", builtin: true),
-        LLMProvider(id: "doubao", name: "豆包 / 火山方舟", baseURL: "https://ark.cn-beijing.volces.com/api/v3", model: "doubao-pro-32k", key: "", note: "国内直连快", builtin: true),
-        LLMProvider(id: "qwen", name: "通义千问", baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus", key: "", note: "阿里云百炼", builtin: true),
-        LLMProvider(id: "kimi", name: "Kimi", baseURL: "https://api.moonshot.cn/v1", model: "moonshot-v1-8k", key: "", note: "长文本强", builtin: true),
-        LLMProvider(id: "zhipu", name: "智谱 GLM", baseURL: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4-flash", key: "", note: "有免费额度", builtin: true),
-        LLMProvider(id: "siliconflow", name: "硅基流动", baseURL: "https://api.siliconflow.cn/v1", model: "Qwen/Qwen2.5-7B-Instruct", key: "", note: "聚合多家开源模型", builtin: true),
-        LLMProvider(id: "openai", name: "OpenAI", baseURL: "https://api.openai.com/v1", model: "gpt-4o-mini", key: "", note: "需网络", builtin: true),
-        LLMProvider(id: "ollama", name: "局域网自建（Ollama / vLLM）", baseURL: "http://192.168.1.10:11434/v1", model: "qwen2.5", key: "", note: "完全不出设备", builtin: true),
-        LLMProvider(id: "custom", name: "自定义 OpenAI 兼容接口", baseURL: "", model: "", key: "", note: "可填自定义请求头", builtin: true)
+        LLMProvider(id: "deepseek", name: "DeepSeek", baseURL: DeepSeekConfiguration.baseURL,
+                    model: DeepSeekConfiguration.models[0], key: "", note: "按量计费，同一密钥查询余额", builtin: true)
     ]
 }
 
 // MARK: - 备份
-/// 收音模式：会议 / 培训 / 通话 / 口播稿 / 普通
-enum CaptureMode: String, CaseIterable, Identifiable {
-    case meeting
-    case training
-    case call
-    case script
-    case daily
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .meeting: return "会议"
-        case .training: return "培训"
-        case .call: return "通话 / 访谈"
-        case .script: return "口播稿"
-        case .daily: return "普通"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .meeting: return "person.2.wave.2"
-        case .training: return "graduationcap"
-        case .call: return "phone.arrow.up.right"
-        case .script: return "text.quote"
-        case .daily: return "sun.max"
-        }
-    }
-
-    /// 模式说明（显示在胶囊下方）
-    var hint: String {
-        switch self {
-        case .meeting: return "多人讨论，结束后出会议纪要"
-        case .training: return "一人主讲，不区分说话人，出培训笔记"
-        case .call: return "两人一来一回，出通话记录"
-        case .script: return "对着手机口述，出整理版和原话版两份稿子"
-        case .daily: return "合成一件事，不出纪要"
-        }
-    }
-
-    /// 一段最长多少秒
-    var maxSegment: Double {
-        switch self {
-        case .meeting: return 300
-        case .training: return 600
-        case .call: return 240
-        case .script: return 600
-        case .daily: return 180
-        }
-    }
-
-    /// 停顿多久算断句
-    var silenceGap: Double {
-        switch self {
-        case .meeting: return 2.5
-        case .training: return 3.0
-        case .call: return 1.8
-        case .script: return 2.0
-        case .daily: return 1.5
-        }
-    }
-
-    /// 是否要做声纹分人（培训是单人口述，不分人）
-    var separateSpeakers: Bool {
-        switch self {
-        case .training, .script: return false
-        default: return true
-        }
-    }
-}
-
 enum BackupKind: String, CaseIterable, Identifiable {
     case none
     case webdav
@@ -170,6 +91,8 @@ final class Settings: ObservableObject {
     @Published var llmProviderID: String { didSet { d.set(llmProviderID, forKey: "llmProviderID") } }
     @Published var llmFallback: Bool { didSet { d.set(llmFallback, forKey: "llmFallback") } }
     @Published var providersJSON: String { didSet { d.set(providersJSON, forKey: "providersJSON") } }
+    @Published var deepThinking: Bool { didSet { d.set(deepThinking, forKey: "deepThinking") } }
+    @Published var balanceAlertThreshold: Double { didSet { d.set(balanceAlertThreshold, forKey: "balanceAlertThreshold") } }
 
     // 自动化
     @Published var autoTranscribe: Bool { didSet { d.set(autoTranscribe, forKey: "autoTranscribe") } }
@@ -196,13 +119,7 @@ final class Settings: ObservableObject {
     }
 
     /// 当前模式下的收音参数（会议模式更敏感、少断句、允许更长的段）
-    var modeSensitivity: Double {
-        switch captureMode {
-        case .meeting, .call: return min(sensitivity, 0.014)
-        case .training, .script: return min(sensitivity, 0.018)
-        case .daily: return sensitivity
-        }
-    }
+    var modeSensitivity: Double { captureMode.sensitivity(sensitivity) }
     var modeSilenceGap: Double { captureMode.silenceGap }
     var modeMaxSegment: Double { captureMode.maxSegment }
     @Published var preferredInputUID: String { didSet { d.set(preferredInputUID, forKey: "preferredInputUID") } }
@@ -249,24 +166,33 @@ final class Settings: ObservableObject {
         doubaoAccessKey = d.string(forKey: "doubaoAccessKey") ?? ""
         doubaoResourceId = d.string(forKey: "doubaoResourceId") ?? "volc.bigasr.auc_turbo"
 
-        llmBaseURL = d.string(forKey: "llmBaseURL") ?? "https://api.deepseek.com/v1"
-        llmModel = d.string(forKey: "llmModel") ?? "deepseek-chat"
-        llmKey = d.string(forKey: "llmKey") ?? ""
-        llmProviderID = d.string(forKey: "llmProviderID") ?? "deepseek"
-        llmFallback = d.object(forKey: "llmFallback") as? Bool ?? true
+        let migrated = DeepSeekConfiguration.migrated(
+            baseURL: d.string(forKey: "llmBaseURL") ?? DeepSeekConfiguration.baseURL,
+            model: d.string(forKey: "llmModel") ?? "",
+            key: d.string(forKey: "llmKey") ?? "",
+            providersJSON: d.string(forKey: "providersJSON") ?? "",
+            allowLegacyProviders: !d.bool(forKey: "deepSeekConfigurationSaved"))
+        llmBaseURL = DeepSeekConfiguration.baseURL
+        llmModel = migrated.model
+        llmKey = migrated.key
+        llmProviderID = "deepseek"
+        llmFallback = false
         providersJSON = d.string(forKey: "providersJSON") ?? ""
+        deepThinking = d.bool(forKey: "deepThinking")
+        balanceAlertThreshold = d.object(forKey: "balanceAlertThreshold") as? Double ?? 10
 
         autoTranscribe = d.object(forKey: "autoTranscribe") as? Bool ?? true
         autoDigest = d.object(forKey: "autoDigest") as? Bool ?? true
         digestHour = d.object(forKey: "digestHour") as? Int ?? 21
-        digestIntervalMin = d.object(forKey: "digestIntervalMin") as? Int ?? 30
+        let savedInterval = d.object(forKey: "digestIntervalMin") as? Int ?? 30
+        digestIntervalMin = [15, 30, 60, 120, 240, 720].contains(savedInterval) ? savedInterval : 30
         digestByInterval = d.object(forKey: "digestByInterval") as? Bool ?? true
         reviewHour = d.object(forKey: "reviewHour") as? Int ?? 22
         weeklyReviewWeekday = d.object(forKey: "weeklyReviewWeekday") as? Int ?? 1
         keepAudioDays = d.object(forKey: "keepAudioDays") as? Int ?? 3
 
         sensitivity = d.object(forKey: "sensitivity") as? Double ?? 0.020
-        captureModeRaw = d.string(forKey: "captureModeRaw") ?? CaptureMode.daily.rawValue
+        captureModeRaw = CaptureMode.restored(d.string(forKey: "captureModeRaw") ?? "").rawValue
         silenceGap = d.object(forKey: "silenceGap") as? Double ?? 1.5
         minSegment = d.object(forKey: "minSegment") as? Double ?? 2.0
         maxSegment = d.object(forKey: "maxSegment") as? Double ?? 180.0
@@ -295,6 +221,14 @@ final class Settings: ObservableObject {
         envSoundOn = d.object(forKey: "envSoundOn") as? Bool ?? false
         locationOn = d.object(forKey: "locationOn") as? Bool ?? false
         usePlaceInDigest = d.object(forKey: "usePlaceInDigest") as? Bool ?? false
+
+        // 初始化赋值不触发 didSet，显式保存规范化配置；旧服务商记录保留但不再参与请求。
+        d.set(llmBaseURL, forKey: "llmBaseURL")
+        d.set(llmModel, forKey: "llmModel")
+        d.set(llmKey, forKey: "llmKey")
+        d.set("deepseek", forKey: "llmProviderID")
+        d.set(false, forKey: "llmFallback")
+        d.set(captureModeRaw, forKey: "captureModeRaw")
     }
 
     // MARK: - 派生
@@ -328,63 +262,20 @@ final class Settings: ObservableObject {
         set { backupKindRaw = newValue.rawValue }
     }
 
-    // MARK: - 多模型
+    // MARK: - DeepSeek（整理、问问、技能、回顾共用）
 
-    var providers: [LLMProvider] {
-        var list = LLMProvider.presets
-        if let data = providersJSON.data(using: .utf8),
-           let saved = try? JSONDecoder().decode([LLMProvider].self, from: data) {
-            for s in saved {
-                if let i = list.firstIndex(where: { $0.id == s.id }) {
-                    list[i].key = s.key
-                    list[i].baseURL = s.baseURL.isEmpty ? list[i].baseURL : s.baseURL
-                    list[i].model = s.model.isEmpty ? list[i].model : s.model
-                    if !s.note.isEmpty { list[i].note = s.note }
-                } else {
-                    list.append(s)
-                }
-            }
-        }
-        return list
+    func saveDeepSeek(key: String, model: String) {
+        llmBaseURL = DeepSeekConfiguration.baseURL
+        llmModel = DeepSeekConfiguration.normalizedModel(model)
+        llmKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        llmProviderID = "deepseek"
+        llmFallback = false
+        // 只停用旧配置，不删除历史密钥；显式保存后不再从旧列表恢复空密钥。
+        d.set(true, forKey: "deepSeekConfigurationSaved")
     }
 
-    func saveProviders(_ list: [LLMProvider]) {
-        if let data = try? JSONEncoder().encode(list),
-           let s = String(data: data, encoding: .utf8) {
-            providersJSON = s
-        }
-    }
-
-    func updateProvider(_ p: LLMProvider) {
-        var list = providers
-        if let i = list.firstIndex(where: { $0.id == p.id }) {
-            list[i] = p
-        } else {
-            list.append(p)
-        }
-        saveProviders(list)
-    }
-
-    /// 主模型 + 备用（有 key 的）
-    var activeProviders: [LLMProvider] {
-        let all = providers.filter { !$0.key.isEmpty && !$0.baseURL.isEmpty && !$0.model.isEmpty }
-        guard !all.isEmpty else { return [] }
-        var ordered: [LLMProvider] = []
-        if let main = all.first(where: { $0.id == llmProviderID }) {
-            ordered.append(main)
-        }
-        if llmFallback {
-            for p in all where p.id != llmProviderID {
-                ordered.append(p)
-            }
-        }
-        return ordered
-    }
-
-    /// 当前主服务商的 key 为空时，用已填的任意一家
     var effectiveLLM: (base: String, model: String, key: String) {
-        if llmReady { return (llmBaseURL, llmModel, llmKey) }
-        if let p = activeProviders.first { return (p.baseURL, p.model, p.key) }
-        return (llmBaseURL, llmModel, llmKey)
+        (DeepSeekConfiguration.baseURL, DeepSeekConfiguration.normalizedModel(llmModel),
+         llmKey.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }

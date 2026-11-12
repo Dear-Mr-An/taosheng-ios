@@ -1,6 +1,6 @@
 import Foundation
 
-/// OpenAI 兼容 chat/completions 客户端（DeepSeek / 豆包 / Kimi / 通义 / 本地 ollama 都能用）
+/// DeepSeek chat/completions 客户端。
 struct LLMClient {
     let baseURL: String
     let apiKey: String
@@ -11,7 +11,7 @@ struct LLMClient {
         let content: String
     }
 
-    func complete(system: String, user: String, temperature: Double = 0.3) async throws -> String {
+    func complete(system: String, user: String, temperature: Double = 0.3, thinking: Bool = false) async throws -> String {
         var base = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         if base.hasSuffix("/") { base.removeLast() }
         if !base.hasSuffix("/chat/completions") { base += "/chat/completions" }
@@ -22,6 +22,8 @@ struct LLMClient {
         let payload: [String: Any] = [
             "model": model,
             "temperature": temperature,
+            "thinking": ["type": thinking ? "enabled" : "disabled"],
+            "max_tokens": thinking ? 32768 : 8192,
             "messages": [
                 ["role": "system", "content": system],
                 ["role": "user", "content": user]
@@ -41,10 +43,15 @@ struct LLMClient {
         }
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choices = obj["choices"] as? [[String: Any]],
-              let msg = choices.first?["message"] as? [String: Any],
+              let choice = choices.first,
+              let msg = choice["message"] as? [String: Any],
               let content = msg["content"] as? String else {
             throw LLMError.badReply(String(data: data, encoding: .utf8) ?? "")
         }
+        guard choice["finish_reason"] as? String != "length" else {
+            throw LLMError.badReply("输出过长被截断，请减少本次整理内容后重试")
+        }
+        try Task.checkCancellation()
         return content
     }
 

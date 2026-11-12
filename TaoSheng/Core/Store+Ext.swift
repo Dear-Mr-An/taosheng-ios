@@ -754,7 +754,7 @@ extension Store {
     func starredSegments(limit: Int = 100) -> [Segment] {
         queue.sync { () -> [Segment] in
             let sql = """
-            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at
+            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode
             FROM segment WHERE starred=1 ORDER BY started_at DESC LIMIT \(limit);
             """
             var st: OpaquePointer?
@@ -810,7 +810,7 @@ extension Store {
         return queue.sync { () -> [Segment] in
             let clauses = Array(repeating: "transcript LIKE ?", count: kws.count).joined(separator: " OR ")
             let sql = """
-            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at
+            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode
             FROM segment WHERE state='transcribed' AND (\(clauses))
             ORDER BY started_at DESC LIMIT \(min(limit * 4, 80));
             """
@@ -871,7 +871,7 @@ extension Store {
     func recentTranscripts(days: Int, limit: Int = 400) -> [Segment] {
         queue.sync { () -> [Segment] in
             let sql = """
-            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at
+            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode
             FROM segment WHERE state='transcribed' AND LENGTH(TRIM(transcript))>0
             ORDER BY started_at DESC LIMIT \(limit);
             """
@@ -888,7 +888,7 @@ extension Store {
     func segment(id: String) -> Segment? {
         queue.sync { () -> Segment? in
             let sql = """
-            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at
+            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode
             FROM segment WHERE id=?;
             """
             var st: OpaquePointer?
@@ -979,7 +979,8 @@ extension Store {
             speaker: col(st, 7),
             state: SegmentState(rawValue: col(st, 8)) ?? .recorded,
             day: col(st, 9),
-            createdAt: Date(timeIntervalSince1970: sqlite3_column_double(st, 10))
+            createdAt: Date(timeIntervalSince1970: sqlite3_column_double(st, 10)),
+            captureModeRaw: col(st, 11)
         )
     }
 }

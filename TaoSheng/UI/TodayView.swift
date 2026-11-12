@@ -206,13 +206,9 @@ struct TodayView: View {
     private func switchMode(_ m: CaptureMode) {
         guard settings.captureMode != m else { return }
         let wasRunning = capture.isRunning
+        if wasRunning { capture.stop() }
         settings.captureMode = m
-        if wasRunning {
-            capture.stop()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                capture.start()
-            }
-        }
+        if wasRunning { capture.start() }
     }
 
     private var heroNote: String {

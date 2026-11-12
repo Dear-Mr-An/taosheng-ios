@@ -33,75 +33,153 @@ final class DigestEngine: ObservableObject {
 
     private func tick() {
         let s = Settings.shared
-        guard !s.effectiveLLM.key.isEmpty else { return }
-        guard !running else { return }
+        guard !s.effectiveLLM.key.isEmpty, !running else { return }
 
-        let day = DayKey.of(Date())
-        // 距上次整理不足间隔就跳过
-        if let last = lastAttempt[day], Date().timeIntervalSince(last) < Double(max(s.digestIntervalMin, 1)) * 60 {
-            return
-        }
-        let rows = Store.shared.undigestedSegments(day: day, limit: 200)
-        guard !rows.isEmpty else { return }
+        let now = Date()
+        let day = DayKey.of(now)
+        let lastSuccess = UserDefaults.standard.object(forKey: "digestLastAutomaticSuccess") as? Date
+        guard DigestSchedule.shouldRun(enabled: s.autoDigest, byInterval: s.digestByInterval,
+            intervalMinutes: s.digestIntervalMin, hour: s.digestHour, now: now, lastRun: lastSuccess) else { return }
+        // 失败后至少等五分钟，时间点模式失败不应阻止当天重试。
+        if let last = lastAttempt[day], now.timeIntervalSince(last) < 300 { return }
+        let days = Store.shared.undigestedDays(through: day)
+        guard !days.isEmpty else { return }
 
-        lastAttempt[day] = Date()
-        Task { try? await self.digest(day: day) }
+        lastAttempt[day] = now
+        Task { await self.digestAutomatically(days: days) }
     }
 
     // MARK: - 主流程
 
-    /// 按收音模式追加对应的切分规则
-    private var systemPrompt: String {
-        switch Settings.shared.captureMode {
+    /// 按这批录音保存的模式追加规则，不能读取当前全局模式。
+    private func systemPrompt(for mode: CaptureMode) -> String {
+        switch mode {
         case .meeting: return Prompts.digestSystem + Prompts.meetingModeExtra
         case .training: return Prompts.digestSystem + Prompts.trainingModeExtra
         case .call: return Prompts.digestSystem + Prompts.callModeExtra
-        case .script: return Prompts.digestSystem + Prompts.scriptModeExtra
         case .daily: return Prompts.digestSystem
         }
     }
 
+    @MainActor
     @discardableResult
     func digest(day: String, full: Bool = false) async throws -> (events: Int, items: Int) {
-        if running { return (0, 0) }
-        await MainActor.run { self.running = true; self.lastError = nil }
-        defer { Task { await MainActor.run { self.running = false } } }
+        guard !running else { return (0, 0) }
+        running = true
+        lastError = nil
+        defer { running = false }
+        do {
+            return try await performDigest(day: day, full: full)
+        } catch {
+            lastError = error.localizedDescription
+            throw error
+        }
+    }
 
+    @MainActor
+    private func digestAutomatically(days: [String]) async {
+        guard !running else { return }
+        running = true
+        lastError = nil
+        defer { running = false }
+        do {
+            for day in days {
+                try Task.checkCancellation()
+                _ = try await performDigest(day: day, full: false)
+            }
+            UserDefaults.standard.set(Date(), forKey: "digestLastAutomaticSuccess")
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func performDigest(day: String, full: Bool) async throws -> (events: Int, items: Int) {
         let s = Settings.shared
         guard !s.effectiveLLM.key.isEmpty else {
             throw LLMError.notConfigured
         }
 
         let rows = full
-            ? Store.shared.transcriptRows(day: day, limit: 800)
-            : Store.shared.undigestedSegments(day: day, limit: 200)
+            ? Store.shared.transcriptRows(day: day, limit: -1)
+            : Store.shared.undigestedSegments(day: day, limit: -1)
         guard !rows.isEmpty else { return (0, 0) }
 
-        // 1. 组原话
-        let lines = Self.buildLines(rows, envTags: Settings.shared.envSoundOn ? Store.shared.envTags(day: day) : [:])
+        // 按时间上连续的模式分批，避免上午和晚上的同模式跨越会议被合并。
+        var batches: [[Segment]] = []
+        for row in rows {
+            if let last = batches.last, last.count < 200, last.last?.captureMode == row.captureMode {
+                batches[batches.count - 1].append(row)
+            } else {
+                batches.append([row])
+            }
+        }
+        var total = (events: 0, items: 0)
+        var addedItems: [MemoryItem] = []
+        var summaries: [String] = []
+        var transcripts: [String] = []
+        // 失败时仍刷新已保存的部分，但不能把部分成功当成整轮完成向外推送。
+        defer {
+            if total.events > 0 {
+                lastRunAt = Date()
+                NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
+            }
+        }
+        for batch in batches {
+            guard let first = batch.first else { continue }
+            let result = try await digestRows(batch, day: day, system: systemPrompt(for: first.captureMode))
+            total.events += result.events
+            total.items += result.items.count
+            addedItems.append(contentsOf: result.items)
+            summaries.append(result.summary)
+            transcripts.append(result.transcript)
+        }
+        SkillEngine.shared.runAfterDigest(day: day)
+        PushEngine.shared.pushDigest(day: day, summary: summaries.joined(separator: "\n"),
+            items: addedItems, transcript: transcripts.joined(separator: "\n"))
+        return total
+    }
+
+    private struct BatchResult {
+        let events: Int
+        let items: [MemoryItem]
+        let summary: String
+        let transcript: String
+    }
+
+    private func digestRows(_ rows: [Segment], day: String, system: String) async throws -> BatchResult {
+        let useSituation = Settings.shared.usePlaceInDigest
+        var lines = Self.buildLines(rows, envTags: useSituation && Settings.shared.envSoundOn ? Store.shared.envTags(day: day) : [:])
+        if useSituation {
+            let places = Store.shared.places(day: day)
+            for (index, row) in rows.enumerated() {
+                if let place = places.first(where: { $0.arriveAt <= row.endedAt && $0.leaveAt >= row.startedAt }) {
+                    lines[index] += "（地点：\(place.name)）"
+                }
+            }
+        }
         let unfinished = Store.shared.openItemContents(days: 60)
         let ignored = Store.shared.ignoredItemContents(days: 60)
 
         // 2. 调模型
         let user = Prompts.digestUser(day: day, lines: lines, unfinished: unfinished, ignored: ignored)
-        let reply = try await LLMClient.completeAny(system: systemPrompt, user: user, temperature: 0.2)
+        let reply = try await LLMClient.completeAny(system: system, user: user, temperature: 0.2, thinking: Settings.shared.deepThinking)
         // 3. 解析
         guard let data = JSONExtract.object(from: reply) else {
-            await fail("整理结果看不懂：\(reply.prefix(120))")
-            return (0, 0)
+            throw LLMError.badReply("整理结果不是 JSON，原话已保留，请重试")
         }
         let out: DigestOut
         do {
             out = try JSONDecoder().decode(DigestOut.self, from: JSONSerialization.data(withJSONObject: data))
         } catch {
-            await fail("整理结果结构不对：\(error.localizedDescription)")
-            return (0, 0)
+            throw LLMError.badReply("整理结果结构不正确，原话已保留，请重试")
         }
+        guard !out.events.isEmpty else { throw LLMError.badReply("未返回事件，原话已保留，请重试") }
 
         // 4. 落事件
         let segById = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($0.offset + 1, $0.element) })
         var eventCount = 0
-        for (idx, e) in out.events.enumerated() {
+        for e in out.events {
             let first = segById[e.from] ?? rows.first
             let last = segById[e.to] ?? first
             guard let f = first else { continue }
@@ -123,7 +201,7 @@ final class DigestEngine: ObservableObject {
                 important: e.important ?? false,
                 starred: false,
                 starredAt: nil,
-                entityId: "\(day)-\(idx)",
+                entityId: "\(day)-\(f.id)-\(e.from)-\(e.to)",
                 lineFrom: e.from,
                 lineTo: e.to,
                 createdAt: Date()
@@ -133,12 +211,11 @@ final class DigestEngine: ObservableObject {
         }
 
         // 5. 落提取项（同一句话重复提取要跳过）
-        var itemCount = 0
-        let existing = Set(Store.shared.items(day: day, status: nil, category: nil, limit: 500).map { $0.content })
+        var existing = Set(Store.shared.items(day: day, status: nil, category: nil, limit: 500).map { $0.content })
         var newItems: [MemoryItem] = []
         for it in out.items {
             let content = (it.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !content.isEmpty, !existing.contains(content) else { continue }
+            guard !content.isEmpty, existing.insert(content).inserted else { continue }
             let cat = it.category ?? "备忘"
             let due = it.due
             newItems.append(MemoryItem(
@@ -156,73 +233,35 @@ final class DigestEngine: ObservableObject {
                 createdAt: Date(),
                 updatedAt: Date()
             ))
-            itemCount += 1
         }
         Store.shared.insertItems(newItems)
 
-        // 6. 完成提示（done_hints）
-        for h in out.done_hints ?? [] {
-            Store.shared.setItemStatus(id: h.item_id, status: MemItemStatus.done)
+        // 5b. 有明确时间的待办顺手排提醒：先算真实提醒时间，再判断是否过期，
+        //     只有日期的（今天完成/明天交）落在 9 点，不会因为 00:00 被判过期而丢掉。
+        for item in newItems where item.status == .pending {
+            guard let due = item.dueAt, let fire = ReminderTime.resolve(due: due) else { continue }
+            ReminderEngine.shared.scheduleQuick(id: item.id, title: item.content, at: fire)
+        }
+
+        // 6. 完成提示只能指向本轮提供的未完成项，并有真实原话作为依据。
+        let allowedIDs = Set(unfinished.compactMap { line -> String? in
+            guard let data = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String] else { return nil }
+            return obj["id"]
+        })
+        for hint in out.done_hints ?? [] {
+            guard allowedIDs.contains(hint.item_id), let line = hint.line_id, segById[line] != nil else { continue }
+            Store.shared.completeOpenItem(id: hint.item_id)
         }
 
         // 7. 寻物（失败不影响整理）
         await runThings(day: day, rows: rows)
 
-        // 7.5 技能卡：说完自动识别型（会议速记等）
-        SkillEngine.shared.runAfterDigest(day: day)
-
-        // 7.6 口播稿：出整理版 + 原话版两份
-        if Settings.shared.captureMode == .script {
-            saveScriptCard(day: day, rows: rows, events: out.events)
-        }
-
-        // 8. 标记已整理
+        // 8. 标记已整理；技能、推送和通知由整轮汇总触发。
         Store.shared.markDigested(rows.map { $0.id })
-
-        // 9. 推送 + 通知
-        let summary = out.events.first?.summary ?? ""
-        PushEngine.shared.pushDigest(day: day, summary: summary, items: newItems, transcript: lines.joined(separator: "\n"))
-        await MainActor.run {
-            self.lastRunAt = Date()
-            NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
-        }
-        return (eventCount, itemCount)
-    }
-
-    // MARK: - 口播稿：整理版 + 原话版
-
-    private func saveScriptCard(day: String, rows: [Segment], events: [EventOut]) {
-        guard !rows.isEmpty else { return }
-        var organized: [String] = []
-        for e in events {
-            if let t = e.title, !t.isEmpty { organized.append("## \(t)") }
-            if let s = e.summary, !s.isEmpty { organized.append(s) }
-            for p in e.points ?? [] { organized.append("- \(p)") }
-            organized.append("")
-        }
-        let raw = rows
-            .map { $0.transcript.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-        guard !organized.isEmpty || !raw.isEmpty else { return }
-
-        let card = SkillCard(
-            id: UUID().uuidString,
-            skillId: "script",
-            skillName: "口播稿",
-            day: day,
-            startAt: rows.first?.startedAt,
-            endAt: rows.last?.endedAt,
-            entityId: "script-\(day)",
-            fields: [
-                "整理版": organized.joined(separator: "\n"),
-                "原话版": raw
-            ],
-            quotes: [],
-            nothingReason: nil,
-            createdAt: Date()
-        )
-        Store.shared.insertCard(card)
+        return BatchResult(events: eventCount, items: newItems,
+            summary: out.events.compactMap { $0.summary }.joined(separator: "\n"),
+            transcript: lines.joined(separator: "\n"))
     }
 
     // MARK: - 寻物
@@ -318,13 +357,6 @@ final class DigestEngine: ObservableObject {
             if let d = f.date(from: s) { return d }
         }
         return nil
-    }
-
-    private func fail(_ msg: String) async {
-        await MainActor.run {
-            self.lastError = msg
-            self.running = false
-        }
     }
 
     // MARK: - 解析结构

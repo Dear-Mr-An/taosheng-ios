@@ -76,8 +76,8 @@ final class TranscribeQueue: ObservableObject {
                     }
                     Store.shared.updateTranscript(id: seg.id, transcript: cleaned, state: .transcribed)
 
-                    // 声纹认人（培训 / 口播是单人口述，不分人）
-                    if !cleaned.isEmpty && Settings.shared.captureMode.separateSpeakers {
+                    // 使用录制时保存的模式，切换当前模式不改变旧录音的分人策略。
+                    if !cleaned.isEmpty && seg.captureMode.separateSpeakers {
                         await TranscribeQueue.identifySpeaker(segmentId: seg.id, url: url)
                     }
 

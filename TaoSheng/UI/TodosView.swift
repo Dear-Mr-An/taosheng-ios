@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct TodosView: View {
     @ObservedObject private var app = AppState.shared
     @ObservedObject private var settings = Settings.shared
@@ -10,8 +11,12 @@ struct TodosView: View {
     @State private var draft = ""
     @State private var parsing = false
     @State private var toast: String?
-    @State private var newReminder: MemoryItem?
     @State private var holding = false
+    @State private var finishingVoice = false
+    @State private var voiceStartTask: Task<Void, Never>?
+    @State private var voiceFinishTask: Task<Void, Never>?
+    @State private var parseTask: Task<Void, Never>?
+    @Environment(\.scenePhase) private var scenePhase
 
     private var list: [MemoryItem] {
         switch tab {
@@ -38,10 +43,14 @@ struct TodosView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationBarHidden(true)
-        .sheet(isPresented: $showAdd) { addSheet }
+        .sheet(isPresented: $showAdd, onDismiss: cancelParsing) { addSheet }
         .alert("提示", isPresented: Binding(get: { toast != nil }, set: { if !$0 { toast = nil } })) {
             Button("好") { toast = nil }
         } message: { Text(toast ?? "") }
+        .onDisappear { cancelVoice() }
+        .onChange(of: scenePhase) { phase in
+            if phase != .active { cancelVoice() }
+        }
     }
 
     private var header: some View {
@@ -196,23 +205,22 @@ struct TodosView: View {
         .contextMenu {
             if it.status != .done {
                 Button {
-                    newReminder = it
+                    addReminder(for: it)
                 } label: { Label("一小时后提醒", systemImage: "bell") }
             }
             Button(role: .destructive) {
                 app.deleteItem(it.id)
             } label: { Label("删除", systemImage: "trash") }
         }
-        .onChange(of: newReminder?.id) { _ in
-            guard let it = newReminder else { return }
-            let at = it.dueAt ?? Date().addingTimeInterval(3600)
-            app.addReminder(title: it.content, at: at, repeatDaily: false)
-            let f = DateFormatter()
-            f.locale = Locale(identifier: "zh_CN")
-            f.dateFormat = "M月d日 HH:mm"
-            toast = "已加提醒：\(f.string(from: at))"
-            newReminder = nil
-        }
+    }
+
+    private func addReminder(for item: MemoryItem) {
+        let at = Date().addingTimeInterval(3600)
+        app.addReminder(title: item.content, at: at, repeatDaily: false)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "M月d日 HH:mm"
+        toast = "已加提醒：\(formatter.string(from: at))"
     }
 
     private var voicePill: some View {
@@ -229,35 +237,52 @@ struct TodosView: View {
         .background(Theme.card)
         .clipShape(Capsule())
         .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 3)
-        .onTapGesture {
-            if !holding { showAdd = true }
-        }
-        .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 90) {
-            holding = true
-            Task { await QuickSpeech.shared.start() }
-        } onPressingChanged: { pressing in
-            if !pressing && holding {
-                endVoice()
-            }
-        }
+        .allowsHitTesting(false)
     }
 
     private var voiceText: String {
         if holding {
             return speech.text.isEmpty ? "松手结束" : speech.text
         }
-        return "点按打字 · 按住说话"
+        if finishingVoice { return "正在识别…" }
+        return "点 + 打字 · 按住 + 说话"
+    }
+
+    private func startVoice() {
+        guard !holding, !finishingVoice else { return }
+        speech.stop(discardText: true)
+        holding = true
+        voiceStartTask = Task { await speech.start() }
+    }
+
+    private func cancelVoice() {
+        guard holding || finishingVoice else { return }
+        holding = false
+        finishingVoice = false
+        voiceStartTask?.cancel()
+        voiceStartTask = nil
+        voiceFinishTask?.cancel()
+        voiceFinishTask = nil
+        speech.stop(discardText: true)
     }
 
     private func endVoice() {
         guard holding else { return }
         holding = false
-        let t = speech.stop()
-        if t.isEmpty {
-            toast = "没听清，再说一次"
-        } else {
-            draft = t
-            showAdd = true
+        finishingVoice = true
+        voiceStartTask?.cancel()
+        voiceStartTask = nil
+        voiceFinishTask = Task { @MainActor in
+            let text = await speech.finish()
+            guard !Task.isCancelled else { return }
+            finishingVoice = false
+            voiceFinishTask = nil
+            if text.isEmpty {
+                toast = speech.hint ?? "没听清，再说一次"
+            } else {
+                draft = text
+                showAdd = true
+            }
         }
     }
 
@@ -265,16 +290,10 @@ struct TodosView: View {
         HStack(spacing: 10) {
             voicePill
 
-            Button { showAdd = true } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundColor(.white)
-                    .frame(width: 56, height: 56)
-                    .background(Theme.accent)
-                    .clipShape(Circle())
-                    .shadow(color: Theme.accent.opacity(0.35), radius: 10, x: 0, y: 5)
-            }
-            .buttonStyle(.plain)
+            VoiceAddButton(onTap: { if !finishingVoice { showAdd = true } }, onHold: startVoice,
+                           onRelease: endVoice, onCancel: cancelVoice)
+                .frame(width: 56, height: 56)
+                .shadow(color: Theme.accent.opacity(0.35), radius: 10, x: 0, y: 5)
         }
         .padding(.trailing, 16)
         .padding(.bottom, 92)
@@ -295,6 +314,7 @@ struct TodosView: View {
                     .padding(8)
                     .background(Theme.card)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .disabled(parsing)
                     .overlay(alignment: .topLeading) {
                         if draft.isEmpty {
                             Text("例如：明天下午三点给张总回电话，周五前把报销单交了")
@@ -306,7 +326,8 @@ struct TodosView: View {
                     }
 
                 Button {
-                    Task { await parseDraft() }
+                    guard !parsing else { return }
+                    parseTask = Task { await parseDraft() }
                 } label: {
                     HStack {
                         if parsing { ProgressView().scaleEffect(0.8).tint(.white) }
@@ -339,11 +360,11 @@ struct TodosView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("取消") { showAdd = false; draft = "" }
+                    Button("取消") { cancelParsing(); showAdd = false; draft = "" }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("直接存") { saveRaw() }
-                        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(parsing || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
@@ -358,15 +379,21 @@ struct TodosView: View {
         tab = 1
     }
 
+    private func cancelParsing() {
+        parseTask?.cancel()
+        parseTask = nil
+        parsing = false
+    }
+
     private func parseDraft() async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !Task.isCancelled, !text.isEmpty, !parsing else { return }
         if settings.effectiveLLM.key.isEmpty {
             saveRaw()
             return
         }
-        await MainActor.run { parsing = true }
-        defer { Task { await MainActor.run { parsing = false } } }
+        parsing = true
+        defer { if !Task.isCancelled { parsing = false } }
 
         let system = """
         你是待办整理助手。把用户随口写下的一段话拆成一条条待办，只输出 JSON，不要多余文字。
@@ -377,26 +404,32 @@ struct TodosView: View {
         """
         do {
             let reply = try await LLMClient.completeAny(system: system, user: text, temperature: 0.1)
+            try Task.checkCancellation()
             guard let obj = JSONExtract.object(from: reply),
-                  let arr = obj["items"] as? [[String: Any]], !arr.isEmpty else {
-                saveRaw()
+                  let arr = obj["items"] as? [[String: Any]] else {
+                toast = "整理结果不正确，原文已保留，可重试或直接存"
                 return
             }
+            var added = 0
             for raw in arr {
                 let content = (raw["content"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 guard !content.isEmpty else { continue }
-                let cat = raw["category"] as? String ?? "待办"
-                let due = raw["due"] as? String
-                app.addItem(content: content, category: cat, due: due)
+                let category = raw["category"] as? String ?? "待办"
+                let cat = ["待办", "约定", "备忘"].contains(category) ? category : "待办"
+                app.addItem(content: content, category: cat, due: raw["due"] as? String)
+                added += 1
             }
-            await MainActor.run {
-                draft = ""
-                showAdd = false
-                tab = 1
-                toast = "已生成 \(arr.count) 条待办"
+            guard added > 0 else {
+                toast = "没有识别出待办，原文已保留，可修改或直接存"
+                return
             }
+            draft = ""
+            showAdd = false
+            tab = 1
+            toast = "已生成 \(added) 条待办"
         } catch {
-            await MainActor.run { toast = error.localizedDescription }
+            guard !Task.isCancelled else { return }
+            toast = error.localizedDescription
         }
     }
 }

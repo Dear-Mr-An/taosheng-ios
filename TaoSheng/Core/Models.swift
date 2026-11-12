@@ -20,6 +20,9 @@ struct Segment: Identifiable, Codable, Hashable {
     var state: SegmentState
     var day: String               // yyyy-MM-dd（本机时区）
     var createdAt: Date
+    var captureModeRaw: String? = nil
+
+    var captureMode: CaptureMode { CaptureMode.restored(captureModeRaw ?? "") }
 
     var timeText: String {
         let f = DateFormatter()

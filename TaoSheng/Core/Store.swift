@@ -95,8 +95,8 @@ final class Store {
         queue.sync {
             let sql = """
             INSERT OR REPLACE INTO segment
-            (id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?);
+            (id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?);
             """
             var st: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return }
@@ -112,6 +112,7 @@ final class Store {
             bind(st, 9, s.state.rawValue)
             bind(st, 10, s.day)
             sqlite3_bind_double(st, 11, s.createdAt.timeIntervalSince1970)
+            bind(st, 12, s.captureMode.rawValue)
             sqlite3_step(st)
         }
     }
@@ -128,14 +129,19 @@ final class Store {
         }
     }
 
+    /// 删除一段原话。若这一天已经没有任何原话，同时清掉这一天整理出来的
+    /// 事件、提取项和技能卡（专题纪要），避免「这段别记」之后还能看到内容、
+    /// 也避免备份把已删除的内容带上。
     func deleteSegment(id: String, removeFile: Bool) {
         var name: String?
+        var day: String?
         queue.sync {
             var st: OpaquePointer?
-            if sqlite3_prepare_v2(db, "SELECT file_name FROM segment WHERE id=?;", -1, &st, nil) == SQLITE_OK {
+            if sqlite3_prepare_v2(db, "SELECT file_name, day FROM segment WHERE id=?;", -1, &st, nil) == SQLITE_OK {
                 bind(st, 1, id)
-                if sqlite3_step(st) == SQLITE_ROW, let c = sqlite3_column_text(st, 0) {
-                    name = String(cString: c)
+                if sqlite3_step(st) == SQLITE_ROW {
+                    if let c = sqlite3_column_text(st, 0) { name = String(cString: c) }
+                    if let c = sqlite3_column_text(st, 1) { day = String(cString: c) }
                 }
             }
             sqlite3_finalize(st)
@@ -145,15 +151,43 @@ final class Store {
                 sqlite3_step(d)
             }
             sqlite3_finalize(d)
+
+            if let day = day, remaining(day: day) == 0 {
+                purgeDerived(day: day)
+            }
         }
         if removeFile, let n = name {
             try? FileManager.default.removeItem(at: Store.audioDir.appendingPathComponent(n))
         }
     }
 
+    /// 这一天还剩多少段原话
+    private func remaining(day: String) -> Int {
+        var n = 0
+        var st: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM segment WHERE day=?;", -1, &st, nil) == SQLITE_OK {
+            bind(st, 1, day)
+            if sqlite3_step(st) == SQLITE_ROW { n = Int(sqlite3_column_int(st, 0)) }
+        }
+        sqlite3_finalize(st)
+        return n
+    }
+
+    /// 原话全没了，这一天整理出来的东西也不再成立
+    private func purgeDerived(day: String) {
+        for table in ["memory_event", "memory_item", "skill_card"] {
+            var st: OpaquePointer?
+            if sqlite3_prepare_v2(db, "DELETE FROM \(table) WHERE day=?;", -1, &st, nil) == SQLITE_OK {
+                bind(st, 1, day)
+                sqlite3_step(st)
+            }
+            sqlite3_finalize(st)
+        }
+    }
+
     func segments(day: String? = nil, limit: Int = 500) -> [Segment] {
         queue.sync { () -> [Segment] in
-            var sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at FROM segment"
+            var sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode FROM segment"
             if day != nil { sql += " WHERE day=?" }
             sql += " ORDER BY started_at DESC LIMIT \(limit);"
             var st: OpaquePointer?
@@ -171,7 +205,7 @@ final class Store {
     func pendingSegments(limit: Int = 20) -> [Segment] {
         queue.sync { () -> [Segment] in
             let sql = """
-            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at
+            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode
             FROM segment WHERE state IN ('recorded','failed') ORDER BY started_at ASC LIMIT \(limit);
             """
             var st: OpaquePointer?
@@ -200,7 +234,7 @@ final class Store {
         let kw = "%\(q)%"
         return queue.sync { () -> [Segment] in
             let sql = """
-            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at
+            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode
             FROM segment WHERE transcript LIKE ? ORDER BY started_at DESC LIMIT \(limit);
             """
             var st: OpaquePointer?
@@ -357,7 +391,8 @@ final class Store {
             speaker: col(st, 7),
             state: SegmentState(rawValue: col(st, 8)) ?? .recorded,
             day: col(st, 9),
-            createdAt: Date(timeIntervalSince1970: sqlite3_column_double(st, 10))
+            createdAt: Date(timeIntervalSince1970: sqlite3_column_double(st, 10)),
+            captureModeRaw: col(st, 11)
         )
     }
 }

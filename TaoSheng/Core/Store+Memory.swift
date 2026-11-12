@@ -106,6 +106,7 @@ extension Store {
             );
             """)
 
+            ensureColumn(table: "segment", column: "capture_mode", ddl: "ALTER TABLE segment ADD COLUMN capture_mode TEXT NOT NULL DEFAULT 'daily';")
             ensureColumn(table: "segment", column: "digested", ddl: "ALTER TABLE segment ADD COLUMN digested INTEGER NOT NULL DEFAULT 0;")
             ensureColumn(table: "segment", column: "bigram", ddl: "ALTER TABLE segment ADD COLUMN bigram TEXT NOT NULL DEFAULT '';")
         }
@@ -327,6 +328,19 @@ extension Store {
         }
     }
 
+    /// 模型请求返回时重新核对当前状态，不能覆盖用户刚做的忽略或完成操作。
+    func completeOpenItem(id: String) {
+        queue.sync {
+            let sql = "UPDATE memory_item SET status='done', updated_at=? WHERE id=? AND status IN ('pending','accepted');"
+            var st: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return }
+            defer { sqlite3_finalize(st) }
+            sqlite3_bind_double(st, 1, Date().timeIntervalSince1970)
+            bind(st, 2, id)
+            sqlite3_step(st)
+        }
+    }
+
     func itemCounts() -> (pending: Int, accepted: Int, done: Int) {
         queue.sync { () -> (pending: Int, accepted: Int, done: Int) in
             var p = 0, a = 0, d = 0
@@ -346,17 +360,21 @@ extension Store {
         }
     }
 
-    /// 已有的未完成内容，用于整理时去重
+    /// 把真实编号与内容一起交给整理模型，完成提示只能引用这些未完成事项。
     func openItemContents(days: Int = 30) -> [String] {
         queue.sync { () -> [String] in
             let since = Date().addingTimeInterval(-Double(days) * 86400).timeIntervalSince1970
             var st: OpaquePointer?
-            let sql = "SELECT content FROM memory_item WHERE status IN ('pending','accepted') AND created_at>=?;"
+            let sql = "SELECT id,content FROM memory_item WHERE status IN ('pending','accepted') AND created_at>=?;"
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
             sqlite3_bind_double(st, 1, since)
             var out: [String] = []
             while sqlite3_step(st) == SQLITE_ROW {
-                out.append(col(st, 0))
+                let item = ["id": col(st, 0), "content": col(st, 1)]
+                if let data = try? JSONSerialization.data(withJSONObject: item),
+                   let text = String(data: data, encoding: .utf8) {
+                    out.append(text)
+                }
             }
             sqlite3_finalize(st)
             return out
@@ -553,10 +571,24 @@ extension Store {
 
     // MARK: 待整理的段
 
+    /// 定时整理包含之前积压的日期，不只处理当天。
+    func undigestedDays(through day: String) -> [String] {
+        queue.sync {
+            let sql = "SELECT DISTINCT day FROM segment WHERE day<=? AND digested=0 AND state='transcribed' AND transcript<>'' ORDER BY day ASC;"
+            var st: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
+            defer { sqlite3_finalize(st) }
+            bind(st, 1, day)
+            var days: [String] = []
+            while sqlite3_step(st) == SQLITE_ROW { days.append(col(st, 0)) }
+            return days
+        }
+    }
+
     func undigestedSegments(day: String, limit: Int = 400) -> [Segment] {
         queue.sync { () -> [Segment] in
             var st: OpaquePointer?
-            let sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at FROM segment WHERE day=? AND digested=0 AND state='transcribed' AND transcript<>'' ORDER BY started_at ASC LIMIT \(limit);"
+            let sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode FROM segment WHERE day=? AND digested=0 AND state='transcribed' AND transcript<>'' ORDER BY started_at ASC LIMIT \(limit);"
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
             bind(st, 1, day)
             var out: [Segment] = []
@@ -585,7 +617,7 @@ extension Store {
     func transcriptRows(day: String, limit: Int = 600) -> [Segment] {
         queue.sync { () -> [Segment] in
             var st: OpaquePointer?
-            let sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at FROM segment WHERE day=? AND state='transcribed' AND transcript<>'' ORDER BY started_at ASC LIMIT \(limit);"
+            let sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode FROM segment WHERE day=? AND state='transcribed' AND transcript<>'' ORDER BY started_at ASC LIMIT \(limit);"
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
             bind(st, 1, day)
             var out: [Segment] = []

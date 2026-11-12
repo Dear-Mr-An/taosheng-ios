@@ -9,7 +9,7 @@ enum LLMError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notConfigured:
-            return "还没配置大模型。去 设置 → 转写与大模型，填上接口地址、模型和 API Key。"
+            return "还没配置 DeepSeek。去 设置 → 整理模型 → 编辑，填上 API Key。"
         case .http(let code, let body):
             return "大模型接口返回 \(code)：\(body.prefix(220))"
         case .badReply(let b):
@@ -18,7 +18,7 @@ enum LLMError: LocalizedError {
     }
 }
 
-/// 多模型自动切换：主模型失败（断网 / 余额 / 密钥失效）按顺序换备用
+/// 整理、问问、回顾和技能统一使用 DeepSeek。
 extension LLMClient {
     static func auto() -> LLMClient? {
         let s = Settings.shared
@@ -27,36 +27,14 @@ extension LLMClient {
         return LLMClient(baseURL: eff.base, apiKey: eff.key, model: eff.model)
     }
 
-    /// 主模型优先，其余已填 Key 的服务商按顺序兜底，全失败才抛错
-    static func completeAny(system: String, user: String, temperature: Double = 0.3) async throws -> String {
-        let s = Settings.shared
-        var chain: [LLMProvider] = []
-        let eff = s.effectiveLLM
-        if !eff.key.isEmpty {
-            chain.append(LLMProvider(id: "main", name: "当前模型", baseURL: eff.base,
-                                     model: eff.model, key: eff.key, note: "", builtin: false))
+    /// 统一使用当前 DeepSeek 配置，不把内容转发到历史服务商。
+    static func completeAny(system: String, user: String, temperature: Double = 0.3, thinking: Bool = false) async throws -> String {
+        guard let client = auto() else { throw LLMError.notConfigured }
+        let text = try await client.complete(system: system, user: user, temperature: temperature, thinking: thinking)
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw LLMError.badReply("空回复")
         }
-        for p in s.activeProviders where !p.key.isEmpty {
-            if p.baseURL == eff.base && p.model == eff.model && p.key == eff.key { continue }
-            chain.append(p)
-        }
-        guard !chain.isEmpty else { throw LLMError.notConfigured }
-
-        var lastError: Error = LLMError.notConfigured
-        for p in chain {
-            do {
-                let client = LLMClient(baseURL: p.baseURL, apiKey: p.key, model: p.model)
-                let text = try await client.complete(system: system, user: user, temperature: temperature)
-                if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    return text
-                }
-                lastError = LLMError.badReply("空回复")
-            } catch {
-                lastError = error
-                NSLog("涛声: 模型 \(p.name) 失败，尝试下一个 — \(error.localizedDescription)")
-            }
-        }
-        throw lastError
+        return text
     }
 }
 

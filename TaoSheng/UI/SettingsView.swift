@@ -32,7 +32,7 @@ struct SettingsView: View {
                     }
 
                     group("智能") {
-                        nav(ModelSettingsView(part: .llm), icon: "brain", title: "整理模型",
+                        nav(DeepSeekSettingsView(), icon: "brain", title: "整理模型",
                             dot: settings.effectiveLLM.key.isEmpty ? Theme.warn : Theme.ok,
                             detail: settings.effectiveLLM.key.isEmpty ? "未填密钥" : settings.llmModel)
                         sep
