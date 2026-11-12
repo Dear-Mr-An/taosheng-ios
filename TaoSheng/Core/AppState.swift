@@ -10,6 +10,9 @@ extension Notification.Name {
 final class AppState: ObservableObject {
     static let shared = AppState()
 
+    private var refreshGen = 0
+    private var dayGen = 0
+
     private let store = Store.shared
 
     // 今天
@@ -132,67 +135,93 @@ final class AppState: ObservableObject {
         NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
     }
 
+    /// 一次性把界面要用的数据全查出来。
+    /// 20 多次 SQL 不能压在主线程上 —— 每转写一段、每勾一个待办都会发通知触发这里，
+    /// 同步跑会把滚动和点击卡住。查询放后台，赋值回主线程，并用代数号丢弃过期结果。
     func refresh() {
         let today = DayKey.of(Date())
-        let segs = store.segments(day: today, limit: 600)
-        let evs = store.events(day: today, limit: 300)
-        let its = store.items(day: today, status: nil, category: nil, limit: 300)
-        let cards = store.cards(day: today, skillId: nil, limit: 40)
-        let pend = store.items(day: nil, status: .pending, category: nil, limit: 200)
-        let act = store.items(day: nil, status: .accepted, category: nil, limit: 200)
-        let done = store.items(day: nil, status: .done, category: nil, limit: 200)
-        let cnt = store.itemCounts()
-        let rev = store.reviews(limit: 60).first { $0.day == today }
-        let ppl = store.persons()
-        let sk = store.skills()
-        let ch = store.channels()
-        let rm = store.reminders()
-        let rv = store.reviews(limit: 30)
-        let hw = store.hotwords()
-        let dk = store.dayKeys(limit: 90)
-        let ask = store.askMessages(limit: 200)
-        let runs = store.skillRuns(day: nil, limit: 40)
-        let th = store.things(limit: 200)
-        let star = store.starredEvents(limit: 100)
+        let day = selectedDay
+        refreshGen &+= 1
+        let gen = refreshGen
+        DispatchQueue.global(qos: .userInitiated).async {
+            let segs = self.store.segments(day: today, limit: 600)
+            let evs = self.store.events(day: today, limit: 300)
+            let its = self.store.items(day: today, status: nil, category: nil, limit: 300)
+            let cards = self.store.cards(day: today, skillId: nil, limit: 40)
+            let pend = self.store.items(day: nil, status: .pending, category: nil, limit: 200)
+            let act = self.store.items(day: nil, status: .accepted, category: nil, limit: 200)
+            let done = self.store.items(day: nil, status: .done, category: nil, limit: 200)
+            let cnt = self.store.itemCounts()
+            let rev = self.store.reviews(limit: 60).first { $0.day == today }
+            let ppl = self.store.persons()
+            let sk = self.store.skills()
+            let ch = self.store.channels()
+            let rm = self.store.reminders()
+            let rv = self.store.reviews(limit: 30)
+            let hw = self.store.hotwords()
+            let dk = self.store.dayKeys(limit: 90)
+            let ask = self.store.askMessages(limit: 200)
+            let runs = self.store.skillRuns(day: nil, limit: 40)
+            let th = self.store.things(limit: 200)
+            let star = self.store.starredEvents(limit: 100)
 
-        DispatchQueue.main.async {
-            self.todaySegments = segs
-            self.todayEvents = evs
-            self.todayItems = its
-            self.todayCards = cards
-            self.todayReview = rev
-            self.pendingItems = pend
-            self.activeItems = act
-            self.doneItems = done
-            self.counts = cnt
-            self.persons = ppl
-            self.skills = sk
-            self.channels = ch
-            self.reminders = rm
-            self.reviews = rv
-            self.hotwords = hw
-            self.days = dk
-            self.askMessages = ask
-            self.skillRuns = runs
-            self.things = th
-            self.starredList = star
+            DispatchQueue.main.async {
+                guard gen == self.refreshGen else { return }
+                self.todaySegments = segs
+                self.todayEvents = evs
+                self.todayItems = its
+                self.todayCards = cards
+                self.todayReview = rev
+                self.pendingItems = pend
+                self.activeItems = act
+                self.doneItems = done
+                self.counts = cnt
+                self.persons = ppl
+                self.skills = sk
+                self.channels = ch
+                self.reminders = rm
+                self.reviews = rv
+                self.hotwords = hw
+                self.days = dk
+                self.askMessages = ask
+                self.skillRuns = runs
+                self.things = th
+                self.starredList = star
+                // 看的就是今天时，这批数据直接复用，不用再查一遍
+                if day == today {
+                    self.daySegments = segs
+                    self.dayEvents = evs
+                    self.dayItems = its
+                    self.dayCards = cards
+                    self.dayReview = rev
+                }
+            }
+            if day != today { self.refreshDay(day) }
         }
-        refreshDay(selectedDay)
     }
 
     func refreshDay(_ day: String) {
-        selectedDay = day
-        let segs = store.segments(day: day, limit: 600)
-        let evs = store.events(day: day, limit: 300)
-        let its = store.items(day: day, status: nil, category: nil, limit: 300)
-        let cards = store.cards(day: day, skillId: nil, limit: 40)
-        let rev = store.reviews(limit: 60).first { $0.day == day }
-        DispatchQueue.main.async {
-            self.daySegments = segs
-            self.dayEvents = evs
-            self.dayItems = its
-            self.dayCards = cards
-            self.dayReview = rev
+        if Thread.isMainThread {
+            selectedDay = day
+        } else {
+            DispatchQueue.main.async { self.selectedDay = day }
+        }
+        dayGen &+= 1
+        let gen = dayGen
+        DispatchQueue.global(qos: .userInitiated).async {
+            let segs = self.store.segments(day: day, limit: 600)
+            let evs = self.store.events(day: day, limit: 300)
+            let its = self.store.items(day: day, status: nil, category: nil, limit: 300)
+            let cards = self.store.cards(day: day, skillId: nil, limit: 40)
+            let rev = self.store.reviews(limit: 60).first { $0.day == day }
+            DispatchQueue.main.async {
+                guard gen == self.dayGen else { return }
+                self.daySegments = segs
+                self.dayEvents = evs
+                self.dayItems = its
+                self.dayCards = cards
+                self.dayReview = rev
+            }
         }
     }
 

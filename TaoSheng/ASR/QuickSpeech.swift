@@ -117,7 +117,8 @@ final class QuickSpeech: ObservableObject {
         return await withCheckedContinuation { continuation in
             finishContinuation = continuation
             finishTimeout = Task { @MainActor [weak self] in
-                do { try await Task.sleep(nanoseconds: 1_500_000_000) }
+                // 松手后识别器还要把最后几个字收完，1.5 秒经常截掉半句
+                do { try await Task.sleep(nanoseconds: 2_200_000_000) }
                 catch { return }
                 guard let self, self.sessionState.isCurrent(token) else { return }
                 self.stop()
