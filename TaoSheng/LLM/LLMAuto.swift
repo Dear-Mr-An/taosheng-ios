@@ -18,7 +18,8 @@ enum LLMError: LocalizedError {
     }
 }
 
-/// 整理、问问、回顾和技能统一使用 DeepSeek。
+/// 整理、问问、回顾和技能统一走当前服务商（默认 DeepSeek），
+/// 主服务商失败且开着「自动换备用」时，依次试备用的。
 extension LLMClient {
     static func auto() -> LLMClient? {
         let s = Settings.shared
@@ -27,14 +28,33 @@ extension LLMClient {
         return LLMClient(baseURL: eff.base, apiKey: eff.key, model: eff.model)
     }
 
-    /// 统一使用当前 DeepSeek 配置，不把内容转发到历史服务商。
-    static func completeAny(system: String, user: String, temperature: Double = 0.3, thinking: Bool = false) async throws -> String {
-        guard let client = auto() else { throw LLMError.notConfigured }
-        let text = try await client.complete(system: system, user: user, temperature: temperature, thinking: thinking)
+    private static func run(_ client: LLMClient, system: String, user: String,
+                            temperature: Double, thinking: Bool) async throws -> String {
+        let text = try await client.complete(system: system, user: user,
+                                             temperature: temperature, thinking: thinking)
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw LLMError.badReply("空回复")
         }
         return text
+    }
+
+    static func completeAny(system: String, user: String, temperature: Double = 0.3, thinking: Bool = false) async throws -> String {
+        guard let primary = auto() else { throw LLMError.notConfigured }
+        do {
+            return try await run(primary, system: system, user: user,
+                                 temperature: temperature, thinking: thinking)
+        } catch {
+            let s = Settings.shared
+            guard s.llmFallback else { throw error }
+            for p in s.backupProviders {
+                let client = LLMClient(baseURL: p.baseURL, apiKey: p.key, model: p.model)
+                if let text = try? await run(client, system: system, user: user,
+                                             temperature: temperature, thinking: thinking) {
+                    return text
+                }
+            }
+            throw error
+        }
     }
 }
 

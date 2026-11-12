@@ -713,7 +713,7 @@ struct BackupView: View {
     }
 }
 
-// MARK: - 模型与转写
+// MARK: - 原话与转写
 struct ModelSettingsView: View {
     enum Part { case both, asr, llm }
 
@@ -721,71 +721,237 @@ struct ModelSettingsView: View {
 
     @EnvironmentObject var settings: Settings
 
+    @State private var exportURL: URL?
+    @State private var exportError: String?
+    @State private var showAdvanced = false
+
     var body: some View {
-        Form {
-            if part != .llm {
-            Section {
-                SecureField("豆包语音 API Key", text: $settings.doubaoApiKey)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .onChange(of: settings.doubaoApiKey) { v in
-                        if !v.isEmpty && settings.asrKind != .doubao {
-                            settings.asrKind = .doubao
-                        }
-                    }
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 16) {
+                statusCard
+                asrCard
+                langCard
+                audioCard
+                hotwordRow
+            }
+            .padding(16)
+            .padding(.bottom, 100)
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("原话与转写")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: Binding(get: { exportURL != nil },
+                                    set: { if !$0 { exportURL = nil } })) {
+            if let u = exportURL { ShareSheet(items: [u]) }
+        }
+    }
 
+    private var statusCard: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: settings.asrReady ? "waveform.badge.checkmark" : "exclamationmark.triangle.fill")
+                .font(.system(size: 20))
+                .foregroundStyle(settings.asrReady ? Theme.ok : Theme.warn)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(settings.asrReady ? "转写已就绪" : "转写尚未就绪")
+                    .font(.system(size: 16, weight: .semibold))
                 Text(settings.asrReady
-                     ? "已填好，转写会自动开始。"
-                     : "在火山引擎语音控制台复制 API Key 贴进来就行，别的都不用填。")
-                    .font(.system(size: 12))
-                    .foregroundColor(settings.asrReady ? Theme.ok : Theme.dim)
+                     ? "录完一分钟就自动转写，不用手动点。"
+                     : "填好下面的豆包语音 API Key 就能开始转写。")
+                    .font(.system(size: 12.5)).foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(Theme.text)
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
 
-                DisclosureGroup("用别的转写服务（可选）") {
+    private var asrCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("语音转写").font(.system(size: 20, weight: .semibold))
+                Text("录音只在转写时发给你选的服务。豆包最省事，填一个 Key 就行。")
+                    .font(.system(size: 13)).foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            SecureField("豆包语音 API Key", text: $settings.doubaoApiKey)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .font(.system(size: 14))
+                .padding(12)
+                .background(Theme.cardSoft)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
+                .onChange(of: settings.doubaoApiKey) { v in
+                    if !v.isEmpty && settings.asrKind != .doubao {
+                        settings.asrKind = .doubao
+                    }
+                }
+
+            Text(settings.asrReadyHint)
+                .font(.system(size: 12))
+                .foregroundStyle(settings.asrReady ? Theme.ok : Theme.warn)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { showAdvanced.toggle() }
+            } label: {
+                HStack(spacing: 4) {
+                    Text("用别的转写服务（可选）").font(.system(size: 13))
+                    Image(systemName: showAdvanced ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .foregroundStyle(Theme.accent)
+            }
+            .buttonStyle(.plain)
+
+            if showAdvanced {
+                VStack(alignment: .leading, spacing: 10) {
                     Picker("方式", selection: $settings.asrKind) {
                         ForEach(ASRKind.allCases) { k in
                             Text(k.title).tag(k)
                         }
                     }
+                    .tint(Theme.accent)
+
                     if settings.asrKind == .doubao {
-                        TextField("Resource Id", text: $settings.doubaoResourceId)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                        DisclosureGroup("老版 App Key + Access Key") {
-                            TextField("App Key", text: $settings.doubaoAppKey)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                            SecureField("Access Key", text: $settings.doubaoAccessKey)
-                        }
+                        field("Resource Id", text: $settings.doubaoResourceId)
+                        field("老版 App Key", text: $settings.doubaoAppKey)
+                        secure("老版 Access Key", text: $settings.doubaoAccessKey)
                     }
                     if settings.asrKind == .openAICompatible {
-                        TextField("接口地址", text: $settings.asrBaseURL)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                        TextField("模型", text: $settings.asrModel)
-                            .textInputAutocapitalization(.never)
-                        SecureField("API Key", text: $settings.asrKey)
-                        TextField("或填完整请求地址", text: $settings.asrFullURL)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
+                        field("接口地址", text: $settings.asrBaseURL)
+                        field("模型", text: $settings.asrModel)
+                        secure("API Key", text: $settings.asrKey)
+                        field("或填完整请求地址", text: $settings.asrFullURL)
                     }
                     if !settings.asrKind.hint.isEmpty {
                         Text(settings.asrKind.hint)
-                            .font(.caption)
-                            .foregroundColor(Theme.dim)
+                            .font(.system(size: 11.5)).foregroundStyle(Theme.dim2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-            } header: {
-                Text("转写服务")
-            } footer: {
-                Text(settings.asrReady ? "转写已就绪。" : "\(settings.asrReadyHint)，转写会停在「待转写」。")
+                .padding(.top, 2)
             }
+        }
+        .foregroundStyle(Theme.text)
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
+    private var langCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("主要识别语言").font(.system(size: 17, weight: .semibold))
+            Picker("语言", selection: $settings.asrLanguage) {
+                Text("自动识别").tag("auto")
+                Text("普通话").tag("zh")
+                Text("粤语").tag("yue")
+                Text("英语").tag("en")
+                Text("中英混合").tag("zh-en")
+            }
+            .pickerStyle(.menu)
+            .tint(Theme.accent)
+            Text("只影响之后的转写，已经转好的原话不会重算。带口音的普通话建议选普通话。")
+                .font(.system(size: 11.5)).foregroundStyle(Theme.dim2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(Theme.text)
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
+    private var audioCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("原声").font(.system(size: 20, weight: .semibold))
+                Text("录音默认只留几天，标了重点的长期保留。删掉就找不回来了。")
+                    .font(.system(size: 13)).foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
+            HStack {
+                Text("保留 \(settings.keepAudioDays) 天").font(.system(size: 14))
+                Spacer()
+                Stepper("", value: $settings.keepAudioDays, in: 1...365).labelsHidden()
+            }
+
+            Button {
+                exportAudio()
+            } label: {
+                Label("导出录音包（zip）", systemImage: "square.and.arrow.up")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(maxWidth: .infinity).padding(.vertical, 11)
+                    .background(Theme.accent.opacity(0.1)).clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+
+            if let e = exportError {
+                Text(e).font(.system(size: 12)).foregroundStyle(Theme.bad)
+            }
+            Text("导出本机 wav 原声，最多最近 200 段。")
+                .font(.system(size: 11.5)).foregroundStyle(Theme.dim2)
         }
-        .scrollContentBackground(.hidden)
-        .background(Theme.bg)
-        .navigationTitle("原话与转写")
-        .navigationBarTitleDisplayMode(.inline)
+        .foregroundStyle(Theme.text)
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
+    private var hotwordRow: some View {
+        NavigationLink {
+            HotwordView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "textformat.abc").font(.system(size: 16))
+                    .foregroundStyle(Theme.accent)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("热词识别").font(.system(size: 15, weight: .medium))
+                    Text("人名、公司名、行业词，转写时优先认成这些")
+                        .font(.system(size: 12)).foregroundStyle(Theme.dim)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.dim2)
+            }
+            .foregroundStyle(Theme.text)
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func field(_ title: String, text: Binding<String>) -> some View {
+        TextField(title, text: text)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .font(.system(size: 14))
+            .padding(10)
+            .background(Theme.cardSoft)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func secure(_ title: String, text: Binding<String>) -> some View {
+        SecureField(title, text: text)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .font(.system(size: 14))
+            .padding(10)
+            .background(Theme.cardSoft)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+    private func exportAudio() {
+        exportError = nil
+        do {
+            exportURL = try AudioExport.zipAudio()
+        } catch {
+            exportError = error.localizedDescription
+        }
     }
 }
 

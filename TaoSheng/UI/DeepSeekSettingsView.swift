@@ -5,6 +5,7 @@ struct DeepSeekSettingsView: View {
     @EnvironmentObject private var settings: Settings
     @StateObject private var account = DeepSeekAccount()
     @State private var editing = false
+    @State private var addingProvider = false
     @State private var checking = false
     @State private var checkMessage: String?
     @State private var checkOK = false
@@ -14,6 +15,7 @@ struct DeepSeekSettingsView: View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 16) {
                 modelCard
+                providerCard
                 timingCard
             }
             .padding(16)
@@ -24,6 +26,9 @@ struct DeepSeekSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $editing) {
             DeepSeekEditorView().environmentObject(settings)
+        }
+        .sheet(isPresented: $addingProvider) {
+            ProviderAddView().environmentObject(settings)
         }
         .task(id: settings.llmKey) {
             await account.refresh(key: settings.llmKey)
@@ -93,8 +98,75 @@ struct DeepSeekSettingsView: View {
         .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: Theme.radius))
     }
 
-    @ViewBuilder private var balanceContent: some View {
-        if account.loading {
+    /// 服务商：DeepSeek 为主，其余只能当备用
+    private var providerCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("服务商").font(.system(size: 20, weight: .semibold))
+                Text("DeepSeek 是主服务商。再加一个填好密钥的，主服务商出问题时可以自动接手。")
+                    .font(.system(size: 13)).foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            ForEach(settings.providers) { p in
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: p.id == settings.llmProviderID ? "largecircle.fill.circle" : "circle")
+                        .font(.system(size: 18))
+                        .foregroundStyle(p.id == settings.llmProviderID ? Theme.accent : Theme.dim2)
+                        .padding(.top, 2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Text(p.name).font(.system(size: 15, weight: .medium))
+                            if p.id == "deepseek" {
+                                Text("主")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(Theme.accent)
+                                    .padding(.horizontal, 6).padding(.vertical, 2)
+                                    .background(Theme.accent.opacity(0.12)).clipShape(Capsule())
+                            }
+                        }
+                        Text(p.model + (p.key.isEmpty ? " · 未填密钥" : " · 已填密钥"))
+                            .font(.system(size: 12))
+                            .foregroundStyle(p.key.isEmpty ? Theme.warn : Theme.dim)
+                            .lineLimit(2)
+                    }
+                    Spacer(minLength: 0)
+                    if p.id != "deepseek" {
+                        Button(role: .destructive) {
+                            settings.deleteProvider(id: p.id)
+                        } label: { Image(systemName: "trash").font(.system(size: 13)) }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Theme.dim2)
+                    }
+                }
+            }
+
+            Toggle("出问题时自动换备用", isOn: $settings.llmFallback).tint(Theme.accent)
+            Text("主服务商报错或超时，依次试下面填好密钥的服务商。整理、问问、回顾都会换。")
+                .font(.system(size: 11.5)).foregroundStyle(Theme.dim2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                addingProvider = true
+            } label: {
+                Label("添加服务商", systemImage: "plus")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(maxWidth: .infinity).padding(.vertical, 11)
+                    .background(Theme.accent.opacity(0.1)).clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+
+            Text("密钥分开保存在手机本地，页面上不显示。")
+                .font(.system(size: 11.5)).foregroundStyle(Theme.dim2)
+        }
+        .foregroundStyle(Theme.text)
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
+    @ViewBuilder private var balanceContent: some View {        if account.loading {
             Text("余额查询中…").font(.system(size: 13)).foregroundStyle(Theme.dim)
         } else if let error = account.error {
             Text(error).font(.system(size: 13)).foregroundStyle(Theme.warn)
@@ -190,8 +262,7 @@ struct DeepSeekSettingsView: View {
     }
 }
 
-private struct DeepSeekEditorView: View {
-    @EnvironmentObject private var settings: Settings
+private struct DeepSeekEditorView: View {    @EnvironmentObject private var settings: Settings
     @Environment(\.dismiss) private var dismiss
     @State private var key = ""
     @State private var model = DeepSeekConfiguration.models[0]
@@ -222,6 +293,65 @@ private struct DeepSeekEditorView: View {
                 }
             }
             .onAppear { key = settings.llmKey; model = settings.llmModel }
+        }
+    }
+}
+
+/// 添加一个备用服务商：任意 OpenAI 兼容地址
+private struct ProviderAddView: View {
+    @EnvironmentObject private var settings: Settings
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name = ""
+    @State private var base = ""
+    @State private var model = ""
+    @State private var key = ""
+
+    private var canSave: Bool {
+        !base.trimmingCharacters(in: .whitespaces).isEmpty &&
+        !model.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("服务商") {
+                    TextField("名字，例如 硅基流动", text: $name)
+                    TextField("接口地址，例如 https://api.siliconflow.cn/v1", text: $base)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("模型，例如 deepseek-ai/DeepSeek-V3", text: $model)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    SecureField("API Key", text: $key)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+                Section {
+                    Text("只要是 OpenAI 兼容的 /chat/completions 就能用。它只在你打开「自动换备用」时接手，不会替换 DeepSeek。")
+                        .font(.system(size: 12)).foregroundStyle(Theme.dim)
+                }
+            }
+            .scrollContentBackground(.hidden).background(Theme.bg)
+            .navigationTitle("添加服务商").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("保存") {
+                        let n = name.trimmingCharacters(in: .whitespaces)
+                        settings.upsertProvider(LLMProvider(
+                            id: UUID().uuidString,
+                            name: n.isEmpty ? "自定义服务商" : n,
+                            baseURL: base.trimmingCharacters(in: .whitespaces),
+                            model: model.trimmingCharacters(in: .whitespaces),
+                            key: key.trimmingCharacters(in: .whitespaces),
+                            note: "",
+                            builtin: false))
+                        dismiss()
+                    }
+                    .disabled(!canSave)
+                }
+            }
         }
     }
 }

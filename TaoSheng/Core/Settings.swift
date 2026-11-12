@@ -278,4 +278,45 @@ final class Settings: ObservableObject {
         (DeepSeekConfiguration.baseURL, DeepSeekConfiguration.normalizedModel(llmModel),
          llmKey.trimmingCharacters(in: .whitespacesAndNewlines))
     }
+
+    // MARK: - 服务商（DeepSeek 为主，其余只当备用）
+
+    /// 服务商列表。没配置过时只有 DeepSeek 一条。
+    var providers: [LLMProvider] {
+        if let data = providersJSON.data(using: .utf8),
+           let list = try? JSONDecoder().decode([LLMProvider].self, from: data),
+           !list.isEmpty {
+            return list
+        }
+        return [LLMProvider.presets[0]]
+    }
+
+    func saveProviders(_ list: [LLMProvider]) {
+        let safe = list.isEmpty ? [LLMProvider.presets[0]] : list
+        providersJSON = (try? JSONEncoder().encode(safe))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? ""
+    }
+
+    func upsertProvider(_ p: LLMProvider) {
+        var list = providers
+        if let i = list.firstIndex(where: { $0.id == p.id }) {
+            list[i] = p
+        } else {
+            list.append(p)
+        }
+        saveProviders(list)
+    }
+
+    /// DeepSeek 是主服务商，不允许删掉
+    func deleteProvider(id: String) {
+        guard id != "deepseek" else { return }
+        saveProviders(providers.filter { $0.id != id })
+    }
+
+    /// 主服务商出问题时能接手的：填了地址和密钥、且不是当前这个
+    var backupProviders: [LLMProvider] {
+        providers.filter { p in
+            p.id != llmProviderID && !p.key.isEmpty && !p.baseURL.isEmpty && !p.model.isEmpty
+        }
+    }
 }

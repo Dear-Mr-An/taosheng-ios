@@ -55,7 +55,8 @@ struct OpenAICompatibleTranscriber: Transcriber {
 
         add("--\(boundary)\r\n")
         add("Content-Disposition: form-data; name=\"model\"\r\n\r\n\(model)\r\n")
-        if !language.isEmpty {
+        // 「自动识别」不传 language，交给服务自己判断
+        if !language.isEmpty && language != "auto" {
             add("--\(boundary)\r\n")
             add("Content-Disposition: form-data; name=\"language\"\r\n\r\n\(language)\r\n")
         }
@@ -184,7 +185,7 @@ final class AppleSpeechTranscriber: Transcriber {
     private let locale: Locale
 
     init(language: String) {
-        locale = Locale(identifier: language.isEmpty ? "zh-CN" : (language == "zh" ? "zh-CN" : language))
+        locale = Locale(identifier: (language.isEmpty || language == "auto") ? "zh-CN" : (language == "zh" ? "zh-CN" : language))
     }
 
     func transcribe(fileURL: URL) async throws -> String {
