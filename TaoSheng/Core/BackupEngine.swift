@@ -1,5 +1,31 @@
 import Foundation
 import CryptoKit
+import FoundationXML
+
+private final class DavHrefParser: NSObject, XMLParserDelegate {
+    private(set) var hrefs: [String] = []
+    private var readingHref = false
+    private var value = ""
+
+    func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
+                qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]) {
+        if elementName.split(separator: ":").last?.lowercased() == "href" {
+            readingHref = true
+            value = ""
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if readingHref { value += string }
+    }
+
+    func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
+        if readingHref && elementName.split(separator: ":").last?.lowercased() == "href" {
+            hrefs.append(value.trimmingCharacters(in: .whitespacesAndNewlines))
+            readingHref = false
+        }
+    }
+}
 
 /// 备份：WebDAV（坚果云 / Nextcloud / 群晖）与 S3 兼容存储，增量按天
 final class BackupEngine {
@@ -137,7 +163,7 @@ final class BackupEngine {
         guard keep > 0, s.backupKind == .webdav || s.backupKind == .nutstore else { return }
         let base = davBase(s)
         let names = await listDavJson(base, dir: "taosheng")
-        let days = names
+        let days = Set(names)
             .filter { $0.range(of: #"^\d{4}-\d{2}-\d{2}\.json$"#, options: .regularExpression) != nil }
             .sorted()
         guard days.count > keep else { return }
@@ -161,20 +187,18 @@ final class BackupEngine {
         <d:propfind xmlns:d="DAV:"><d:prop><d:getlastmodified/></d:prop></d:propfind>
         """.utf8)
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
-              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              let xml = String(data: data, encoding: .utf8) else { return [] }
-        guard let re = try? NSRegularExpression(pattern: "<[^>]*href[^>]*>([^<]+)<",
-                                               options: [.caseInsensitive]) else { return [] }
-        let ns = xml as NSString
-        var out: [String] = []
-        for m in re.matches(in: xml, range: NSRange(location: 0, length: ns.length)) {
-            guard m.numberOfRanges > 1 else { continue }
-            let href = ns.substring(with: m.range(at: 1))
-            let decoded = href.removingPercentEncoding ?? href
-            let name = (decoded as NSString).lastPathComponent
-            if name.hasSuffix(".json") { out.append(name) }
+              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return [] }
+        let parser = DavHrefParser()
+        let reader = XMLParser(data: data)
+        reader.delegate = parser
+        guard reader.parse() else { return [] }
+        return parser.hrefs.compactMap { href in
+            guard let file = URL(string: href, relativeTo: url)?.absoluteURL,
+                  file.host == url.host,
+                  file.deletingLastPathComponent().path == url.path,
+                  file.lastPathComponent.hasSuffix(".json") else { return nil }
+            return file.lastPathComponent
         }
-        return out
     }
 
     private func deleteDav(_ base: String, path: String) async {
@@ -202,21 +226,30 @@ final class BackupEngine {
     }
 
     private func davURL(_ base: String, _ path: String) -> URL? {
-        let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: " ?#"))
-        guard let enc = (base + path).addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
-        return URL(string: enc)
+        // 只编码新追加的路径；用户填写的 URL 已可能包含 %20、查询串或中文。
+        guard var parts = URLComponents(string: base),
+              parts.scheme == "https" || parts.scheme == "http",
+              parts.host != nil else { return nil }
+        let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: " ?#%"))
+        guard let suffix = path.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        parts.percentEncodedPath += suffix
+        return parts.url
     }
 
     /// WebDAV 写文件前目录必须存在，否则服务器回 409 Conflict，而且自己不会好
-    private func ensureDavDir(_ base: String, name: String) async {
-        guard let url = davURL(base, name + "/") else { return }
+    private func ensureDavDir(_ base: String, name: String) async throws {
+        guard let url = davURL(base, name + "/") else { throw TranscribeError.http(0, "备份地址不对") }
         let s = Settings.shared
         var req = URLRequest(url: url)
         req.httpMethod = "MKCOL"
         let auth = Data("\(s.backupUser):\(s.backupPass)".utf8).base64EncodedString()
         req.setValue("Basic \(auth)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = 20
-        _ = try? await URLSession.shared.data(for: req)
+        let (_, response) = try await URLSession.shared.data(for: req)
+        guard let code = (response as? HTTPURLResponse)?.statusCode,
+              (200..<300).contains(code) || code == 405 else {
+            throw TranscribeError.http((response as? HTTPURLResponse)?.statusCode ?? 0, "创建备份目录失败")
+        }
     }
 
     func putText(path: String, text: String) async throws {
@@ -226,7 +259,7 @@ final class BackupEngine {
             throw TranscribeError.http(0, "没选备份位置")
         case .webdav, .nutstore:
             let base = davBase(s)
-            await ensureDavDir(base, name: "taosheng")
+            try await ensureDavDir(base, name: "taosheng")
             guard let url = davURL(base, path) else { throw TranscribeError.http(0, "备份地址不对") }
             var req = URLRequest(url: url)
             req.httpMethod = "PUT"

@@ -139,10 +139,16 @@ final class AppState: ObservableObject {
     /// 20 多次 SQL 不能压在主线程上 —— 每转写一段、每勾一个待办都会发通知触发这里，
     /// 同步跑会把滚动和点击卡住。查询放后台，赋值回主线程，并用代数号丢弃过期结果。
     func refresh() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.refresh() }
+            return
+        }
         let today = DayKey.of(Date())
-        let day = selectedDay
         refreshGen &+= 1
         let gen = refreshGen
+        // 选中非今天时也更新当天数据；日期查询独立启动，永远只在主线程改代数号。
+        if selectedDay != today { refreshDay(selectedDay) }
+        else { dayGen &+= 1 } // 取消此前某个旧日期仍在执行的查询
         DispatchQueue.global(qos: .userInitiated).async {
             let segs = self.store.segments(day: today, limit: 600)
             let evs = self.store.events(day: today, limit: 300)
@@ -187,8 +193,8 @@ final class AppState: ObservableObject {
                 self.skillRuns = runs
                 self.things = th
                 self.starredList = star
-                // 看的就是今天时，这批数据直接复用，不用再查一遍
-                if day == today {
+                // 查询期间用户可能切换了日期，按当前选择判断，避免旧日期数据覆写。
+                if self.selectedDay == today {
                     self.daySegments = segs
                     self.dayEvents = evs
                     self.dayItems = its
@@ -196,16 +202,15 @@ final class AppState: ObservableObject {
                     self.dayReview = rev
                 }
             }
-            if day != today { self.refreshDay(day) }
         }
     }
 
     func refreshDay(_ day: String) {
-        if Thread.isMainThread {
-            selectedDay = day
-        } else {
-            DispatchQueue.main.async { self.selectedDay = day }
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.refreshDay(day) }
+            return
         }
+        selectedDay = day
         dayGen &+= 1
         let gen = dayGen
         DispatchQueue.global(qos: .userInitiated).async {
@@ -215,7 +220,7 @@ final class AppState: ObservableObject {
             let cards = self.store.cards(day: day, skillId: nil, limit: 40)
             let rev = self.store.reviews(limit: 60).first { $0.day == day }
             DispatchQueue.main.async {
-                guard gen == self.dayGen else { return }
+                guard gen == self.dayGen, self.selectedDay == day else { return }
                 self.daySegments = segs
                 self.dayEvents = evs
                 self.dayItems = its

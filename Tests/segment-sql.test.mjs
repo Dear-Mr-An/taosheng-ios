@@ -74,7 +74,7 @@ test('all segment readers return the persisted mode in the twelfth column', () =
       ['Store.swift', 'search', ['%测试%'], 'meeting', 'meeting'],
       ['Store+Ext.swift', 'starredSegments', [], 'training', 'training'],
       ['Store+Ext.swift', 'searchForAsk', ['%测试%'], 'call', 'call'],
-      ['Store+Ext.swift', 'recentTranscripts', [], 'training', 'training'],
+      ['Store+Ext.swift', 'recentTranscripts', [0], 'training', 'training'],
       ['Store+Ext.swift', 'segment', ['meeting'], 'meeting', 'meeting'],
       ['Store+Memory.swift', 'undigestedSegments', ['2026-11-12'], 'call', 'call'],
       ['Store+Memory.swift', 'transcriptRows', ['2026-11-12'], 'training', 'training'],
@@ -126,6 +126,49 @@ test('completion hints cannot overwrite a user ignored state during a model requ
     assert.equal(db.prepare('SELECT status FROM memory_item WHERE id=?').get('active').status, 'done');
     const ignored = db.prepare('SELECT status,updated_at FROM memory_item WHERE id=?').get('changed');
     assert.deepEqual({ ...ignored }, { status: 'ignored', updated_at: 100 });
+  } finally { db.close(); }
+});
+
+test('recent transcripts filter by time before limit, keeping older rows from crowding out the window', () => {
+  const db = fixture();
+  try {
+    const insert = db.prepare(sqlIn('Store.swift', 'insert'));
+    for (let i = 0; i < 110; i += 1) {
+      insert.run(`outside-${i}`, -1000 + i, -990 + i, 10, `${i}.wav`, 100,
+        '较早原话', '', 'transcribed', '2026-11-11', 1000 + i, 'daily');
+    }
+    const rows = db.prepare(sqlIn('Store+Ext.swift', 'recentTranscripts').replace('LIMIT 100', 'LIMIT 5')).all(101);
+    assert.deepEqual(rows.map(row => row.id), ['call', 'training', 'meeting']);
+  } finally { db.close(); }
+});
+
+test('wipeAll includes every persisted memory and environment table', () => {
+  const source = sources['Store+Ext.swift'];
+  const body = source.slice(source.indexOf('    func wipeAll('), source.indexOf('    func searchForAsk('));
+  for (const name of ['memory_event', 'memory_item', 'skill_card', 'thing', 'thing_fact', 'env_tag']) {
+    assert.match(body, new RegExp(`"${name}"`), `${name} must be erased`);
+  }
+});
+
+test('reorganized event keeps its identity and user star state', () => {
+  const source = sources['Store+Memory.swift'];
+  const body = source.slice(source.indexOf('    func upsertEvent('), source.indexOf('    func events('));
+  assert.match(body, /bind\(st, 1, eventID\)/);
+  assert.match(body, /sqlite3_bind_int\(st, 14, keepStarred \? 1 : 0\)/);
+  assert.match(body, /if let s = keepStarredAt \{ sqlite3_bind_double\(st, 15,/);
+  const db = new DatabaseSync(':memory:');
+  try {
+    createTable(db, 'memory_event');
+    const insert = db.prepare(sqlIn('Store+Memory.swift', 'upsertEvent'));
+    const event = (id, title, starred, starredAt) => [id, '2026-11-12', 100, null, '其他', title,
+      '', '[]', '[]', null, '平静', 3, 0, starred, starredAt, 'same-entity', 0, 1, 0, 100];
+    insert.run(...event('original', '第一版', 1, 123));
+    const existing = db.prepare('SELECT id,starred,starred_at FROM memory_event WHERE entity_id=? AND deleted=0 LIMIT 1')
+      .get('same-entity');
+    insert.run(...event(existing.id, '第二版', existing.starred, existing.starred_at));
+    assert.deepEqual({ ...db.prepare('SELECT id,title,starred,starred_at FROM memory_event').get() },
+      { id: 'original', title: '第二版', starred: 1, starred_at: 123 });
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM memory_event').get().n, 1);
   } finally { db.close(); }
 });
 

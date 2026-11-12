@@ -829,7 +829,8 @@ extension Store {
     func wipeAll() {
         queue.sync {
             for t in ["segment", "item", "digest", "person", "voice_sample", "skill",
-                      "skill_run", "channel", "place", "reminder", "review", "ask", "hotword"] {
+                      "skill_run", "channel", "place", "reminder", "review", "ask", "hotword",
+                      "memory_event", "memory_item", "skill_card", "thing", "thing_fact", "env_tag"] {
                 exec("DELETE FROM \(t);")
             }
         }
@@ -908,16 +909,17 @@ extension Store {
         queue.sync { () -> [Segment] in
             let sql = """
             SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode
-            FROM segment WHERE state='transcribed' AND LENGTH(TRIM(transcript))>0
+            FROM segment WHERE state='transcribed' AND LENGTH(TRIM(transcript))>0 AND started_at>=?
             ORDER BY started_at DESC LIMIT \(limit);
             """
             var st: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
             defer { sqlite3_finalize(st) }
+            let cut = Date().addingTimeInterval(-Double(max(days, 0)) * 86400)
+            sqlite3_bind_double(st, 1, cut.timeIntervalSince1970)
             var out: [Segment] = []
             while sqlite3_step(st) == SQLITE_ROW { out.append(readSegRow(st)) }
-            let cut = Date().addingTimeInterval(-Double(days) * 86400)
-            return out.filter { $0.startedAt >= cut }
+            return out
         }
     }
 

@@ -170,9 +170,8 @@ extension Store {
                     if sqlite3_step(q) == SQLITE_ROW {
                         eventID = col(q, 0)
                         keepStarred = sqlite3_column_int(q, 1) == 1
-                        if sqlite3_column_type(q, 2) != SQLITE_NULL {
-                            keepStarredAt = Date(timeIntervalSince1970: sqlite3_column_double(q, 2))
-                        }
+                        keepStarredAt = sqlite3_column_type(q, 2) == SQLITE_NULL
+                            ? nil : Date(timeIntervalSince1970: sqlite3_column_double(q, 2))
                     }
                 }
                 sqlite3_finalize(q)
@@ -192,8 +191,8 @@ extension Store {
             bind(st, 11, e.emotion)
             sqlite3_bind_int(st, 12, Int32(e.intensity))
             sqlite3_bind_int(st, 13, e.important ? 1 : 0)
-            sqlite3_bind_int(st, 14, e.starred ? 1 : 0)
-            if let s = e.starredAt { sqlite3_bind_double(st, 15, s.timeIntervalSince1970) } else { sqlite3_bind_null(st, 15) }
+            sqlite3_bind_int(st, 14, keepStarred ? 1 : 0)
+            if let s = keepStarredAt { sqlite3_bind_double(st, 15, s.timeIntervalSince1970) } else { sqlite3_bind_null(st, 15) }
             if let en = e.entityId { bind(st, 16, en) } else { sqlite3_bind_null(st, 16) }
             sqlite3_bind_int(st, 17, Int32(e.lineFrom))
             sqlite3_bind_int(st, 18, Int32(e.lineTo))

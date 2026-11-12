@@ -6,6 +6,10 @@ final class ReviewEngine {
 
     private let store = Store.shared
     private var timer: Timer?
+    private var dailyInFlight = Set<String>()
+    private var weeklyInFlight = Set<String>()
+    private var lastDailyAttempt: [String: Date] = [:]
+    private var lastWeeklyAttempt: [String: Date] = [:]
 
     func start() {
         timer?.invalidate()
@@ -28,8 +32,13 @@ final class ReviewEngine {
         // 每日回顾：到点、今天还没生成、今天没试过
         let dailyDone = done.contains { $0.day == today && $0.kind == .daily }
         if !dailyDone, hour >= s.reviewHour,
-           UserDefaults.standard.string(forKey: "ts.lastReviewTry") != today {
+           UserDefaults.standard.string(forKey: "ts.lastReviewTry") != today,
+           !dailyInFlight.contains(today),
+           now.timeIntervalSince(lastDailyAttempt[today] ?? .distantPast) >= 300 {
+            dailyInFlight.insert(today)
+            lastDailyAttempt[today] = now
             Task {
+                defer { self.dailyInFlight.remove(today) }
                 do {
                     _ = try await self.generateDaily(day: today)
                     UserDefaults.standard.set(today, forKey: "ts.lastReviewTry")
@@ -37,16 +46,20 @@ final class ReviewEngine {
                     NSLog("涛声: 自动回顾失败 \(error)")
                 }
             }
-            return
         }
 
-        // 每周回顾：到点、今天是设定的那一天、这一周还没生成
+        // 同一天可同时有每日和每周回顾；每日失败也不能挡住周回顾。
         let weekday = cal.component(.weekday, from: now)
         guard weekday == s.weeklyReviewWeekday, hour >= s.reviewHour else { return }
         let weekDone = done.contains { $0.kind == .weekly && $0.day == today }
         guard !weekDone,
-              UserDefaults.standard.string(forKey: "ts.lastWeeklyTry") != today else { return }
+              UserDefaults.standard.string(forKey: "ts.lastWeeklyTry") != today,
+              !weeklyInFlight.contains(today),
+              now.timeIntervalSince(lastWeeklyAttempt[today] ?? .distantPast) >= 300 else { return }
+        weeklyInFlight.insert(today)
+        lastWeeklyAttempt[today] = now
         Task {
+            defer { self.weeklyInFlight.remove(today) }
             do {
                 _ = try await self.generateWeekly(endDay: today)
                 UserDefaults.standard.set(today, forKey: "ts.lastWeeklyTry")
@@ -60,7 +73,8 @@ final class ReviewEngine {
 
     func generateDaily(day: String) async throws -> ReviewRecord {
         let s = Settings.shared
-        let evs = store.events(day: day, limit: 400)
+        // Store 按时间倒序返回；回顾契约要求按时间升序编号和输入。
+        let evs = store.events(day: day, limit: 400).reversed()
         let allItems = store.items(day: day, status: nil, category: nil, limit: 400)
         guard !evs.isEmpty || !allItems.isEmpty else { throw TranscribeError.empty }
 
@@ -120,15 +134,17 @@ final class ReviewEngine {
 
         // 标星满 3 天还没新进展的历史重点
         let cal = Calendar.current
-        let stale: [[String: Any]] = store.starredEvents(limit: 60).compactMap { e -> [String: Any]? in
-            guard let at = e.starredAt else { return nil }
+        var stale: [[String: Any]] = []
+        for e in store.starredEvents(limit: 60) {
+            guard let at = e.starredAt else { continue }
             let days = cal.dateComponents([.day], from: at, to: Date()).day ?? 0
-            guard days >= 3 else { return nil }
-            return ["id": numOf[e.id] ?? 0,
-                    "title": e.title,
-                    "day": e.day,
-                    "starredAt": iso.string(from: at)]
-        }.prefix(5).map { $0 }
+            guard days >= 3, numOf[e.id] == nil else { continue }
+            stale.append(["id": evArr.count + stale.count + 1,
+                          "title": e.title,
+                          "day": e.day,
+                          "starredAt": iso.string(from: at)])
+            if stale.count == 5 { break }
+        }
 
         // 时间窗：昨晚 reviewHour → 今晚 reviewHour
         let end = cal.date(bySettingHour: s.reviewHour, minute: 0, second: 0, of: Date()) ?? Date()
@@ -218,31 +234,30 @@ final class ReviewEngine {
         """
 
         let reply = try await LLMClient.completeAny(system: system, user: "这一周的原话：\n\(context)", temperature: 0.3)
-        let obj = JSONExtract.object(from: reply)
-
-        var headline = "这一周"
-        var body = ""
-        if let o = obj {
-            if let h = o["headline"] as? String, !h.isEmpty { headline = h }
-            if let secs = o["sections"] as? [[String: Any]] {
-                for sec in secs {
-                    let title = (sec["title"] as? String) ?? ""
-                    let lines = (sec["lines"] as? [String]) ?? []
-                    guard !lines.isEmpty else { continue }
-                    body += "## \(title)\n"
-                    for l in lines { body += "- \(l)\n" }
-                    body += "\n"
-                }
-            }
-        } else {
-            body = reply
+        guard let obj = JSONExtract.object(from: reply),
+              let sections = obj["sections"] as? [[String: Any]] else {
+            throw LLMError.badReply("周回顾结果不是有效 JSON，请重试")
         }
+
+        let headline = ((obj["headline"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        var body = ""
+        for sec in sections {
+            let title = ((sec["title"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let lines = ((sec["lines"] as? [String]) ?? []).map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }.filter { !$0.isEmpty }
+            guard !title.isEmpty, !lines.isEmpty else { continue }
+            body += "## \(title)\n"
+            for line in lines { body += "- \(line)\n" }
+            body += "\n"
+        }
+        guard !body.isEmpty else { throw LLMError.badReply("周回顾没有任何栏目，请重试") }
 
         let rec = ReviewRecord(
             id: "weekly-\(endDay)",
             kind: .weekly,
             day: endDay,
-            headline: headline,
+            headline: headline.isEmpty ? "这一周" : headline,
             text: body.trimmingCharacters(in: .whitespacesAndNewlines),
             createdAt: Date()
         )

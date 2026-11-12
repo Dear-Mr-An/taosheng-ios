@@ -324,7 +324,6 @@ final class CaptureEngine: ObservableObject {
             let speaking = rms > threshold
             if speaking {
                 self.lastVoiceAt = now
-                self.wroteAnyVoice = true
             }
             let isSpeaking = self.lastVoiceAt.map { now.timeIntervalSince($0) <= mode.silenceGap } ?? false
             DispatchQueue.main.async {
@@ -336,6 +335,10 @@ final class CaptureEngine: ObservableObject {
             // 开始一段
             if self.file == nil && speaking {
                 self.openSegment(format: format, at: now)
+            }
+            // openSegment 重置了标志；首个触发片段本身就包含有效人声。
+            if speaking && self.file != nil {
+                self.wroteAnyVoice = true
             }
 
             // 写入

@@ -73,8 +73,12 @@ final class TranscribeQueue: ObservableObject {
             }
 
             guard let transcriber = TranscriberFactory.make() else { return }
-            let batch = Store.shared.pendingSegments(limit: 8)
-                .filter { (self.failCount[$0.id] ?? 0) < 3 }
+            // Store 按最早录音排序并先 LIMIT；若只取 8 条再过滤失败项，
+            // 队头 8 条都耗尽重试时，后续录音永远进不了转写批次。
+            let batch = await MainActor.run {
+                Array(Store.shared.pendingSegments(limit: Int.max)
+                    .lazy.filter { (self.failCount[$0.id] ?? 0) < 3 }.prefix(8))
+            }
             for seg in batch {
                 if Task.isCancelled { return }
                 let url = Store.audioDir.appendingPathComponent(seg.fileName)
@@ -100,10 +104,10 @@ final class TranscribeQueue: ObservableObject {
                         Store.shared.setEnvTag(segmentId: seg.id, tag: tag)
                     }
                     await MainActor.run { self.lastMessage = "已转写 \(seg.timeText) 的 \(Int(seg.duration)) 秒" }
-                    self.failCount.removeValue(forKey: seg.id)
+                    _ = await MainActor.run { self.failCount.removeValue(forKey: seg.id) }
                 } catch {
                     Store.shared.updateTranscript(id: seg.id, transcript: "", state: .failed)
-                    self.failCount[seg.id, default: 0] += 1
+                    await MainActor.run { self.failCount[seg.id, default: 0] += 1 }
                     await MainActor.run { self.lastMessage = error.localizedDescription }
                     NSLog("涛声: 转写失败 \(error)")
                     try? await Task.sleep(nanoseconds: 5_000_000_000)

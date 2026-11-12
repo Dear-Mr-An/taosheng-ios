@@ -733,7 +733,6 @@ struct ModelSettingsView: View {
     @State private var showModel = false
     @State private var showImport = false
     @State private var showKeepDays = false
-    @State private var testResult: String?
     @State private var stats = Stats()
     @State private var showTranscribe = false
     @State private var todaySegments: [Segment] = []
@@ -858,7 +857,7 @@ struct ModelSettingsView: View {
 
             Divider().overlay(Theme.lineSoft).padding(.vertical, 12)
 
-            statRow("云端转写", cloudLine) { testResult = cloudDetail }
+            statRow("云端转写", cloudLine) { exportError = cloudDetail }
             Divider().overlay(Theme.lineSoft)
             statRow("原声", audioLine) { showKeepDays = true }
             Divider().overlay(Theme.lineSoft)

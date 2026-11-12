@@ -44,13 +44,18 @@ extension LLMClient {
             return try await run(primary, system: system, user: user,
                                  temperature: temperature, thinking: thinking)
         } catch {
+            // 用户取消请求时不要继续向备用服务商发送原话。
+            try Task.checkCancellation()
             let s = Settings.shared
             guard s.llmFallback else { throw error }
             for p in s.backupProviders {
+                try Task.checkCancellation()
                 let client = LLMClient(baseURL: p.baseURL, apiKey: p.key, model: p.model)
-                if let text = try? await run(client, system: system, user: user,
-                                             temperature: temperature, thinking: thinking) {
-                    return text
+                do {
+                    return try await run(client, system: system, user: user,
+                                         temperature: temperature, thinking: thinking)
+                } catch {
+                    try Task.checkCancellation()
                 }
             }
             throw error

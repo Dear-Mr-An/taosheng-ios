@@ -491,7 +491,9 @@ struct AskHistoryView: View {
     // MARK: - 数据
 
     private func reload() {
-        results = Store.shared.searchAsk(keyword)
+        // 先取完整的最近对话再按「问题或答案」筛选。先按消息搜索会
+        // 把没有命中关键字的另一半丢掉，导致答案配错问题或显示占位问题。
+        results = Store.shared.askMessages(limit: 600)
     }
 
     private var groups: [DayGroup] {
@@ -530,7 +532,12 @@ struct AskHistoryView: View {
                 }
             }
         }
-        return out.reversed()
+        let k = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matched = k.isEmpty ? out : out.filter {
+            $0.question.text.localizedCaseInsensitiveContains(k) ||
+            ($0.answer?.text.localizedCaseInsensitiveContains(k) ?? false)
+        }
+        return matched.reversed()
     }
 
     private func dayLabel(_ day: String) -> String {

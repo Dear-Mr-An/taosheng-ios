@@ -129,7 +129,7 @@ final class DigestEngine: ObservableObject {
         var transcripts: [String] = []
         // 失败时仍刷新已保存的部分，但不能把部分成功当成整轮完成向外推送。
         defer {
-            if total.events > 0 {
+            if total.events > 0 || total.items > 0 {
                 lastRunAt = Date()
                 NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
             }

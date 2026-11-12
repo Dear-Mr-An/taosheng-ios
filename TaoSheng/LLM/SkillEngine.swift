@@ -9,6 +9,8 @@ final class SkillEngine: ObservableObject {
 
     private let store = Store.shared
     private var timer: Timer?
+    private var inFlight = Set<String>()
+    private var lastAttempt: [String: Date] = [:]
 
     func start() {
         timer?.invalidate()
@@ -54,7 +56,14 @@ final class SkillEngine: ObservableObject {
     }
 
     private func fire(_ skill: SkillDef, day: String) {
+        let key = "\(skill.id):\(day)"
+        let now = Date()
+        guard !inFlight.contains(key),
+              now.timeIntervalSince(lastAttempt[key] ?? .distantPast) >= 300 else { return }
+        inFlight.insert(key)
+        lastAttempt[key] = now
         Task {
+            defer { self.inFlight.remove(key) }
             do {
                 _ = try await self.run(skill, day: day)
                 await MainActor.run { self.lastError = nil }
@@ -125,8 +134,8 @@ final class SkillEngine: ObservableObject {
         let reason = (obj["nothing_reason"] as? String) ?? ""
 
         if map.isEmpty && !isNothing {
-            // 走到这里说明模型给了 JSON 但字段名对不上，宁可用原文也不留空卡
-            map[fields.first?.key ?? "text"] = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+            // 字段名不匹配时保存原始 JSON 会永久占住当天的卡片名额，且向外推送一坨 JSON。
+            throw LLMError.badReply("技能结果没有有效字段，请重试")
         }
 
         let card = SkillCard(
