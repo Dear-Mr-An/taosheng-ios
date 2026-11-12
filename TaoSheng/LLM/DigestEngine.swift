@@ -50,12 +50,15 @@ final class DigestEngine: ObservableObject {
 
     // MARK: - 主流程
 
-    /// 会议模式追加会议切分规则
+    /// 按收音模式追加对应的切分规则
     private var systemPrompt: String {
-        if Settings.shared.captureMode == .meeting {
-            return Prompts.digestSystem + Prompts.meetingModeExtra
+        switch Settings.shared.captureMode {
+        case .meeting: return Prompts.digestSystem + Prompts.meetingModeExtra
+        case .training: return Prompts.digestSystem + Prompts.trainingModeExtra
+        case .call: return Prompts.digestSystem + Prompts.callModeExtra
+        case .script: return Prompts.digestSystem + Prompts.scriptModeExtra
+        case .daily: return Prompts.digestSystem
         }
-        return Prompts.digestSystem
     }
 
     @discardableResult
@@ -168,6 +171,11 @@ final class DigestEngine: ObservableObject {
         // 7.5 技能卡：说完自动识别型（会议速记等）
         SkillEngine.shared.runAfterDigest(day: day)
 
+        // 7.6 口播稿：出整理版 + 原话版两份
+        if Settings.shared.captureMode == .script {
+            saveScriptCard(day: day, rows: rows, events: out.events)
+        }
+
         // 8. 标记已整理
         Store.shared.markDigested(rows.map { $0.id })
 
@@ -181,8 +189,43 @@ final class DigestEngine: ObservableObject {
         return (eventCount, itemCount)
     }
 
-    // MARK: - 寻物
+    // MARK: - 口播稿：整理版 + 原话版
 
+    private func saveScriptCard(day: String, rows: [Segment], events: [EventOut]) {
+        guard !rows.isEmpty else { return }
+        var organized: [String] = []
+        for e in events {
+            if let t = e.title, !t.isEmpty { organized.append("## \(t)") }
+            if let s = e.summary, !s.isEmpty { organized.append(s) }
+            for p in e.points ?? [] { organized.append("- \(p)") }
+            organized.append("")
+        }
+        let raw = rows
+            .map { $0.transcript.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        guard !organized.isEmpty || !raw.isEmpty else { return }
+
+        let card = SkillCard(
+            id: UUID().uuidString,
+            skillId: "script",
+            skillName: "口播稿",
+            day: day,
+            startAt: rows.first?.startedAt,
+            endAt: rows.last?.endedAt,
+            entityId: "script-\(day)",
+            fields: [
+                "整理版": organized.joined(separator: "\n"),
+                "原话版": raw
+            ],
+            quotes: [],
+            nothingReason: nil,
+            createdAt: Date()
+        )
+        Store.shared.insertCard(card)
+    }
+
+    // MARK: - 寻物
     private func runThings(day: String, rows: [Segment]) async {
         let known = Store.shared.things()
         guard !known.isEmpty || rows.count > 0 else { return }

@@ -66,29 +66,31 @@ struct RecordingSettingsView: View {
                     .font(.system(size: 13))
             }
 
-            Section("转写") {
+            Section {
                 Toggle("自动转写", isOn: $settings.autoTranscribe).tint(Theme.accent)
-                Stepper(value: $settings.transcribeIntervalMin, in: 15...720, step: 15) {
-                    Text("每 \(settings.transcribeIntervalMin) 分钟转一次")
-                }
                 Toggle("热词纠错", isOn: $settings.hotwordEnabled).tint(Theme.accent)
                 NavigationLink("热词表（\(app.hotwords.count)）") { HotwordView() }
+            } header: {
+                Text("转写")
+            } footer: {
+                Text("录完 1 分钟就自动转，不用自己调间隔。")
             }
 
-            Section("只录人声") {
+            Section {
                 VStack(alignment: .leading) {
                     Text("灵敏度 \(String(format: "%.3f", settings.sensitivity))")
                         .font(.system(size: 13))
                     Slider(value: $settings.sensitivity, in: 0.005...0.08)
                         .tint(Theme.accent)
                 }
-                Stepper(value: $settings.silenceGap, in: 0.5...5, step: 0.5) {
-                    Text("停顿 \(String(format: "%.1f", settings.silenceGap)) 秒就断句")
-                }
                 Stepper(value: $settings.minSegment, in: 1...10, step: 0.5) {
                     Text("最短 \(String(format: "%.0f", settings.minSegment)) 秒")
                 }
                 Toggle("手机在放视频/音乐时不转写", isOn: $settings.skipWhenOutput).tint(Theme.accent)
+            } header: {
+                Text("只录人声")
+            } footer: {
+                Text("停顿多久算断句跟着「今天」页的模式走：会议 2.5 秒、培训 3 秒、通话 1.8 秒、口播 2 秒、普通 1.5 秒。")
             }
 
             Section("停录时段") {
@@ -726,43 +728,59 @@ struct ModelSettingsView: View {
         Form {
             if part != .llm {
             Section {
-                Picker("方式", selection: $settings.asrKind) {
-                    ForEach(ASRKind.allCases) { k in
-                        Text(k.title).tag(k)
+                SecureField("豆包语音 API Key", text: $settings.doubaoApiKey)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .onChange(of: settings.doubaoApiKey) { v in
+                        if !v.isEmpty && settings.asrKind != .doubao {
+                            settings.asrKind = .doubao
+                        }
                     }
-                }
-                if settings.asrKind == .doubao {
-                    SecureField("API Key（火山引擎语音控制台）", text: $settings.doubaoApiKey)
-                    TextField("Resource Id", text: $settings.doubaoResourceId)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    DisclosureGroup("改用老版 App Key + Access Key") {
-                        TextField("App Key", text: $settings.doubaoAppKey)
+
+                Text(settings.asrReady
+                     ? "已填好，转写会自动开始。"
+                     : "在火山引擎语音控制台复制 API Key 贴进来就行，别的都不用填。")
+                    .font(.system(size: 12))
+                    .foregroundColor(settings.asrReady ? Theme.ok : Theme.dim)
+
+                DisclosureGroup("用别的转写服务（可选）") {
+                    Picker("方式", selection: $settings.asrKind) {
+                        ForEach(ASRKind.allCases) { k in
+                            Text(k.title).tag(k)
+                        }
+                    }
+                    if settings.asrKind == .doubao {
+                        TextField("Resource Id", text: $settings.doubaoResourceId)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                        SecureField("Access Key", text: $settings.doubaoAccessKey)
+                        DisclosureGroup("老版 App Key + Access Key") {
+                            TextField("App Key", text: $settings.doubaoAppKey)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                            SecureField("Access Key", text: $settings.doubaoAccessKey)
+                        }
                     }
-                }
-                if settings.asrKind == .openAICompatible {
-                    TextField("接口地址", text: $settings.asrBaseURL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    TextField("模型", text: $settings.asrModel)
-                        .textInputAutocapitalization(.never)
-                    SecureField("API Key", text: $settings.asrKey)
-                    TextField("或填完整请求地址", text: $settings.asrFullURL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                }
-                if !settings.asrKind.hint.isEmpty {
-                    Text(settings.asrKind.hint)
-                        .font(.caption)
-                        .foregroundColor(Theme.dim)
+                    if settings.asrKind == .openAICompatible {
+                        TextField("接口地址", text: $settings.asrBaseURL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        TextField("模型", text: $settings.asrModel)
+                            .textInputAutocapitalization(.never)
+                        SecureField("API Key", text: $settings.asrKey)
+                        TextField("或填完整请求地址", text: $settings.asrFullURL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                    if !settings.asrKind.hint.isEmpty {
+                        Text(settings.asrKind.hint)
+                            .font(.caption)
+                            .foregroundColor(Theme.dim)
+                    }
                 }
             } header: {
                 Text("转写服务")
             } footer: {
-                Text(settings.asrReady ? "转写已就绪。声音会发给你填的这个服务。" : "\(settings.asrReadyHint)，转写会停在「待转写」。")
+                Text(settings.asrReady ? "转写已就绪。" : "\(settings.asrReadyHint)，转写会停在「待转写」。")
             }
             }
 

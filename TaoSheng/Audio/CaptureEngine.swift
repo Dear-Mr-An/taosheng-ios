@@ -149,7 +149,7 @@ final class CaptureEngine: ObservableObject {
                 self.lastVoiceAt = now
                 self.wroteAnyVoice = true
                 DispatchQueue.main.async { self.isSpeaking = true }
-            } else if let last = self.lastVoiceAt, now.timeIntervalSince(last) > s.silenceGap {
+            } else if let last = self.lastVoiceAt, now.timeIntervalSince(last) > s.modeSilenceGap {
                 DispatchQueue.main.async { self.isSpeaking = false }
             }
 
@@ -172,8 +172,8 @@ final class CaptureEngine: ObservableObject {
             // 结束条件
             if self.file != nil {
                 let started = self.segmentStart ?? now
-                let long = now.timeIntervalSince(started) >= s.maxSegment
-                let quiet = (self.lastVoiceAt.map { now.timeIntervalSince($0) > s.silenceGap } ?? false)
+                let long = now.timeIntervalSince(started) >= s.modeMaxSegment
+                let quiet = (self.lastVoiceAt.map { now.timeIntervalSince($0) > s.modeSilenceGap } ?? false)
                 let tooShort = now.timeIntervalSince(started) < s.minSegment
                 if long || (quiet && !tooShort) {
                     self.closeSegment(force: false)

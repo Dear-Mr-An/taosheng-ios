@@ -37,8 +37,8 @@ final class TranscribeQueue: ObservableObject {
             refreshPending()
             return
         }
-        let interval = Double(max(s.transcribeIntervalMin, 1)) * 60
-        // 严格按用户设的间隔跑，不再「有待转写就每 30 秒一轮」
+        // 不再让用户调间隔：录完 1 分钟就转，避免边录边转抢麦克风
+        let interval: Double = 60
         guard Date().timeIntervalSince(lastRun) >= interval else {
             refreshPending()
             return
@@ -76,8 +76,8 @@ final class TranscribeQueue: ObservableObject {
                     }
                     Store.shared.updateTranscript(id: seg.id, transcript: cleaned, state: .transcribed)
 
-                    // 声纹认人
-                    if !cleaned.isEmpty {
+                    // 声纹认人（培训 / 口播是单人口述，不分人）
+                    if !cleaned.isEmpty && Settings.shared.captureMode.separateSpeakers {
                         await TranscribeQueue.identifySpeaker(segmentId: seg.id, url: url)
                     }
 

@@ -52,33 +52,74 @@ struct LLMProvider: Identifiable, Codable, Hashable {
 }
 
 // MARK: - 备份
-/// 收音模式：日常 / 会议
+/// 收音模式：会议 / 培训 / 通话 / 口播稿 / 普通
 enum CaptureMode: String, CaseIterable, Identifiable {
-    case daily
     case meeting
+    case training
+    case call
+    case script
+    case daily
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .daily: return "日常模式"
-        case .meeting: return "会议模式"
+        case .meeting: return "会议"
+        case .training: return "培训"
+        case .call: return "通话 / 访谈"
+        case .script: return "口播稿"
+        case .daily: return "普通"
         }
     }
 
     var symbol: String {
         switch self {
-        case .daily: return "sun.max"
         case .meeting: return "person.2.wave.2"
+        case .training: return "graduationcap"
+        case .call: return "phone.arrow.up.right"
+        case .script: return "text.quote"
+        case .daily: return "sun.max"
         }
     }
 
+    /// 模式说明（显示在胶囊下方）
     var hint: String {
         switch self {
-        case .daily:
-            return "随口说的话也会记。停顿 1.5 秒就断句，一段最长 3 分钟。"
-        case .meeting:
-            return "更敏感、少断句，一段最长 5 分钟；整理时按会议来切，重点出议题、结论、决定和行动项。"
+        case .meeting: return "多人讨论，结束后出会议纪要"
+        case .training: return "一人主讲，不区分说话人，出培训笔记"
+        case .call: return "两人一来一回，出通话记录"
+        case .script: return "对着手机口述，出整理版和原话版两份稿子"
+        case .daily: return "合成一件事，不出纪要"
+        }
+    }
+
+    /// 一段最长多少秒
+    var maxSegment: Double {
+        switch self {
+        case .meeting: return 300
+        case .training: return 600
+        case .call: return 240
+        case .script: return 600
+        case .daily: return 180
+        }
+    }
+
+    /// 停顿多久算断句
+    var silenceGap: Double {
+        switch self {
+        case .meeting: return 2.5
+        case .training: return 3.0
+        case .call: return 1.8
+        case .script: return 2.0
+        case .daily: return 1.5
+        }
+    }
+
+    /// 是否要做声纹分人（培训是单人口述，不分人）
+    var separateSpeakers: Bool {
+        switch self {
+        case .training, .script: return false
+        default: return true
         }
     }
 }
@@ -155,9 +196,15 @@ final class Settings: ObservableObject {
     }
 
     /// 当前模式下的收音参数（会议模式更敏感、少断句、允许更长的段）
-    var modeSensitivity: Double { captureMode == .meeting ? min(sensitivity, 0.014) : sensitivity }
-    var modeSilenceGap: Double { captureMode == .meeting ? max(silenceGap, 2.5) : silenceGap }
-    var modeMaxSegment: Double { captureMode == .meeting ? max(maxSegment, 300) : maxSegment }
+    var modeSensitivity: Double {
+        switch captureMode {
+        case .meeting, .call: return min(sensitivity, 0.014)
+        case .training, .script: return min(sensitivity, 0.018)
+        case .daily: return sensitivity
+        }
+    }
+    var modeSilenceGap: Double { captureMode.silenceGap }
+    var modeMaxSegment: Double { captureMode.maxSegment }
     @Published var preferredInputUID: String { didSet { d.set(preferredInputUID, forKey: "preferredInputUID") } }
     @Published var skipWhenOutput: Bool { didSet { d.set(skipWhenOutput, forKey: "skipWhenOutput") } }
     @Published var silenceWindowOn: Bool { didSet { d.set(silenceWindowOn, forKey: "silenceWindowOn") } }
@@ -253,10 +300,13 @@ final class Settings: ObservableObject {
     // MARK: - 派生
 
     var asrReady: Bool {
+        // 填了豆包 Key 就直接算就绪，不用再去挑「方式」
+        if !doubaoApiKey.isEmpty { return true }
+        if !doubaoAppKey.isEmpty && !doubaoAccessKey.isEmpty { return true }
         switch asrKind {
         case .off: return false
         case .appleSpeech: return true
-        case .doubao: return !doubaoApiKey.isEmpty || (!doubaoAppKey.isEmpty && !doubaoAccessKey.isEmpty)
+        case .doubao: return false
         case .openAICompatible: return !asrKey.isEmpty && (!asrBaseURL.isEmpty || !asrFullURL.isEmpty) && !asrModel.isEmpty
         }
     }

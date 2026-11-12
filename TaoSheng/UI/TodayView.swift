@@ -155,7 +155,8 @@ struct TodayView: View {
 
     private var modeRow: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 88), spacing: 8, alignment: .leading)],
+                      alignment: .leading, spacing: 8) {
                 ForEach(CaptureMode.allCases) { m in
                     Button {
                         switchMode(m)
@@ -165,16 +166,16 @@ struct TodayView: View {
                                 .font(.system(size: 11, weight: .medium))
                             Text(m.title)
                                 .font(.system(size: 12.5, weight: .medium))
+                                .lineLimit(1)
                         }
                         .foregroundColor(settings.captureMode == m ? Theme.accent : Color.white)
-                        .padding(.horizontal, 12)
+                        .padding(.horizontal, 11)
                         .padding(.vertical, 6)
                         .background(settings.captureMode == m ? Color.white : Color.white.opacity(0.18))
                         .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
                 }
-                Spacer()
             }
             Text(settings.captureMode.hint)
                 .font(.system(size: 11))

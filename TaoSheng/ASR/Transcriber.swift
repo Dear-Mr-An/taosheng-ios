@@ -226,6 +226,15 @@ final class AppleSpeechTranscriber: Transcriber {
 enum TranscriberFactory {
     static func make() -> Transcriber? {
         let s = Settings.shared
+        // 填了豆包 Key 就优先用豆包，不用管「方式」选的什么
+        if !s.doubaoApiKey.isEmpty || (!s.doubaoAppKey.isEmpty && !s.doubaoAccessKey.isEmpty) {
+            if s.asrKind != .off {
+                return DoubaoTranscriber(apiKey: s.doubaoApiKey,
+                                         appKey: s.doubaoAppKey,
+                                         accessKey: s.doubaoAccessKey,
+                                         resourceId: s.doubaoResourceId)
+            }
+        }
         switch s.asrKind {
         case .off:
             return nil
