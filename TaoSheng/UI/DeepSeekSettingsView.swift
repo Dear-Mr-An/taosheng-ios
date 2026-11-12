@@ -125,9 +125,11 @@ struct DeepSeekSettingsView: View {
                                     .background(Theme.accent.opacity(0.12)).clipShape(Capsule())
                             }
                         }
-                        Text(p.model + (p.key.isEmpty ? " · 未填密钥" : " · 已填密钥"))
+                        // DeepSeek 预设那条的 key 存在 llmKey 里，providersJSON 里恒为空，
+                        // 不能只看 p.key，否则上面显示已配置、这里永远「未填密钥」。
+                        Text(p.model + (hasKey(p) ? " · 已填密钥" : " · 未填密钥"))
                             .font(.system(size: 12))
-                            .foregroundStyle(p.key.isEmpty ? Theme.warn : Theme.dim)
+                            .foregroundStyle(hasKey(p) ? Theme.dim : Theme.warn)
                             .lineLimit(2)
                     }
                     Spacer(minLength: 0)
@@ -164,6 +166,11 @@ struct DeepSeekSettingsView: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
+    /// 主服务商的密钥存在 llmKey 里，providersJSON 中那条恒为空
+    private func hasKey(_ p: LLMProvider) -> Bool {
+        p.id == settings.llmProviderID ? !settings.llmKey.isEmpty : !p.key.isEmpty
     }
 
     @ViewBuilder private var balanceContent: some View {        if account.loading {

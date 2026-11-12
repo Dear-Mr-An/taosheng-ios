@@ -18,76 +18,177 @@ final class ReviewEngine {
     func runIfDue() {
         let s = Settings.shared
         let cal = Calendar.current
-        let hour = cal.component(.hour, from: Date())
-        let today = DayKey.of(Date())
+        let now = Date()
+        let hour = cal.component(.hour, from: now)
+        let today = DayKey.of(now)
         guard !s.effectiveLLM.key.isEmpty else { return }
-        let existing = store.reviews(limit: 20).first { $0.day == today && $0.kind == .daily }
-        guard existing == nil, hour >= s.reviewHour else { return }
-        // 同一天只自动试一次，失败也不反复烧请求
-        if UserDefaults.standard.string(forKey: "ts.lastReviewTry") == today { return }
-        UserDefaults.standard.set(today, forKey: "ts.lastReviewTry")
+
+        let done = store.reviews(limit: 40)
+
+        // 每日回顾：到点、今天还没生成、今天没试过
+        let dailyDone = done.contains { $0.day == today && $0.kind == .daily }
+        if !dailyDone, hour >= s.reviewHour,
+           UserDefaults.standard.string(forKey: "ts.lastReviewTry") != today {
+            Task {
+                do {
+                    _ = try await self.generateDaily(day: today)
+                    UserDefaults.standard.set(today, forKey: "ts.lastReviewTry")
+                } catch {
+                    NSLog("涛声: 自动回顾失败 \(error)")
+                }
+            }
+            return
+        }
+
+        // 每周回顾：到点、今天是设定的那一天、这一周还没生成
+        let weekday = cal.component(.weekday, from: now)
+        guard weekday == s.weeklyReviewWeekday, hour >= s.reviewHour else { return }
+        let weekDone = done.contains { $0.kind == .weekly && $0.day == today }
+        guard !weekDone,
+              UserDefaults.standard.string(forKey: "ts.lastWeeklyTry") != today else { return }
         Task {
-            do { _ = try await self.generateDaily(day: today) }
-            catch { NSLog("涛声: 自动回顾失败 \(error)") }
+            do {
+                _ = try await self.generateWeekly(endDay: today)
+                UserDefaults.standard.set(today, forKey: "ts.lastWeeklyTry")
+            } catch {
+                NSLog("涛声: 周回顾失败 \(error)")
+            }
         }
     }
 
     // MARK: - 每日
 
     func generateDaily(day: String) async throws -> ReviewRecord {
-        let lines = store.transcriptLines(day: day)
-        guard !lines.isEmpty else { throw TranscribeError.empty }
-        var context = ""
-        for l in lines {
-            let who = l.speaker.isEmpty ? "" : "\(l.speaker)："
-            context += "\(l.time) \(who)\(l.text)\n"
-        }
-        if context.count > 12000 {
-            context = String(context.prefix(12000))
-        }
+        let s = Settings.shared
+        let evs = store.events(day: day, limit: 400)
+        let allItems = store.items(day: day, status: nil, category: nil, limit: 400)
+        guard !evs.isEmpty || !allItems.isEmpty else { throw TranscribeError.empty }
 
-        let system = PromptsAsk.reviewSystem
+        // 事件编号换成 1..N：提示词要求 eventId 是整数，而且只能是本轮输入里的
+        var numOf: [String: Int] = [:]
+        for (i, e) in evs.enumerated() { numOf[e.id] = i + 1 }
 
-        let reply = try await LLMClient.completeAny(system: system, user: "\(day) 的原话：\n\(context)", temperature: 0.3)
-        let obj = JSONExtract.object(from: reply)
-
-        var headline = "今天没什么特别的"
-        var body = ""
-        if let o = obj {
-            if let h = o["brief"] as? String, !h.isEmpty { headline = h }
-            if let secs = o["sections"] as? [[String: Any]] {
-                for sec in secs {
-                    let title = (sec["title"] as? String) ?? ""
-                    guard !title.isEmpty else { continue }
-                    var rows: [String] = []
-                    if let ls = sec["lines"] as? [[String: Any]] {
-                        for l in ls {
-                            if let t = l["text"] as? String, !t.isEmpty { rows.append(t) }
-                        }
-                    } else if let ls = sec["lines"] as? [String] {
-                        rows = ls
-                    }
-                    guard !rows.isEmpty else { continue }
-                    body += "## \(title)\n"
-                    for l in rows { body += "- \(l)\n" }
-                    body += "\n"
-                }
+        let iso = ISO8601DateFormatter()
+        var byEvent: [String: [[String: Any]]] = [:]
+        var orphans: [[String: Any]] = []
+        for it in allItems {
+            var d: [String: Any] = [
+                "status": it.status.rawValue,
+                "category": it.category,
+                "content": it.content,
+                "createdAt": iso.string(from: it.createdAt)
+            ]
+            if let t = it.dueText, !t.isEmpty { d["dueText"] = t }
+            if let a = it.dueAt { d["dueAt"] = iso.string(from: a) }
+            if let eid = it.eventId, numOf[eid] != nil {
+                byEvent[eid, default: []].append(d)
+            } else {
+                orphans.append(d)
             }
-        } else {
-            body = reply
         }
+
+        var evArr: [[String: Any]] = []
+        for (i, e) in evs.enumerated() {
+            var d: [String: Any] = [
+                "id": i + 1,
+                "title": e.title,
+                "summary": e.summary,
+                "points": e.points,
+                "people": e.people,
+                "emotion": e.emotion,
+                "intensity": e.intensity,
+                "important": e.important,
+                "starred": e.starred,
+                "startAt": iso.string(from: e.startAt),
+                "items": byEvent[e.id] ?? []
+            ]
+            if let place = e.place, !place.isEmpty { d["place"] = place }
+            evArr.append(d)
+        }
+        if !orphans.isEmpty {
+            evArr.append([
+                "id": evs.count + 1,
+                "title": "零散记录",
+                "summary": "没有归到具体事件的条目",
+                "points": [], "people": [],
+                "emotion": "平静", "intensity": 3,
+                "important": false, "starred": false,
+                "startAt": iso.string(from: Date()),
+                "items": orphans
+            ])
+        }
+
+        // 标星满 3 天还没新进展的历史重点
+        let cal = Calendar.current
+        let stale: [[String: Any]] = store.starredEvents(limit: 60).compactMap { e -> [String: Any]? in
+            guard let at = e.starredAt else { return nil }
+            let days = cal.dateComponents([.day], from: at, to: Date()).day ?? 0
+            guard days >= 3 else { return nil }
+            return ["id": numOf[e.id] ?? 0,
+                    "title": e.title,
+                    "day": e.day,
+                    "starredAt": iso.string(from: at)]
+        }.prefix(5).map { $0 }
+
+        // 时间窗：昨晚 reviewHour → 今晚 reviewHour
+        let end = cal.date(bySettingHour: s.reviewHour, minute: 0, second: 0, of: Date()) ?? Date()
+        let start = cal.date(byAdding: .day, value: -1, to: end) ?? end
+
+        let payload: [String: Any] = [
+            "date": day,
+            "timeWindow": ["startExclusive": iso.string(from: start),
+                           "endInclusive": iso.string(from: end)],
+            "events": evArr,
+            "starred_stale": stale
+        ]
+        guard let body = try? JSONSerialization.data(withJSONObject: payload),
+              let user = String(data: body, encoding: .utf8) else {
+            throw LLMError.badReply("回顾输入组装失败")
+        }
+
+        let reply = try await LLMClient.completeAny(system: PromptsAsk.reviewSystem, user: user, temperature: 0.2)
+        // 解析不出就是失败，不能存成空白回顾 —— 否则当天判定已生成，再也不会重来
+        guard let obj = JSONExtract.object(from: reply) else {
+            throw LLMError.badReply("回顾结果不是 JSON，请重试")
+        }
+
+        var headline = ""
+        var bodyText = ""
+        if let h = obj["brief"] as? String { headline = h.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let secs = obj["sections"] as? [[String: Any]] {
+            for sec in secs {
+                let title = (sec["title"] as? String) ?? ""
+                guard !title.isEmpty else { continue }
+                var rows: [String] = []
+                if let ls = sec["lines"] as? [[String: Any]] {
+                    for l in ls {
+                        if let t = l["text"] as? String, !t.isEmpty { rows.append(t) }
+                    }
+                } else if let ls = sec["lines"] as? [String] {
+                    rows = ls
+                }
+                guard !rows.isEmpty else { continue }
+                bodyText += "## \(title)\n"
+                for l in rows { bodyText += "- \(l)\n" }
+                bodyText += "\n"
+            }
+        }
+        guard !bodyText.isEmpty else {
+            throw LLMError.badReply("回顾没有任何栏目，请重试")
+        }
+        if headline.isEmpty { headline = "今天的一天" }
 
         let rec = ReviewRecord(
             id: "daily-\(day)",
             kind: .daily,
             day: day,
             headline: headline,
-            text: body.trimmingCharacters(in: .whitespacesAndNewlines),
+            text: bodyText.trimmingCharacters(in: .whitespacesAndNewlines),
             createdAt: Date()
         )
         store.saveReview(rec)
 
-        if Settings.shared.pushOnReview {
+        if s.pushOnReview {
             PushEngine.shared.pushReview(rec)
         }
         NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
@@ -105,7 +206,7 @@ final class ReviewEngine {
             context += "\(s.day) \(s.timeText) \(who)\(s.transcript)\n"
         }
         if context.count > 16000 {
-            context = String(context.prefix(16000))
+            context = String(context.suffix(16000))
         }
 
         let system = """

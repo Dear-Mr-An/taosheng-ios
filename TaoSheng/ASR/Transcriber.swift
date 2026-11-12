@@ -58,8 +58,12 @@ struct OpenAICompatibleTranscriber: Transcriber {
     }
 
     func transcribe(fileURL: URL) async throws -> String {
-        guard var base = URL(string: baseURL) else { throw TranscribeError.notConfigured }
-        if !base.absoluteString.hasSuffix("/audio/transcriptions") {
+        // 用户可能把完整地址填成 .../v1/audio/transcriptions/，尾斜杠要先去掉，
+        // 否则会被再拼一次变成 .../transcriptions/audio/transcriptions 直接 404
+        var raw = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        while raw.hasSuffix("/") { raw.removeLast() }
+        guard var base = URL(string: raw) else { throw TranscribeError.notConfigured }
+        if !raw.hasSuffix("audio/transcriptions") {
             base = base.appendingPathComponent("audio/transcriptions")
         }
 
@@ -223,18 +227,28 @@ final class AppleSpeechTranscriber: Transcriber {
             let req = SFSpeechURLRecognitionRequest(url: fileURL)
             req.shouldReportPartialResults = false
             req.requiresOnDeviceRecognition = rec.supportsOnDeviceRecognition
+            let lock = NSLock()
             var finished = false
+            let finish: (Result<String, Error>) -> Void = { r in
+                lock.lock()
+                if finished { lock.unlock(); return }
+                finished = true
+                lock.unlock()
+                cont.resume(with: r)
+            }
             rec.recognitionTask(with: req) { result, error in
-                if finished { return }
                 if let error {
-                    finished = true
-                    cont.resume(throwing: TranscribeError.speechUnavailable(error.localizedDescription))
+                    finish(.failure(TranscribeError.speechUnavailable(error.localizedDescription)))
                     return
                 }
                 if let result, result.isFinal {
-                    finished = true
-                    cont.resume(returning: result.bestTranscription.formattedString)
+                    finish(.success(result.bestTranscription.formattedString))
                 }
+            }
+            // 没有语音 / 任务被系统取消时，回调可能既不 final 也不报错，
+            // 协程会永久挂起，这一段永远停在「转写中」，整个队列被它卡住。
+            DispatchQueue.global().asyncAfter(deadline: .now() + 120) {
+                finish(.failure(TranscribeError.speechUnavailable("识别超时，请重试")))
             }
         }
     }
@@ -244,15 +258,8 @@ final class AppleSpeechTranscriber: Transcriber {
 enum TranscriberFactory {
     static func make() -> Transcriber? {
         let s = Settings.shared
-        // 填了豆包 Key 就优先用豆包，不用管「方式」选的什么
-        if !s.doubaoApiKey.isEmpty || (!s.doubaoAppKey.isEmpty && !s.doubaoAccessKey.isEmpty) {
-            if s.asrKind != .off {
-                return DoubaoTranscriber(apiKey: s.doubaoApiKey,
-                                         appKey: s.doubaoAppKey,
-                                         accessKey: s.doubaoAccessKey,
-                                         resourceId: s.doubaoResourceId)
-            }
-        }
+        // 严格按用户选的「方式」走：以前只要填过豆包 Key 就强行用豆包，
+        // 导致选了自定义（Whisper）或本地识别都不生效。
         switch s.asrKind {
         case .off:
             return nil

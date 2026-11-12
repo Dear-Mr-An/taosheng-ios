@@ -83,11 +83,20 @@ final class DigestEngine: ObservableObject {
         lastError = nil
         defer { running = false }
         do {
+            var failed: String?
             for day in days {
                 try Task.checkCancellation()
-                _ = try await performDigest(day: day, full: false)
+                do {
+                    _ = try await performDigest(day: day, full: false)
+                } catch {
+                    // 一天失败不能拖垮整批：记下来继续下一天，
+                    // 否则积压里永远卡在最前面那天，后面的新录音永远轮不到。
+                    failed = "\(day)：\(error.localizedDescription)"
+                }
             }
-            UserDefaults.standard.set(Date(), forKey: "digestLastAutomaticSuccess")
+            if let f = failed { lastError = f } else {
+                UserDefaults.standard.set(Date(), forKey: "digestLastAutomaticSuccess")
+            }
         } catch {
             lastError = error.localizedDescription
         }
@@ -174,7 +183,11 @@ final class DigestEngine: ObservableObject {
         } catch {
             throw LLMError.badReply("整理结果结构不正确，原话已保留，请重试")
         }
-        guard !out.events.isEmpty else { throw LLMError.badReply("未返回事件，原话已保留，请重试") }
+        // 只产出提取项（比如安静的一天只有一句「明天交报告」）是正常结果，
+        // 不能当失败：否则 markDigested 永远不执行，每轮都重发整天原话重试，白烧 token。
+        guard !out.events.isEmpty || !out.items.isEmpty else {
+            throw LLMError.badReply("未返回事件，原话已保留，请重试")
+        }
 
         // 4. 落事件
         let segById = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($0.offset + 1, $0.element) })
@@ -425,6 +438,26 @@ final class DigestEngine: ObservableObject {
     struct DoneHint: Codable {
         var item_id: String
         var line_id: Int?
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            // 模型常把 id 写成数字、把 line_id 写成字符串；
+            // 之前任一条不合规会让整个数组解码失败，"已完成"提示全军覆没。
+            if let s = try? c.decode(String.self, forKey: .item_id) {
+                item_id = s
+            } else if let n = try? c.decode(Int.self, forKey: .item_id) {
+                item_id = String(n)
+            } else {
+                item_id = ""
+            }
+            if let n = try? c.decode(Int.self, forKey: .line_id) {
+                line_id = n
+            } else if let s = try? c.decode(String.self, forKey: .line_id) {
+                line_id = Int(s)
+            } else {
+                line_id = nil
+            }
+        }
     }
 }
 

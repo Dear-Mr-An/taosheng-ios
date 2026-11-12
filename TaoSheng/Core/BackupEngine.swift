@@ -85,6 +85,7 @@ final class BackupEngine {
         do {
             try await putText(path: "taosheng/\(target).json", text: text)
             try await putText(path: "taosheng/latest.json", text: text)
+            await pruneOldBackups(keep: s.backupKeepVersions)
             return "已备份 \(target) · \(bytes / 1024) KB"
         } catch {
             return "备份失败：\(error.localizedDescription)"
@@ -127,7 +128,96 @@ final class BackupEngine {
         }
     }
 
+    // MARK: - 保留版本
+
+    /// 云端只留最近 N 天的日备份，否则每天一个文件会一直涨到用户看不懂。
+    /// WebDAV 走 PROPFIND 列目录后删多余的；S3 需要 ListObjectsV2（query 参与签名），暂不清理。
+    func pruneOldBackups(keep: Int) async {
+        let s = Settings.shared
+        guard keep > 0, s.backupKind == .webdav || s.backupKind == .nutstore else { return }
+        let base = davBase(s)
+        let names = await listDavJson(base, dir: "taosheng")
+        let days = names
+            .filter { $0.range(of: #"^\d{4}-\d{2}-\d{2}\.json$"#, options: .regularExpression) != nil }
+            .sorted()
+        guard days.count > keep else { return }
+        for name in days.prefix(days.count - keep) {
+            await deleteDav(base, path: "taosheng/" + name)
+        }
+    }
+
+    private func listDavJson(_ base: String, dir: String) async -> [String] {
+        let s = Settings.shared
+        guard let url = davURL(base, dir + "/") else { return [] }
+        var req = URLRequest(url: url)
+        req.httpMethod = "PROPFIND"
+        req.setValue("1", forHTTPHeaderField: "Depth")
+        req.setValue("application/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        let auth = Data("\(s.backupUser):\(s.backupPass)".utf8).base64EncodedString()
+        req.setValue("Basic \(auth)", forHTTPHeaderField: "Authorization")
+        req.timeoutInterval = 30
+        req.httpBody = Data("""
+        <?xml version="1.0" encoding="utf-8"?>
+        <d:propfind xmlns:d="DAV:"><d:prop><d:getlastmodified/></d:prop></d:propfind>
+        """.utf8)
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let xml = String(data: data, encoding: .utf8) else { return [] }
+        guard let re = try? NSRegularExpression(pattern: "<[^>]*href[^>]*>([^<]+)<",
+                                               options: [.caseInsensitive]) else { return [] }
+        let ns = xml as NSString
+        var out: [String] = []
+        for m in re.matches(in: xml, range: NSRange(location: 0, length: ns.length)) {
+            guard m.numberOfRanges > 1 else { continue }
+            let href = ns.substring(with: m.range(at: 1))
+            let decoded = href.removingPercentEncoding ?? href
+            let name = (decoded as NSString).lastPathComponent
+            if name.hasSuffix(".json") { out.append(name) }
+        }
+        return out
+    }
+
+    private func deleteDav(_ base: String, path: String) async {
+        let s = Settings.shared
+        guard let url = davURL(base, path) else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        let auth = Data("\(s.backupUser):\(s.backupPass)".utf8).base64EncodedString()
+        req.setValue("Basic \(auth)", forHTTPHeaderField: "Authorization")
+        req.timeoutInterval = 30
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
     // MARK: - 读写抽象
+
+    /// 坚果云默认目录是中文（/dav/我的文件/…），直接 URL(string:) 会返回 nil，
+    /// 必须先把路径编码，否则「备份地址不对」直接把备份和恢复全废掉。
+    private func davBase(_ s: Settings) -> String {
+        var base = s.backupURL
+        if s.backupKind == .nutstore && base.isEmpty {
+            base = "https://dav.jianguoyun.com/dav/"
+        }
+        if !base.hasSuffix("/") { base += "/" }
+        return base
+    }
+
+    private func davURL(_ base: String, _ path: String) -> URL? {
+        let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: " ?#"))
+        guard let enc = (base + path).addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        return URL(string: enc)
+    }
+
+    /// WebDAV 写文件前目录必须存在，否则服务器回 409 Conflict，而且自己不会好
+    private func ensureDavDir(_ base: String, name: String) async {
+        guard let url = davURL(base, name + "/") else { return }
+        let s = Settings.shared
+        var req = URLRequest(url: url)
+        req.httpMethod = "MKCOL"
+        let auth = Data("\(s.backupUser):\(s.backupPass)".utf8).base64EncodedString()
+        req.setValue("Basic \(auth)", forHTTPHeaderField: "Authorization")
+        req.timeoutInterval = 20
+        _ = try? await URLSession.shared.data(for: req)
+    }
 
     func putText(path: String, text: String) async throws {
         let s = Settings.shared
@@ -135,12 +225,9 @@ final class BackupEngine {
         case .none:
             throw TranscribeError.http(0, "没选备份位置")
         case .webdav, .nutstore:
-            var base = s.backupURL
-            if s.backupKind == .nutstore && base.isEmpty {
-                base = "https://dav.jianguoyun.com/dav/"
-            }
-            if !base.hasSuffix("/") { base += "/" }
-            guard let url = URL(string: base + path) else { throw TranscribeError.http(0, "备份地址不对") }
+            let base = davBase(s)
+            await ensureDavDir(base, name: "taosheng")
+            guard let url = davURL(base, path) else { throw TranscribeError.http(0, "备份地址不对") }
             var req = URLRequest(url: url)
             req.httpMethod = "PUT"
             req.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
@@ -160,12 +247,8 @@ final class BackupEngine {
         case .none:
             throw TranscribeError.http(0, "没选备份位置")
         case .webdav, .nutstore:
-            var base = s.backupURL
-            if s.backupKind == .nutstore && base.isEmpty {
-                base = "https://dav.jianguoyun.com/dav/"
-            }
-            if !base.hasSuffix("/") { base += "/" }
-            guard let url = URL(string: base + path) else { throw TranscribeError.http(0, "备份地址不对") }
+            let base = davBase(s)
+            guard let url = davURL(base, path) else { throw TranscribeError.http(0, "备份地址不对") }
             var req = URLRequest(url: url)
             req.httpMethod = "GET"
             let auth = Data("\(s.backupUser):\(s.backupPass)".utf8).base64EncodedString()

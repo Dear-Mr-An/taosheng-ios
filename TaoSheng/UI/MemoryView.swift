@@ -5,7 +5,6 @@ struct MemoryView: View {
     @State private var byDay = true
     @State private var showShare = false
     @State private var showReview = false
-    @State private var showThings = false
     @State private var toast: String?
     @State private var cat = "重点"
 
@@ -37,9 +36,6 @@ struct MemoryView: View {
         }
         .sheet(isPresented: $showReview) {
             NavigationStack { ReviewSheet(day: day) }
-        }
-        .sheet(isPresented: $showThings) {
-            NavigationStack { ThingsView() }
         }
         .alert("提示", isPresented: Binding(get: { toast != nil }, set: { if !$0 { toast = nil } })) {
             Button("好") { toast = nil }

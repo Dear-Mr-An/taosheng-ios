@@ -243,14 +243,14 @@ final class Settings: ObservableObject {
     // MARK: - 派生
 
     var asrReady: Bool {
-        // 填了豆包 Key 就直接算就绪，不用再去挑「方式」
-        if !doubaoApiKey.isEmpty { return true }
-        if !doubaoAppKey.isEmpty && !doubaoAccessKey.isEmpty { return true }
+        // 先看用户选的「方式」：选了自定义/本地/关闭，就不能因为残留着豆包 Key 而判成就绪，
+        // 否则选引擎这项设置永远不生效。
         switch asrKind {
         case .off: return false
         case .appleSpeech: return true
-        case .doubao: return false
-        case .openAICompatible: return !asrKey.isEmpty && (!asrBaseURL.isEmpty || !asrFullURL.isEmpty) && !asrModel.isEmpty
+        case .doubao: return !doubaoApiKey.isEmpty || (!doubaoAppKey.isEmpty && !doubaoAccessKey.isEmpty)
+        case .openAICompatible:
+            return !asrKey.isEmpty && (!asrBaseURL.isEmpty || !asrFullURL.isEmpty) && !asrModel.isEmpty
         }
     }
 

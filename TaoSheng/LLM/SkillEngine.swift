@@ -80,7 +80,8 @@ final class SkillEngine: ObservableObject {
             let who = r.speaker.isEmpty ? "" : "\(r.speaker)："
             context += "[\(i + 1)] \(r.timeText) \(who)\(r.transcript)\n"
         }
-        if context.count > 14000 { context = String(context.prefix(14000)) }
+        // 超长时保留最新的部分：会议/培训常常越到后面越关键，砍尾巴等于砍结论
+        if context.count > 14000 { context = String(context.suffix(14000)) }
 
         let fields = skill.fields.isEmpty ? [SkillField.text, SkillField.bullets] : skill.fields
         let spec = fields.map { "- \($0.key)（\($0.label) · \($0.typeText)\($0.required ? " · 必有" : "")" }
@@ -105,7 +106,11 @@ final class SkillEngine: ObservableObject {
         """
 
         let reply = try await LLMClient.completeAny(system: system, user: "\(day) 的记录：\n\(context)", temperature: 0.3)
-        let obj = JSONExtract.object(from: reply) ?? [:]
+        // 解析不出来就报错重试：把半截 JSON / Markdown 围栏当正文写进卡片并推送，
+        // 用户看到的是一坨原始文本，而且当天已判定跑过，不会再重来。
+        guard let obj = JSONExtract.object(from: reply) else {
+            throw LLMError.badReply("技能结果不是 JSON，请重试")
+        }
         let isNothing = (obj["nothing"] as? Bool) ?? (obj["nothing"] as? String == "true")
         var map: [String: String] = [:]
         if let raw = obj["fields"] as? [String: Any] {
@@ -120,6 +125,7 @@ final class SkillEngine: ObservableObject {
         let reason = (obj["nothing_reason"] as? String) ?? ""
 
         if map.isEmpty && !isNothing {
+            // 走到这里说明模型给了 JSON 但字段名对不上，宁可用原文也不留空卡
             map[fields.first?.key ?? "text"] = reply.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 

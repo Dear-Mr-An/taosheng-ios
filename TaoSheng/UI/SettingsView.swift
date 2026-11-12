@@ -5,7 +5,7 @@ struct SettingsView: View {
     @EnvironmentObject var app: AppState
     @EnvironmentObject var capture: CaptureEngine
 
-    @AppStorage("appearance") private var appearance = "light"
+    @AppStorage("appearance") private var appearance = "system"
 
     var body: some View {
         NavigationStack {

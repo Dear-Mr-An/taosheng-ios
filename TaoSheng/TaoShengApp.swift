@@ -12,10 +12,12 @@ struct TaoShengApp: App {
     @AppStorage("appearance") private var appearance = "system"
 
     init() {
+        // 和 CaptureEngine 保持一致：不要 .defaultToSpeaker / .allowBluetoothA2DP，
+        // 否则微信语音、来电会被强制外放。
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playAndRecord,
                                  mode: .default,
-                                 options: [.allowBluetooth, .allowBluetoothA2DP, .mixWithOthers, .defaultToSpeaker])
+                                 options: [.allowBluetooth, .mixWithOthers])
     }
 
     /// 外观设置真正生效：日间 / 夜间 / 跟随系统
@@ -45,6 +47,14 @@ struct TaoShengApp: App {
                     BackupEngine.shared.start()
                     ReminderEngine.shared.requestAuth()
                     ReminderEngine.shared.rescheduleAll(Store.shared.reminders())
+                    // 整理自动排的提醒不落库，启动时按未完成待办补排一次
+                    ReminderEngine.shared.rescheduleQuick(
+                        Store.shared.items(day: nil, status: .pending, category: nil, limit: 200)
+                            .compactMap { it in
+                                guard let due = it.dueAt else { return nil }
+                                return (id: it.id, title: it.content, due: due)
+                            }
+                    )
                     MicRouter.shared.applyPreferred()
                     LocationEngine.shared.syncWithSettings()
                     if UserDefaults.standard.bool(forKey: "captureWanted") && !capture.isRunning {

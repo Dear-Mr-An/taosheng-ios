@@ -300,7 +300,9 @@ final class CaptureEngine: ObservableObject {
         // 严格为 0 不是"安静房间"，是"拿不到输入"：别人独占麦克风时系统塞给我们的就是全零。
         if rms < 1e-7 {
             zeroFrames += n
-            if zeroFrames > 16000 * 20 && !yieldedBySilence {
+            // 阈值按实际采样率算：tap 是 48kHz，写死 16000 会让 6.7 秒就被判成"被占用"
+            let limit = Int(buffer.format.sampleRate) * 20
+            if zeroFrames > limit && !yieldedBySilence {
                 yieldedBySilence = true
                 DispatchQueue.main.async { [weak self] in self?.yieldForOtherApp() }
             }
@@ -406,7 +408,9 @@ final class CaptureEngine: ObservableObject {
             file = f
             fileURL = url
             segmentStart = date
-            wroteAnyVoice = true
+            // 新段默认「还没听到人声」，只有真的超过阈值才置 true；
+            // 否则每段都算有人声，静音误触发开的空段也会入库去转写。
+            wroteAnyVoice = false
             NSLog("涛声: 新段 \(name)")
         } catch {
             NSLog("涛声: 建文件失败 \(error)")
@@ -418,11 +422,14 @@ final class CaptureEngine: ObservableObject {
         file = nil
         fileURL = nil
         segmentStart = nil
+        // 每段都要重置，否则从第二段起 wroteAnyVoice 恒为真，空段全被放进来
+        let hadVoice = wroteAnyVoice
+        wroteAnyVoice = false
         let end = Date()
         let duration = end.timeIntervalSince(start)
         // AVAudioFile 在释放时 flush 文件头，先释放再读大小
         let size = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.intValue ?? 0
-        guard duration >= minimumDuration, wroteAnyVoice || force else {
+        guard duration >= minimumDuration, hadVoice || force else {
             try? FileManager.default.removeItem(at: url)
             return
         }

@@ -49,7 +49,9 @@ struct TodosView: View {
         } message: { Text(toast ?? "") }
         .onDisappear { cancelVoice() }
         .onChange(of: scenePhase) { phase in
-            if phase != .active { cancelVoice() }
+            // 只在这一页真正退到后台时才放弃；系统授权弹窗也会让 phase 变成 inactive，
+            // 那种情况下取消就等于把用户刚开始说的那句话掐掉。
+            if phase == .background { cancelVoice() }
         }
     }
 
@@ -261,9 +263,12 @@ struct TodosView: View {
         guard holding else { return }
         holding = false
         finishingVoice = true
-        voiceStartTask?.cancel()
-        voiceStartTask = nil
         voiceFinishTask = Task { @MainActor in
+            // 启动可能还卡在 await 里（首次授权、音频会话激活都要时间），
+            // 这里 cancel 掉会让 finish() 拿到空串，用户说完只看到「没听清」。
+            // 等它跑完再收尾。
+            _ = await voiceStartTask?.value
+            voiceStartTask = nil
             let text = await speech.finish()
             guard !Task.isCancelled else { return }
             finishingVoice = false
@@ -401,15 +406,20 @@ struct TodosView: View {
                 toast = "整理结果不正确，原文已保留，可重试或直接存"
                 return
             }
-            var added = 0
+            var drafts: [(content: String, category: String, due: String?)] = []
             for raw in arr {
                 let content = (raw["content"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 guard !content.isEmpty else { continue }
                 let category = raw["category"] as? String ?? "待办"
                 let cat = ["待办", "约定", "备忘"].contains(category) ? category : "待办"
-                app.addItem(content: content, category: cat, due: raw["due"] as? String)
-                added += 1
+                // 模型经常把「没有时间」写成字符串 "null" / "n/a"，直接透传会变成一条解析不出时间的假截止
+                let dueRaw = (raw["due"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let bad = ["", "null", "nil", "none", "n/a", "na", "-", "无"]
+                let due = (dueRaw.map { bad.contains($0.lowercased()) } ?? true) ? nil : dueRaw
+                drafts.append((content: content, category: cat, due: due))
             }
+            let added = drafts.count
+            if added > 0 { app.addItems(drafts) }
             guard added > 0 else {
                 toast = "没有识别出待办，原文已保留，可修改或直接存"
                 return

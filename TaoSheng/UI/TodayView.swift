@@ -203,9 +203,14 @@ struct TodayView: View {
     private func switchMode(_ m: CaptureMode) {
         guard settings.captureMode != m else { return }
         let wasRunning = capture.isRunning
-        if wasRunning { capture.stop() }
         settings.captureMode = m
-        if wasRunning { capture.start() }
+        guard wasRunning else { return }
+        capture.stop()
+        // 立刻重启时 audio session 还没释放，start() 会静默失败；
+        // 等 0.4 秒再开，中间用户自己点了停止就不抢回来。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            if !capture.isRunning { capture.start() }
+        }
     }
 
     private var heroNote: String {
@@ -367,8 +372,9 @@ struct TimelineFullView: View {
     @State private var earlyFirst = true
 
     private var events: [MemoryEvent] {
+        // Store 返回的是 start_at DESC（晚的在上），earlyFirst 要反过来才真的是「早的在上」
         let list = Store.shared.events(day: day, limit: 500)
-        return earlyFirst ? list : list.reversed()
+        return earlyFirst ? list.reversed() : list
     }
 
     var body: some View {

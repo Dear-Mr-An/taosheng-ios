@@ -220,6 +220,24 @@ final class AppState: ObservableObject {
         refresh()
     }
 
+    /// 一次加多条（语音拆卡场景）：只落一次库、只刷新一次，
+    /// 否则拆出 5 条就要跑 5 × 20 多次 SQL，卡在弹窗里。
+    func addItems(_ drafts: [(content: String, category: String, due: String?)]) {
+        guard !drafts.isEmpty else { return }
+        let now = Date()
+        let day = DayKey.of(now)
+        let list = drafts.map { d in
+            MemoryItem(
+                id: shortID(), eventId: nil, day: day,
+                category: d.category, kind: "我要做", content: d.content,
+                status: .accepted, dueText: d.due, dueAt: DigestEngine.parseDue(d.due),
+                who: nil, sourceText: nil, createdAt: now, updatedAt: now
+            )
+        }
+        store.insertItems(list)
+        refresh()
+    }
+
     // MARK: - 事件操作
 
     func starEvent(_ id: String, starred: Bool) {

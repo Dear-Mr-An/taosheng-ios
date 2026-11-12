@@ -621,7 +621,9 @@ extension Store {
     func askMessages(limit: Int = 200) -> [AskMessage] {
         queue.sync { () -> [AskMessage] in
             var st: OpaquePointer?
-            let sql = "SELECT id,role,text,citations,created_at FROM ask ORDER BY created_at ASC LIMIT \(limit);"
+            // 取「最新」limit 条再按时间升序返回。原来直接 ASC LIMIT，
+            // 问答超过 limit 条后历史页永远只显示最早的那批。
+            let sql = "SELECT id,role,text,citations,created_at FROM (SELECT id,role,text,citations,created_at FROM ask ORDER BY created_at DESC LIMIT \(limit)) ORDER BY created_at ASC;"
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
             defer { sqlite3_finalize(st) }
             var out: [AskMessage] = []
@@ -666,7 +668,7 @@ extension Store {
         if k.isEmpty { return askMessages(limit: limit) }
         return queue.sync { () -> [AskMessage] in
             var st: OpaquePointer?
-            let sql = "SELECT id,role,text,citations,created_at FROM ask WHERE text LIKE ? ORDER BY created_at ASC LIMIT \(limit);"
+            let sql = "SELECT id,role,text,citations,created_at FROM (SELECT id,role,text,citations,created_at FROM ask WHERE text LIKE ? ORDER BY created_at DESC LIMIT \(limit)) ORDER BY created_at ASC;"
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
             defer { sqlite3_finalize(st) }
             bind(st, 1, "%\(k)%")

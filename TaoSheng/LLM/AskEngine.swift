@@ -60,8 +60,8 @@ final class AskEngine {
                 cited.append(s)
             }
         }
-        if cited.isEmpty { cited = Array(picked.prefix(3)) }
-
+        // 没标编号就是没依据（比如「没找到相关记录」），别硬塞前 3 条，
+        // 否则点进去的内容和答案对不上，出处等于假的。
         return Answer(text: text.trimmingCharacters(in: .whitespacesAndNewlines), citations: cited)
     }
 

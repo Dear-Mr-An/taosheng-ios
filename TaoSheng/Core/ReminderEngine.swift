@@ -37,8 +37,22 @@ final class ReminderEngine {
     }
 
     func rescheduleAll(_ list: [Reminder]) {
-        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
-        for r in list { schedule(r) }
+        let center = UNUserNotificationCenter.current()
+        // 只清手动提醒那批：ts-quick-（整理自动排的）和 ts-daily-（回顾/打卡）不能被连带删掉
+        center.getPendingNotificationRequests { reqs in
+            let ids = reqs.map { $0.identifier }.filter { $0.hasPrefix("ts-reminder-") }
+            if !ids.isEmpty { center.removePendingNotificationRequests(withIdentifiers: ids) }
+            for r in list { self.schedule(r) }
+        }
+    }
+
+    /// App 启动时把「整理出来、带明确时间」的待办提醒重新排一遍。
+    /// quick 提醒不落 reminder 表，重启后系统里那条通知还在，但换机/重装会丢，这里补一次。
+    func rescheduleQuick(_ items: [(id: String, title: String, due: Date)]) {
+        for it in items {
+            guard let fire = ReminderTime.resolve(due: it.due) else { continue }
+            scheduleQuick(id: it.id, title: it.title, at: fire)
+        }
     }
 
     /// 整理出「有明确时间」的待办时顺手排一条，不写 reminder 表

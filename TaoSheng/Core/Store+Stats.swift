@@ -3,8 +3,9 @@ import SQLite3
 
 extension Store {
     /// 近 days 天里已经转写好的总时长（分钟），用来算云端转写的花费。
+    /// days: 0 = 只看今天，1 = 含昨天，以此类推。
     func transcribedMinutes(days: Int) -> Double {
-        let since = DayKey.of(Date().addingTimeInterval(-Double(max(days, 1)) * 86_400))
+        let since = DayKey.of(Date().addingTimeInterval(-Double(max(days, 0)) * 86_400))
         var total: Double = 0
         queue.sync {
             let sql = "SELECT COALESCE(SUM(duration), 0) FROM segment WHERE transcript <> '' AND day >= ?"
@@ -16,7 +17,8 @@ extension Store {
                 total = sqlite3_column_double(q, 0)
             }
         }
-        return total
+        // duration 存的是秒，界面和费用都按分钟算
+        return total / 60
     }
 
     /// 原始录音占用的字节数

@@ -353,7 +353,8 @@ struct AskHistoryView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
                         Button(role: .destructive) {
-                            Store.shared.clearAsk()
+                            // 走 AppState，问问页的气泡才会跟着消失
+                            AppState.shared.clearAsk()
                             reload()
                         } label: {
                             Label("清空全部", systemImage: "trash")
@@ -479,6 +480,7 @@ struct AskHistoryView: View {
             Button(role: .destructive) {
                 Store.shared.deleteAsk(id: t.question.id)
                 if let a = t.answer { Store.shared.deleteAsk(id: a.id) }
+                AppState.shared.refresh()
                 reload()
             } label: {
                 Label("删除这一条", systemImage: "trash")
@@ -514,6 +516,18 @@ struct AskHistoryView: View {
                 out.append(AskThread(id: m.id, question: m, answer: nil))
             } else if let last = out.popLast() {
                 out.append(AskThread(id: last.id, question: last.question, answer: m))
+            } else {
+                // 只命中答案（关键词只出现在涛声的回答里）时，前面没有 me 可配，
+                // 按时间往前找最近的一条提问配成一轮，别把这条答案丢掉。
+                let q = results.last { $0.role == .me && $0.createdAt <= m.createdAt }
+                if let q = q {
+                    out.append(AskThread(id: q.id, question: q, answer: m))
+                } else {
+                    out.append(AskThread(id: m.id,
+                                         question: AskMessage(id: m.id, role: .me, text: "（没有找到对应的问题）",
+                                                              citations: [], createdAt: m.createdAt),
+                                         answer: m))
+                }
             }
         }
         return out.reversed()

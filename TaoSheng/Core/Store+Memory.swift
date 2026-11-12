@@ -116,7 +116,15 @@ extension Store {
 
     func setEnvTag(segmentId: String, tag: String) {
         queue.sync { () -> Void in
-            exec("INSERT OR REPLACE INTO env_tag (segment_id,tag,at) VALUES ('\(segmentId)','\(tag.replacingOccurrences(of: "'", with: "''"))',\(Date().timeIntervalSince1970));")
+            // 用参数绑定，别拼字符串：段 id 里出现单引号会让整条 SQL 失败
+            let sql = "INSERT OR REPLACE INTO env_tag (segment_id,tag,at) VALUES (?,?,?);"
+            var st: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return }
+            bind(st, 1, segmentId)
+            bind(st, 2, tag)
+            sqlite3_bind_double(st, 3, Date().timeIntervalSince1970)
+            sqlite3_step(st)
+            sqlite3_finalize(st)
         }
     }
 
@@ -126,10 +134,11 @@ extension Store {
             let sql = """
             SELECT e.segment_id, e.tag FROM env_tag e
             JOIN segment s ON s.id = e.segment_id
-            WHERE s.day = '\(day)';
+            WHERE s.day = ?;
             """
             var st: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK, let q = st else { return out }
+            bind(q, 1, day)
             while sqlite3_step(q) == SQLITE_ROW {
                 let key = col(q, 0)
                 let val = col(q, 1)
@@ -149,9 +158,28 @@ extension Store {
             (id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,deleted,created_at)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
             """
+            // 同一段原话被重新整理时，entity_id 不变 —— 复用旧行的 id，
+            // 否则「重新整理」会把同一件事再插一遍，时间线翻倍。
+            var eventID = e.id
+            var keepStarred = e.starred
+            var keepStarredAt = e.starredAt
+            if let en = e.entityId, !en.isEmpty {
+                var q: OpaquePointer?
+                if sqlite3_prepare_v2(db, "SELECT id,starred,starred_at FROM memory_event WHERE entity_id=? AND deleted=0 LIMIT 1;", -1, &q, nil) == SQLITE_OK {
+                    bind(q, 1, en)
+                    if sqlite3_step(q) == SQLITE_ROW {
+                        eventID = col(q, 0)
+                        keepStarred = sqlite3_column_int(q, 1) == 1
+                        if sqlite3_column_type(q, 2) != SQLITE_NULL {
+                            keepStarredAt = Date(timeIntervalSince1970: sqlite3_column_double(q, 2))
+                        }
+                    }
+                }
+                sqlite3_finalize(q)
+            }
             var st: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return }
-            bind(st, 1, e.id)
+            bind(st, 1, eventID)
             bind(st, 2, e.day)
             sqlite3_bind_double(st, 3, e.startAt.timeIntervalSince1970)
             if let end = e.endAt { sqlite3_bind_double(st, 4, end.timeIntervalSince1970) } else { sqlite3_bind_null(st, 4) }
@@ -482,9 +510,18 @@ extension Store {
 
     func upsertThing(_ t: Thing) {
         queue.sync { () -> Void in
+            // created_at 只在首次插入时写，更新时不能覆盖，
+            // 否则每改一次寻物记录，创建时间就被改成最后修改时间。
             let sql = """
-            INSERT OR REPLACE INTO thing (id,name,aliases_json,owner,place,holder,updated_at,created_at)
-            VALUES (?,?,?,?,?,?,?,?);
+            INSERT INTO thing (id,name,aliases_json,owner,place,holder,updated_at,created_at)
+            VALUES (?,?,?,?,?,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET
+                name=excluded.name,
+                aliases_json=excluded.aliases_json,
+                owner=excluded.owner,
+                place=excluded.place,
+                holder=excluded.holder,
+                updated_at=excluded.updated_at;
             """
             var st: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return }

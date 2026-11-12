@@ -102,6 +102,11 @@ struct RecordingSettingsView: View {
                     Stepper(value: $settings.silenceEndHour, in: 0...23) {
                         Text("到 \(settings.silenceEndHour):00 结束")
                     }
+                    // 起止相同等于「时长 0」，代码里直接判为不在时段内，开关看起来开着但永不生效
+                    if settings.silenceStartHour == settings.silenceEndHour {
+                        Text("开始和结束不能是同一个小时，否则这段停录不会生效。")
+                            .font(.system(size: 12)).foregroundStyle(Theme.warn)
+                    }
                 }
             }
         }
@@ -1039,7 +1044,7 @@ struct ModelSettingsView: View {
     // MARK: 工具
 
     private func reload() {
-        let today = Store.shared.transcribedMinutes(days: 1)
+        let today = Store.shared.transcribedMinutes(days: 0)
         let month = Store.shared.transcribedMinutes(days: 30)
         let bytes = Store.shared.audioBytes()
         let p = Store.shared.todayTranscribeProgress()

@@ -33,20 +33,26 @@ final class TranscribeQueue: ObservableObject {
         timer = nil
     }
 
-    func tick() {
+    func tick(manual: Bool = false) {
         let s = Settings.shared
-        guard s.autoTranscribe, s.asrReady else {
+        // 手动点「现在转写」时不受「自动转写」开关和间隔限制，
+        // 否则关掉自动转写后按钮点了毫无反应，用户以为卡死。
+        guard manual || s.autoTranscribe else {
+            refreshPending()
+            return
+        }
+        guard s.asrReady else {
             refreshPending()
             return
         }
         // 只在 WiFi 下转写：蜂窝/热点时不传，等连上 WiFi 再补
-        guard NetWatcher.shared.canUpload else {
+        guard manual || NetWatcher.shared.canUpload else {
             refreshPending()
             return
         }
         // 间隔由「多久转写一次」决定；实时档就是每 60 秒看一次
         let interval = Double(max(1, s.transcribeIntervalMin)) * 60
-        guard Date().timeIntervalSince(lastRun) >= interval else {
+        guard manual || Date().timeIntervalSince(lastRun) >= interval else {
             refreshPending()
             return
         }
@@ -128,10 +134,11 @@ final class TranscribeQueue: ObservableObject {
         DispatchQueue.main.async { self.pendingCount = n }
     }
 
-    /// 用户手动触发一次
+    /// 用户手动触发一次：清掉失败计数，之前 3 次失败被判死的段也重试
     func transcribeNow() {
+        failCount.removeAll()
         lastRun = .distantPast
-        tick()
+        tick(manual: true)
     }
 
     /// 下一轮大约什么时候开始；没有待转写内容时为 nil
