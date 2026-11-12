@@ -749,8 +749,6 @@ struct ModelSettingsView: View {
             VStack(spacing: 14) {
                 if asrPart {
                     statusCard
-                    asrCard
-                    langCard
                     rawLinesCard
                 }
                 if llmPart && part == .llm {
@@ -763,23 +761,6 @@ struct ModelSettingsView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(part == .llm ? "整理模型" : "原话与转写")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if asrPart {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showTranscribe = true
-                    } label: {
-                        HStack(spacing: 3) {
-                            Text("模型和转写设置")
-                                .font(.system(size: 12.5, weight: .medium))
-                            Image(systemName: "slider.horizontal.3")
-                                .font(.system(size: 11, weight: .semibold))
-                        }
-                        .foregroundStyle(Theme.accent)
-                    }
-                }
-            }
-        }
         .sheet(isPresented: $showTranscribe) {
             TranscribeSettingsSheet()
                 .environmentObject(settings)
@@ -828,7 +809,7 @@ struct ModelSettingsView: View {
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundColor(Theme.text)
                 Spacer(minLength: 0)
-                Button { showModel = true } label: {
+                Button { showTranscribe = true } label: {
                     Text("模型和转写设置")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(Theme.accent)
@@ -957,128 +938,6 @@ struct ModelSettingsView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: 语音转写
-
-    private var asrCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("语音转写").font(.system(size: 17, weight: .semibold)).foregroundColor(Theme.text)
-
-            HStack(spacing: 0) {
-                asrSeg("豆包", .doubao)
-                asrSeg("本地", .appleSpeech)
-                asrSeg("自定义", .openAICompatible)
-            }
-            .padding(3)
-            .background(Theme.cardSoft)
-            .clipShape(Capsule())
-
-            if settings.asrKind == .doubao {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) { showAdvanced.toggle() }
-                } label: {
-                    HStack(spacing: 3) {
-                        Text("自定义请求头（可选）").font(.system(size: 13))
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
-                            .rotationEffect(.degrees(showAdvanced ? 90 : 0))
-                    }
-                    .foregroundColor(Theme.accent)
-                }
-                .buttonStyle(.plain)
-
-                if showAdvanced {
-                    field("一行一个，例如 X-Api-Key: xxx", text: $settings.asrCustomHeaders)
-                }
-
-                Text("豆包语音密钥")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(Theme.text)
-
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(settings.doubaoApiKey.isEmpty ? Theme.warn : Theme.ok)
-                        .frame(width: 8, height: 8)
-                    Text(settings.doubaoApiKey.isEmpty ? "未填写" : "已填写")
-                        .font(.system(size: 13.5))
-                        .foregroundColor(Theme.text2)
-                    Spacer(minLength: 0)
-                    Button { showAdvanced = true } label: {
-                        Text(settings.doubaoApiKey.isEmpty ? "填写" : "更换")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(Theme.accent)
-                            .padding(.horizontal, 14).padding(.vertical, 6)
-                            .background(Theme.accentSoft).clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    if !settings.doubaoApiKey.isEmpty {
-                        Button { settings.doubaoApiKey = "" } label: {
-                            Text("清除")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(Theme.accent)
-                                .padding(.horizontal, 14).padding(.vertical, 6)
-                                .background(Theme.accentSoft).clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
-                if showAdvanced || settings.doubaoApiKey.isEmpty {
-                    SecureField("豆包语音 API Key", text: $settings.doubaoApiKey)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.system(size: 14))
-                        .padding(11)
-                        .background(Theme.cardSoft)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-
-                Text("只存在这台手机的安全区里，填好后任何地方都不再显示。")
-                    .font(.system(size: 11.5))
-                    .foregroundColor(Theme.dim2)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    if settings.asrKind == .appleSpeech {
-                        Text("用手机自带的中文识别，录音不出手机。识别完仍然会发给你配的大模型去整理。")
-                            .font(.system(size: 12.5)).foregroundColor(Theme.dim)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    if settings.asrKind == .openAICompatible {
-                        field("接口地址", text: $settings.asrBaseURL)
-                        field("模型", text: $settings.asrModel)
-                        secure("API Key", text: $settings.asrKey)
-                        field("或填完整请求地址", text: $settings.asrFullURL)
-                    }
-                    if !settings.asrKind.hint.isEmpty {
-                        Text(settings.asrKind.hint)
-                            .font(.system(size: 11.5)).foregroundColor(Theme.dim2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
-    }
-
-    private func asrSeg(_ title: String, _ kind: ASRKind) -> some View {
-        let on = settings.asrKind == kind
-        return Button {
-            settings.asrKind = kind
-        } label: {
-            Text(title)
-                .font(.system(size: 13.5, weight: on ? .semibold : .regular))
-                .foregroundColor(on ? Theme.text : Theme.dim)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 7)
-                .background(on ? Theme.card : Color.clear)
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-
     // MARK: 多久转写一次
 
     // MARK: 语言 / 原声 / 热词
@@ -1120,28 +979,6 @@ struct ModelSettingsView: View {
                 }
                 .buttonStyle(.plain)
             }
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
-    }
-
-    private var langCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("主要识别语言").font(.system(size: 17, weight: .semibold)).foregroundColor(Theme.text)
-            Picker("语言", selection: $settings.asrLanguage) {
-                Text("自动识别").tag("auto")
-                Text("普通话").tag("zh")
-                Text("粤语").tag("yue")
-                Text("英语").tag("en")
-                Text("中英混合").tag("zh-en")
-            }
-            .pickerStyle(.menu)
-            .tint(Theme.accent)
-            Text("只影响之后的转写，已经转好的原话不会重算。带口音的普通话建议选普通话。")
-                .font(.system(size: 11.5)).foregroundColor(Theme.dim2)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1218,26 +1055,6 @@ struct ModelSettingsView: View {
         } catch {
             exportError = error.localizedDescription
         }
-    }
-
-    private func field(_ title: String, text: Binding<String>) -> some View {
-        TextField(title, text: text)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .font(.system(size: 14))
-            .padding(11)
-            .background(Theme.cardSoft)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-
-    private func secure(_ title: String, text: Binding<String>) -> some View {
-        SecureField(title, text: text)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .font(.system(size: 14))
-            .padding(11)
-            .background(Theme.cardSoft)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private static func minutesText(_ m: Double) -> String {
@@ -1485,6 +1302,7 @@ struct TranscribeSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var settings: Settings
 
+    @State private var showAdvanced = false
     @State private var testResult: String?
     @State private var testing = false
 
@@ -1492,6 +1310,8 @@ struct TranscribeSettingsSheet: View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 14) {
+                    asrCard
+                    langCard
                     intervalCard
                     switchCard
                     testCard
@@ -1509,6 +1329,169 @@ struct TranscribeSettingsSheet: View {
                 }
             }
         }
+    }
+
+    private var asrCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("语音转写").font(.system(size: 17, weight: .semibold)).foregroundColor(Theme.text)
+
+            HStack(spacing: 0) {
+                asrSeg("豆包", .doubao)
+                asrSeg("本地", .appleSpeech)
+                asrSeg("自定义", .openAICompatible)
+            }
+            .padding(3)
+            .background(Theme.cardSoft)
+            .clipShape(Capsule())
+
+            if settings.asrKind == .doubao {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { showAdvanced.toggle() }
+                } label: {
+                    HStack(spacing: 3) {
+                        Text("自定义请求头（可选）").font(.system(size: 13))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .rotationEffect(.degrees(showAdvanced ? 90 : 0))
+                    }
+                    .foregroundColor(Theme.accent)
+                }
+                .buttonStyle(.plain)
+
+                if showAdvanced {
+                    field("一行一个，例如 X-Api-Key: xxx", text: $settings.asrCustomHeaders)
+                }
+
+                Text("豆包语音密钥")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(Theme.text)
+
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(settings.doubaoApiKey.isEmpty ? Theme.warn : Theme.ok)
+                        .frame(width: 8, height: 8)
+                    Text(settings.doubaoApiKey.isEmpty ? "未填写" : "已填写")
+                        .font(.system(size: 13.5))
+                        .foregroundColor(Theme.text2)
+                    Spacer(minLength: 0)
+                    Button { showAdvanced = true } label: {
+                        Text(settings.doubaoApiKey.isEmpty ? "填写" : "更换")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(Theme.accent)
+                            .padding(.horizontal, 14).padding(.vertical, 6)
+                            .background(Theme.accentSoft).clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    if !settings.doubaoApiKey.isEmpty {
+                        Button { settings.doubaoApiKey = "" } label: {
+                            Text("清除")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(Theme.accent)
+                                .padding(.horizontal, 14).padding(.vertical, 6)
+                                .background(Theme.accentSoft).clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                if showAdvanced || settings.doubaoApiKey.isEmpty {
+                    SecureField("豆包语音 API Key", text: $settings.doubaoApiKey)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.system(size: 14))
+                        .padding(11)
+                        .background(Theme.cardSoft)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                Text("只存在这台手机的安全区里，填好后任何地方都不再显示。")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(Theme.dim2)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    if settings.asrKind == .appleSpeech {
+                        Text("用手机自带的中文识别，录音不出手机。识别完仍然会发给你配的大模型去整理。")
+                            .font(.system(size: 12.5)).foregroundColor(Theme.dim)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if settings.asrKind == .openAICompatible {
+                        field("接口地址", text: $settings.asrBaseURL)
+                        field("模型", text: $settings.asrModel)
+                        secure("API Key", text: $settings.asrKey)
+                        field("或填完整请求地址", text: $settings.asrFullURL)
+                    }
+                    if !settings.asrKind.hint.isEmpty {
+                        Text(settings.asrKind.hint)
+                            .font(.system(size: 11.5)).foregroundColor(Theme.dim2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
+    private func asrSeg(_ title: String, _ kind: ASRKind) -> some View {
+        let on = settings.asrKind == kind
+        return Button {
+            settings.asrKind = kind
+        } label: {
+            Text(title)
+                .font(.system(size: 13.5, weight: on ? .semibold : .regular))
+                .foregroundColor(on ? Theme.text : Theme.dim)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 7)
+                .background(on ? Theme.card : Color.clear)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+
+    private var langCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("主要识别语言").font(.system(size: 17, weight: .semibold)).foregroundColor(Theme.text)
+            Picker("语言", selection: $settings.asrLanguage) {
+                Text("自动识别").tag("auto")
+                Text("普通话").tag("zh")
+                Text("粤语").tag("yue")
+                Text("英语").tag("en")
+                Text("中英混合").tag("zh-en")
+            }
+            .pickerStyle(.menu)
+            .tint(Theme.accent)
+            Text("只影响之后的转写，已经转好的原话不会重算。带口音的普通话建议选普通话。")
+                .font(.system(size: 11.5)).foregroundColor(Theme.dim2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
+    private func field(_ title: String, text: Binding<String>) -> some View {
+        TextField(title, text: text)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .font(.system(size: 14))
+            .padding(11)
+            .background(Theme.cardSoft)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func secure(_ title: String, text: Binding<String>) -> some View {
+        SecureField(title, text: text)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .font(.system(size: 14))
+            .padding(11)
+            .background(Theme.cardSoft)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private var intervalCard: some View {

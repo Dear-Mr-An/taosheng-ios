@@ -158,7 +158,7 @@ final class Settings: ObservableObject {
     @Published var usePlaceInDigest: Bool { didSet { d.set(usePlaceInDigest, forKey: "usePlaceInDigest") } }
 
     private init() {
-        asrKind = ASRKind(rawValue: d.string(forKey: "asrKind") ?? "") ?? .openAICompatible
+        asrKind = ASRKind(rawValue: d.string(forKey: "asrKind") ?? "") ?? .doubao
         asrBaseURL = d.string(forKey: "asrBaseURL") ?? "https://api.openai.com/v1"
         asrModel = d.string(forKey: "asrModel") ?? "whisper-1"
         asrKey = d.string(forKey: "asrKey") ?? ""
