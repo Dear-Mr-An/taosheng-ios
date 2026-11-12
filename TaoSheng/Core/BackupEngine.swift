@@ -1,6 +1,5 @@
 import Foundation
 import CryptoKit
-import FoundationXML
 
 private final class DavHrefParser: NSObject, XMLParserDelegate {
     private(set) var hrefs: [String] = []
