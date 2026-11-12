@@ -115,9 +115,6 @@ struct SettingsView: View {
             Text("设置")
                 .font(.system(size: 30, weight: .bold, design: .rounded))
                 .foregroundColor(Theme.text)
-            Text("涛声 · 一直在听，从不外传")
-                .font(.system(size: 12))
-                .foregroundColor(Theme.dim)
         }
     }
 

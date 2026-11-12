@@ -18,7 +18,6 @@ struct MemoryView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 header
-                seg
                 if byDay {
                     dayStrip
                     reviewCard
@@ -55,7 +54,7 @@ struct MemoryView: View {
     // MARK: 头部
 
     private var header: some View {
-        HStack(alignment: .center) {
+        HStack(alignment: .center, spacing: 8) {
             Text("记忆")
                 .font(.system(size: 30, weight: .bold, design: .rounded))
                 .foregroundColor(Theme.text)
@@ -64,40 +63,44 @@ struct MemoryView: View {
                 let md = app.exportMarkdown(day: day)
                 if md.count < 40 { toast = "这一天还没有可导出的内容" } else { showShare = true }
             } label: {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 15))
-                    .foregroundColor(Theme.text2)
-                    .frame(width: 36, height: 36)
-                    .background(Theme.card).clipShape(Circle())
+                Text("导出")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Theme.accent)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(Theme.accentSoft)
+                    .clipShape(Capsule())
             }
             .buttonStyle(.plain)
-            Button { showThings = true } label: {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 15))
-                    .foregroundColor(Theme.text2)
-                    .frame(width: 36, height: 36)
-                    .background(Theme.card).clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            Button {
-                app.refreshDay(DayKey.of(Date()))
-            } label: {
-                Image(systemName: "calendar")
-                    .font(.system(size: 15))
-                    .foregroundColor(Theme.text2)
-                    .frame(width: 36, height: 36)
-                    .background(Theme.card).clipShape(Circle())
-            }
-            .buttonStyle(.plain)
+            segControl
         }
     }
 
-    private var seg: some View {
-        HStack(spacing: 8) {
-            Chip(text: "按天", selected: byDay) { byDay = true }
-            Chip(text: "按类", selected: !byDay) { byDay = false }
-            Spacer()
+    private var segControl: some View {
+        HStack(spacing: 0) {
+            segItem("按天", on: byDay) { byDay = true }
+            segItem("按类", on: !byDay) { byDay = false }
         }
+        .padding(3)
+        .background(Theme.card)
+        .clipShape(Capsule())
+    }
+
+    private func segItem(_ t: String, on: Bool, _ act: @escaping () -> Void) -> some View {
+        Button(action: act) {
+            Text(t)
+                .font(.system(size: 13, weight: on ? .semibold : .regular))
+                .foregroundColor(on ? Theme.accent : Theme.text2)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(on ? Theme.accentSoft : Color.clear)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var seg: some View {
+        EmptyView()
     }
 
     // MARK: 按天

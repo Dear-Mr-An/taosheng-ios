@@ -5,9 +5,10 @@ struct TodayView: View {
     @ObservedObject private var capture = CaptureEngine.shared
     @ObservedObject private var digest = DigestEngine.shared
     @ObservedObject private var settings = Settings.shared
+    @Environment(\.colorScheme) private var scheme
+    @AppStorage("appearance") private var appearance = "system"
 
     @State private var heroCollapsed = false
-    @State private var showShare = false
     @State private var toast: String?
     @State private var showTimeline = false
 
@@ -27,9 +28,6 @@ struct TodayView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationBarHidden(true)
-        .sheet(isPresented: $showShare) {
-            ShareSheet(items: [app.exportMarkdown(day: today)])
-        }
         .alert("提示", isPresented: Binding(get: { toast != nil }, set: { if !$0 { toast = nil } })) {
             Button("好") { toast = nil }
         } message: {
@@ -51,14 +49,13 @@ struct TodayView: View {
             }
             Spacer()
             Button {
-                let md = app.exportMarkdown(day: today)
-                if md.count < 40 { toast = "这一天还没有可导出的内容" } else { showShare = true }
+                appearance = scheme == .dark ? "light" : "dark"
             } label: {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(Theme.text2)
+                Image(systemName: "circle.lefthalf.filled")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(Theme.accent)
                     .frame(width: 38, height: 38)
-                    .background(Theme.card)
+                    .background(Theme.accentSoft)
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)

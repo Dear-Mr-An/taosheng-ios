@@ -7,6 +7,7 @@ struct AskView: View {
     @State private var input = ""
     @State private var sending = false
     @State private var errorText: String?
+    @State private var showHistory = false
     @FocusState private var focused: Bool
     @StateObject private var kb = KeyboardObserver.shared
 
@@ -69,6 +70,10 @@ struct AskView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             inputBar
         }
+        .sheet(isPresented: $showHistory) {
+            AskHistoryView()
+                .environmentObject(app)
+        }
     }
 
     // MARK: - 头部
@@ -86,10 +91,9 @@ struct AskView: View {
             }
             Spacer()
             Button {
-                app.clearAsk()
-                errorText = nil
+                showHistory = true
             } label: {
-                Image(systemName: "arrow.clockwise")
+                Image(systemName: "clock")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Theme.text2)
                     .frame(width: 36, height: 36)
@@ -276,6 +280,65 @@ struct AskView: View {
                 await MainActor.run {
                     errorText = "问不出来：\(error.localizedDescription)"
                     sending = false
+                }
+            }
+        }
+    }
+}
+
+// MARK: - 历史
+
+struct AskHistoryView: View {
+    @EnvironmentObject var app: AppState
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if app.askMessages.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 26))
+                            .foregroundStyle(Theme.dim2)
+                        Text("还没有问过")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Theme.dim)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Theme.bg)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(app.askMessages) { m in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(m.role == .me ? "我" : "涛声")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(m.role == .me ? Theme.accent : Theme.text2)
+                                    Text(m.text)
+                                        .font(.system(size: 14))
+                                        .foregroundStyle(Theme.text)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(12)
+                                .background(Theme.card)
+                                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+                            }
+                        }
+                        .padding(16)
+                    }
+                    .background(Theme.bg)
+                }
+            }
+            .navigationTitle("问过的")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("关闭") { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("清空") { app.clearAsk() }
+                        .disabled(app.askMessages.isEmpty)
                 }
             }
         }

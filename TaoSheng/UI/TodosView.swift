@@ -59,15 +59,6 @@ struct TodosView: View {
                 .font(.system(size: 30, weight: .bold, design: .rounded))
                 .foregroundColor(Theme.text)
             Spacer()
-            if !app.reminders.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: "bell.fill").font(.system(size: 11))
-                    Text("\(app.reminders.count)").font(.system(size: 12, weight: .medium))
-                }
-                .foregroundColor(Theme.text2)
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(Theme.card).clipShape(Capsule())
-            }
         }
     }
 
