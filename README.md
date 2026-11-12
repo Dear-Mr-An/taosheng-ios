@@ -10,7 +10,7 @@
 
 ## 〇、ipa 已经出好了
 
-**产物：`C:\项目分区\涛声app\dist\TaoSheng-v0.4.0.ipa`**（916 KB，未签名，arm64，iOS 16.0+，仅 iPhone）
+**产物：`C:\项目分区\涛声app\dist\TaoSheng-v0.4.1.ipa`**（922 KB，未签名，arm64，iOS 16.0+，仅 iPhone）
 
 已在 GitHub Actions（`macos-15` + Xcode 16.4）真实编译通过，可直接拿去签：
 
@@ -18,8 +18,8 @@
 |---|---|
 | Bundle ID | `app.taosheng.TaoSheng` |
 | 显示名 | 涛声 |
-| 版本 | 0.4.0 (7) |
-| 可执行文件 | `Payload/TaoSheng.app/TaoSheng`（arm64，1.79 MB，MH_EXECUTE） |
+| 版本 | 0.4.1 (8) |
+| 可执行文件 | `Payload/TaoSheng.app/TaoSheng`（arm64，1.82 MB，MH_EXECUTE） |
 | 最低系统 | iOS 16.0 |
 | 签名状态 | 无 `_CodeSignature`、无 `embedded.mobileprovision`（纯未签名，签名工具会补） |
 | Info.plist | 已转成 XML（不是二进制 bplist），国产签名工具能正常解析 |
@@ -27,6 +27,24 @@
 
 仓库：<https://github.com/Dear-Mr-An/taosheng-ios>（public，改代码 push 后自动重出包，
 Actions → `build-ipa` → Artifacts → `TaoSheng-unsigned-ipa`）。
+
+### 0.4.1 做了什么：5 种收音模式 + 转写设置只剩一个密钥
+
+- **五种模式，和原版一一对应**（今天页 Hero 卡里切换，下面带一句说明）：
+  | 模式 | 说明 | 停顿断句 | 单段最长 | 分人 |
+  |---|---|---|---|---|
+  | 会议 | 多人讨论，结束后出会议纪要 | 2.5 秒 | 5 分钟 | 是 |
+  | 培训 | 一人主讲，不区分说话人，出培训笔记 | 3 秒 | 10 分钟 | 否 |
+  | 通话 / 访谈 | 两人一来一回，出通话记录 | 1.8 秒 | 4 分钟 | 是 |
+  | 口播稿 | 对着手机口述，出整理版和原话版两份稿子 | 2 秒 | 10 分钟 | 否 |
+  | 普通 | 合成一件事，不出纪要 | 1.5 秒 | 3 分钟 | 是 |
+- **模式决定断句，不再有手调参数**：`CaptureEngine` 的灵敏度 / 停顿 / 单段上限全部改成读模式（会议、通话灵敏度更高，培训、口播更迟钝），设置里删掉了「停顿 X 秒断句」和「每 N 分钟转一次」。
+- **整理规则跟着模式变**：`Prompts` 新增 `trainingModeExtra` / `callModeExtra` / `scriptModeExtra`，和原有 `meetingModeExtra` 一起拼进 digest 提示词——
+  - 培训：按讲授脉络分节（概念 / 案例 / 步骤），title 写「主题·小节」，points 覆盖定义、例子、步骤、易错点，只提学员要做的作业类待办；
+  - 通话：一个通话只出 1~2 个事件，title 写「和谁·为什么通话」，summary 写「对方想要什么 + 我怎么答」，points 覆盖诉求 / 答复承诺 / 下一步时间，双方承诺都提成待办并写明 who；
+  - 口播稿：只出一个事件，points 当稿子提纲，一般不提待办；整理完额外生成一张「口播稿」卡，字段就是**整理版**（分节 + 要点）和**原话版**（逐字转写），在记忆页能看到。
+- **转写设置只剩一个框**：设置 → 智能 → 原话与转写，现在只有「豆包语音 API Key」一个输入框（填进去会自动把转写方式切到豆包），别的全部收进「用别的转写服务（可选）」折叠里。
+- **`asrReady` 修了个真 bug**：以前只填了豆包 Key、但「方式」还停在 OpenAI 兼容，会被判成「转写未就绪」；现在只要豆包 Key 非空就直接算就绪，`TranscriberFactory` 也优先用豆包。
 
 ### 0.4.0 做了什么：模式、聆听按钮，以及把"只有界面"的地方补成真功能
 
