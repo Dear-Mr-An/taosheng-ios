@@ -8,7 +8,6 @@ struct TodayView: View {
 
     @State private var heroCollapsed = false
     @State private var showShare = false
-    @State private var showModel = false
     @State private var toast: String?
     @State private var showTimeline = false
 
@@ -19,7 +18,6 @@ struct TodayView: View {
             VStack(alignment: .leading, spacing: 14) {
                 header
                 heroCard
-                modelCard
                 rhythmCard
                 timelineCard
                 Color.clear.frame(height: 78)
@@ -31,9 +29,6 @@ struct TodayView: View {
         .navigationBarHidden(true)
         .sheet(isPresented: $showShare) {
             ShareSheet(items: [app.exportMarkdown(day: today)])
-        }
-        .sheet(isPresented: $showModel) {
-            NavigationStack { ModelSettingsView() }
         }
         .alert("提示", isPresented: Binding(get: { toast != nil }, set: { if !$0 { toast = nil } })) {
             Button("好") { toast = nil }
@@ -83,8 +78,6 @@ struct TodayView: View {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.white)
                 }
-                .contentShape(Rectangle())
-                .onTapGesture { toggleCapture() }
 
                 Spacer()
 
@@ -99,6 +92,12 @@ struct TodayView: View {
             }
 
             if !heroCollapsed {
+                modeRow
+                    .padding(.top, 12)
+
+                listenButton
+                    .padding(.top, 10)
+
                 Divider()
                     .overlay(Color.white.opacity(0.25))
                     .padding(.vertical, 12)
@@ -154,6 +153,67 @@ struct TodayView: View {
         .shadow(color: Theme.accent.opacity(0.25), radius: 12, x: 0, y: 6)
     }
 
+    private var modeRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                ForEach(CaptureMode.allCases) { m in
+                    Button {
+                        switchMode(m)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: m.symbol)
+                                .font(.system(size: 11, weight: .medium))
+                            Text(m.title)
+                                .font(.system(size: 12.5, weight: .medium))
+                        }
+                        .foregroundColor(settings.captureMode == m ? Theme.accent : Color.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(settings.captureMode == m ? Color.white : Color.white.opacity(0.18))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer()
+            }
+            Text(settings.captureMode.hint)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.75))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var listenButton: some View {
+        Button {
+            toggleCapture()
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: capture.isRunning ? "stop.fill" : "mic.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(capture.isRunning ? "停止聆听" : "开始聆听")
+                    .font(.system(size: 15, weight: .semibold))
+            }
+            .foregroundColor(capture.isRunning ? Color.white : Theme.accent)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 11)
+            .background(Capsule().fill(capture.isRunning ? Color.white.opacity(0.16) : Color.white))
+            .overlay(Capsule().stroke(Color.white.opacity(capture.isRunning ? 0.45 : 0), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func switchMode(_ m: CaptureMode) {
+        guard settings.captureMode != m else { return }
+        let wasRunning = capture.isRunning
+        settings.captureMode = m
+        if wasRunning {
+            capture.stop()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                capture.start()
+            }
+        }
+    }
+
     private var heroNote: String {
         if let e = capture.lastError, !e.isEmpty { return e }
         if let e = digest.lastError, !e.isEmpty { return e }
@@ -180,47 +240,6 @@ struct TodayView: View {
 
     private var heroDivider: some View {
         Rectangle().fill(Color.white.opacity(0.22)).frame(width: 1, height: 30)
-    }
-
-    // MARK: 模型卡
-
-    private var modelCard: some View {
-        Button { showModel = true } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("整理用的大模型")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(Theme.text)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(Theme.dim2)
-                }
-                Text("点一下切换；整理、问问、回顾都用当前这个，技能可以另选。")
-                    .font(.system(size: 11.5))
-                    .foregroundColor(Theme.dim)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(settings.effectiveLLM.key.isEmpty ? Theme.warn : Theme.ok)
-                        .frame(width: 7, height: 7)
-                    Text(settings.llmModel.isEmpty ? "未选择模型" : settings.llmModel)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(Theme.text2)
-                    Text(settings.effectiveLLM.key.isEmpty ? "· 未填密钥" : "· 已就绪")
-                        .font(.system(size: 12))
-                        .foregroundColor(settings.effectiveLLM.key.isEmpty ? Theme.warn : Theme.ok)
-                    Spacer()
-                    Text("编辑")
-                        .font(.system(size: 12.5))
-                        .foregroundColor(Theme.accent)
-                }
-            }
-            .padding(14)
-            .background(Theme.card)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: 今日节律

@@ -50,6 +50,14 @@ final class DigestEngine: ObservableObject {
 
     // MARK: - 主流程
 
+    /// 会议模式追加会议切分规则
+    private var systemPrompt: String {
+        if Settings.shared.captureMode == .meeting {
+            return Prompts.digestSystem + Prompts.meetingModeExtra
+        }
+        return Prompts.digestSystem
+    }
+
     @discardableResult
     func digest(day: String, full: Bool = false) async throws -> (events: Int, items: Int) {
         if running { return (0, 0) }
@@ -67,14 +75,13 @@ final class DigestEngine: ObservableObject {
         guard !rows.isEmpty else { return (0, 0) }
 
         // 1. 组原话
-        let lines = Self.buildLines(rows)
+        let lines = Self.buildLines(rows, envTags: Settings.shared.envSoundOn ? Store.shared.envTags(day: day) : [:])
         let unfinished = Store.shared.openItemContents(days: 60)
         let ignored = Store.shared.ignoredItemContents(days: 60)
 
         // 2. 调模型
         let user = Prompts.digestUser(day: day, lines: lines, unfinished: unfinished, ignored: ignored)
-        let reply = try await LLMClient.completeAny(system: Prompts.digestSystem, user: user, temperature: 0.2)
-
+        let reply = try await LLMClient.completeAny(system: systemPrompt, user: user, temperature: 0.2)
         // 3. 解析
         guard let data = JSONExtract.object(from: reply) else {
             await fail("整理结果看不懂：\(reply.prefix(120))")
@@ -235,7 +242,7 @@ final class DigestEngine: ObservableObject {
 
     // MARK: - 工具
 
-    static func buildLines(_ rows: [Segment]) -> [String] {
+    static func buildLines(_ rows: [Segment], envTags: [String: String] = [:]) -> [String] {
         var out: [String] = []
         var lastDay: String?
         for (i, r) in rows.enumerated() {
@@ -244,7 +251,11 @@ final class DigestEngine: ObservableObject {
             }
             lastDay = r.day
             let who = r.speaker.isEmpty ? "说话人1" : r.speaker
-            out.append("[\(i + 1)] \(hms(r.startedAt)) \(who)：\(r.transcript)")
+            var line = "[\(i + 1)] \(hms(r.startedAt)) \(who)：\(r.transcript)"
+            if let tag = envTags[r.id], !tag.isEmpty, tag != "人声", tag != "安静" {
+                line += "（环境：\(tag)）"
+            }
+            out.append(line)
         }
         return out
     }

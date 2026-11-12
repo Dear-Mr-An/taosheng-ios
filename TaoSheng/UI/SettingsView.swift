@@ -84,7 +84,8 @@ struct SettingsView: View {
 
                     group("关于") {
                         nav(AboutView(), icon: "info.circle", title: "关于涛声",
-                            dot: Theme.dim2, detail: "0.3.2")
+                            dot: Theme.dim2,
+                            detail: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
                         sep
                         nav(PrivacyView(), icon: "lock.shield", title: "隐私与数据",
                             dot: Theme.dim2, detail: "原录音保留 \(settings.keepAudioDays) 天")
@@ -169,16 +170,43 @@ struct SettingsView: View {
 
 struct EnvironmentSoundView: View {
     @EnvironmentObject var settings: Settings
+    @State private var todayTags: [String: String] = [:]
+
+    private var summary: String {
+        guard !todayTags.isEmpty else { return "" }
+        var count: [String: Int] = [:]
+        for v in todayTags.values { count[v, default: 0] += 1 }
+        return count.sorted { $0.value > $1.value }
+            .prefix(2)
+            .map { "\($0.key) \($0.value)" }
+            .joined(separator: " · ")
+    }
 
     var body: some View {
         Form {
             Section {
                 Toggle("环境音识别", isOn: $settings.envSoundOn)
             } footer: {
-                Text("只分析已经录下的人声片段，在转写前判断一次；录音方式不变，旧录音不补算。全部在手机上完成，不上传。")
+                Text("只分析已经录下的人声片段，在转写时判断一次；录音方式不变，旧录音不补算。全部在手机上完成，不上传。")
+            }
+            Section(header: Text("今天")) {
+                if todayTags.isEmpty {
+                    Text(settings.envSoundOn ? "还没有识别记录，转写几段就会出现" : "打开后，新转写的片段会带上环境标签")
+                        .font(.system(size: 13))
+                        .foregroundColor(Theme.dim)
+                } else {
+                    HStack {
+                        Text("已识别 \(todayTags.count) 段")
+                            .font(.system(size: 14))
+                        Spacer()
+                        Text(summary)
+                            .font(.system(size: 12))
+                            .foregroundColor(Theme.dim)
+                    }
+                }
             }
             Section {
-                Text("能认出的：音乐、键盘、雨、宠物、流水、家电、脚步、闹钟、车流。识别结果会写进事件和周报。")
+                Text("能分辨的：人声、音乐、键盘、家电、环境噪音、安静。用的是本地轻量特征，不联网；结果会附在整理时的原话行后面。")
                     .font(.system(size: 12.5))
                     .foregroundColor(Theme.dim)
             }
@@ -187,6 +215,7 @@ struct EnvironmentSoundView: View {
         .background(Theme.bg)
         .navigationTitle("环境音识别")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { todayTags = Store.shared.envTags(day: DayKey.of(Date())) }
     }
 }
 
@@ -221,6 +250,12 @@ struct FootprintView: View {
         .background(Theme.bg)
         .navigationTitle("足迹")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { places = Store.shared.places(day: DayKey.of(Date())) }
+        .onAppear {
+            places = Store.shared.places(day: DayKey.of(Date()))
+            LocationEngine.shared.syncWithSettings()
+        }
+        .onChange(of: settings.locationOn) { _ in
+            LocationEngine.shared.syncWithSettings()
+        }
     }
 }

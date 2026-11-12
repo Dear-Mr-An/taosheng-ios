@@ -52,6 +52,37 @@ struct LLMProvider: Identifiable, Codable, Hashable {
 }
 
 // MARK: - 备份
+/// 收音模式：日常 / 会议
+enum CaptureMode: String, CaseIterable, Identifiable {
+    case daily
+    case meeting
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .daily: return "日常模式"
+        case .meeting: return "会议模式"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .daily: return "sun.max"
+        case .meeting: return "person.2.wave.2"
+        }
+    }
+
+    var hint: String {
+        switch self {
+        case .daily:
+            return "随口说的话也会记。停顿 1.5 秒就断句，一段最长 3 分钟。"
+        case .meeting:
+            return "更敏感、少断句，一段最长 5 分钟；整理时按会议来切，重点出议题、结论、决定和行动项。"
+        }
+    }
+}
+
 enum BackupKind: String, CaseIterable, Identifiable {
     case none
     case webdav
@@ -116,6 +147,17 @@ final class Settings: ObservableObject {
     @Published var silenceGap: Double { didSet { d.set(silenceGap, forKey: "silenceGap") } }
     @Published var minSegment: Double { didSet { d.set(minSegment, forKey: "minSegment") } }
     @Published var maxSegment: Double { didSet { d.set(maxSegment, forKey: "maxSegment") } }
+    @Published var captureModeRaw: String { didSet { d.set(captureModeRaw, forKey: "captureModeRaw") } }
+
+    var captureMode: CaptureMode {
+        get { CaptureMode(rawValue: captureModeRaw) ?? .daily }
+        set { captureModeRaw = newValue.rawValue }
+    }
+
+    /// 当前模式下的收音参数（会议模式更敏感、少断句、允许更长的段）
+    var modeSensitivity: Double { captureMode == .meeting ? min(sensitivity, 0.014) : sensitivity }
+    var modeSilenceGap: Double { captureMode == .meeting ? max(silenceGap, 2.5) : silenceGap }
+    var modeMaxSegment: Double { captureMode == .meeting ? max(maxSegment, 300) : maxSegment }
     @Published var preferredInputUID: String { didSet { d.set(preferredInputUID, forKey: "preferredInputUID") } }
     @Published var skipWhenOutput: Bool { didSet { d.set(skipWhenOutput, forKey: "skipWhenOutput") } }
     @Published var silenceWindowOn: Bool { didSet { d.set(silenceWindowOn, forKey: "silenceWindowOn") } }
@@ -177,6 +219,7 @@ final class Settings: ObservableObject {
         keepAudioDays = d.object(forKey: "keepAudioDays") as? Int ?? 3
 
         sensitivity = d.object(forKey: "sensitivity") as? Double ?? 0.020
+        captureModeRaw = d.string(forKey: "captureModeRaw") ?? CaptureMode.daily.rawValue
         silenceGap = d.object(forKey: "silenceGap") as? Double ?? 1.5
         minSegment = d.object(forKey: "minSegment") as? Double ?? 2.0
         maxSegment = d.object(forKey: "maxSegment") as? Double ?? 180.0

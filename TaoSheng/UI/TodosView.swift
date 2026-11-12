@@ -3,6 +3,7 @@ import SwiftUI
 struct TodosView: View {
     @ObservedObject private var app = AppState.shared
     @ObservedObject private var settings = Settings.shared
+    @ObservedObject private var speech = QuickSpeech.shared
 
     @State private var tab = 0   // 0 待确认 1 进行中 2 已完成
     @State private var showAdd = false
@@ -10,6 +11,7 @@ struct TodosView: View {
     @State private var parsing = false
     @State private var toast: String?
     @State private var newReminder: MemoryItem?
+    @State private var holding = false
 
     private var list: [MemoryItem] {
         switch tab {
@@ -213,15 +215,55 @@ struct TodosView: View {
         }
     }
 
+    private var voicePill: some View {
+        HStack(spacing: 6) {
+            Image(systemName: holding ? "waveform" : "mic")
+                .font(.system(size: 12, weight: .medium))
+            Text(voiceText)
+                .font(.system(size: 12.5))
+                .lineLimit(1)
+        }
+        .foregroundColor(holding ? Theme.accent : Theme.text2)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Theme.card)
+        .clipShape(Capsule())
+        .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 3)
+        .onTapGesture {
+            if !holding { showAdd = true }
+        }
+        .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 90) {
+            holding = true
+            Task { await QuickSpeech.shared.start() }
+        } onPressingChanged: { pressing in
+            if !pressing && holding {
+                endVoice()
+            }
+        }
+    }
+
+    private var voiceText: String {
+        if holding {
+            return speech.text.isEmpty ? "松手结束" : speech.text
+        }
+        return "点按打字 · 按住说话"
+    }
+
+    private func endVoice() {
+        guard holding else { return }
+        holding = false
+        let t = speech.stop()
+        if t.isEmpty {
+            toast = "没听清，再说一次"
+        } else {
+            draft = t
+            showAdd = true
+        }
+    }
+
     private var fab: some View {
         HStack(spacing: 10) {
-            Text("点按打字 · 按住说话")
-                .font(.system(size: 12.5))
-                .foregroundColor(Theme.text2)
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .background(Theme.card)
-                .clipShape(Capsule())
-                .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 3)
+            voicePill
 
             Button { showAdd = true } label: {
                 Image(systemName: "plus")

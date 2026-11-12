@@ -98,8 +98,44 @@ extension Store {
             """)
             exec("CREATE INDEX IF NOT EXISTS idx_fact_thing ON thing_fact(thing_id);")
 
+            exec("""
+            CREATE TABLE IF NOT EXISTS env_tag (
+                segment_id TEXT PRIMARY KEY,
+                tag TEXT NOT NULL,
+                at REAL NOT NULL
+            );
+            """)
+
             ensureColumn(table: "segment", column: "digested", ddl: "ALTER TABLE segment ADD COLUMN digested INTEGER NOT NULL DEFAULT 0;")
             ensureColumn(table: "segment", column: "bigram", ddl: "ALTER TABLE segment ADD COLUMN bigram TEXT NOT NULL DEFAULT '';")
+        }
+    }
+
+    // MARK: 环境音标签
+
+    func setEnvTag(segmentId: String, tag: String) {
+        queue.sync { () -> Void in
+            exec("INSERT OR REPLACE INTO env_tag (segment_id,tag,at) VALUES ('\(segmentId)','\(tag.replacingOccurrences(of: "'", with: "''"))',\(Date().timeIntervalSince1970));")
+        }
+    }
+
+    func envTags(day: String) -> [String: String] {
+        queue.sync { () -> [String: String] in
+            var out: [String: String] = [:]
+            let sql = """
+            SELECT e.segment_id, e.tag FROM env_tag e
+            JOIN segment s ON s.id = e.segment_id
+            WHERE s.day = '\(day)';
+            """
+            var st: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK, let q = st else { return out }
+            while sqlite3_step(q) == SQLITE_ROW {
+                let key = col(q, 0)
+                let val = col(q, 1)
+                out[key] = val
+            }
+            sqlite3_finalize(q)
+            return out
         }
     }
 

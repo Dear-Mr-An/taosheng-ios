@@ -9,12 +9,22 @@ struct TaoShengApp: App {
     @StateObject private var queue = TranscribeQueue.shared
     @StateObject private var digest = DigestEngine.shared
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("appearance") private var appearance = "system"
 
     init() {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playAndRecord,
                                  mode: .default,
                                  options: [.allowBluetooth, .allowBluetoothA2DP, .mixWithOthers, .defaultToSpeaker])
+    }
+
+    /// 外观设置真正生效：日间 / 夜间 / 跟随系统
+    private var scheme: ColorScheme? {
+        switch appearance {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
+        }
     }
 
     var body: some Scene {
@@ -25,7 +35,7 @@ struct TaoShengApp: App {
                 .environmentObject(capture)
                 .environmentObject(queue)
                 .environmentObject(digest)
-                .preferredColorScheme(.light)
+                .preferredColorScheme(scheme)
                 .onAppear {
                     app.refresh()
                     queue.start()
@@ -36,6 +46,7 @@ struct TaoShengApp: App {
                     ReminderEngine.shared.requestAuth()
                     ReminderEngine.shared.rescheduleAll(Store.shared.reminders())
                     MicRouter.shared.applyPreferred()
+                    LocationEngine.shared.syncWithSettings()
                     if UserDefaults.standard.bool(forKey: "captureWanted") && !capture.isRunning {
                         capture.start()
                     }

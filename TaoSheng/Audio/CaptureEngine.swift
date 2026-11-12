@@ -135,7 +135,7 @@ final class CaptureEngine: ObservableObject {
         }
         let rms = sqrt(sum / Double(n))
         let s = Settings.shared
-        let threshold = s.sensitivity
+        let threshold = s.modeSensitivity
 
         let now = Date()
         let work: () -> Void = { [weak self] in

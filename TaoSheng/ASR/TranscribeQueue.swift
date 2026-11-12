@@ -80,6 +80,11 @@ final class TranscribeQueue: ObservableObject {
                     if !cleaned.isEmpty {
                         await TranscribeQueue.identifySpeaker(segmentId: seg.id, url: url)
                     }
+
+                    // 环境音（本地启发式，只在打开时算）
+                    if Settings.shared.envSoundOn, let tag = EnvSound.analyze(url: url) {
+                        Store.shared.setEnvTag(segmentId: seg.id, tag: tag)
+                    }
                     await MainActor.run { self.lastMessage = "已转写 \(seg.timeText) 的 \(Int(seg.duration)) 秒" }
                     self.failCount.removeValue(forKey: seg.id)
                 } catch {
