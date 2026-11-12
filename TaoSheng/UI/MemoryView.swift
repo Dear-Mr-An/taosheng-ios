@@ -106,28 +106,33 @@ struct MemoryView: View {
     // MARK: 按天
 
     private var dayStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(recentDays, id: \.self) { d in
-                    let on = d == day
-                    Button { app.refreshDay(d) } label: {
-                        VStack(spacing: 3) {
-                            Text(dayNum(d))
-                                .font(.system(size: 16, weight: .semibold, design: .rounded))
-                                .foregroundColor(on ? .white : Theme.text)
-                            Text(weekShort(d))
-                                .font(.system(size: 10))
-                                .foregroundColor(on ? Color.white.opacity(0.85) : Theme.dim)
-                        }
-                        .frame(width: 44, height: 52)
-                        .background(on ? Theme.accent : Theme.card)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        HStack(spacing: 4) {
+            ForEach(weekDays, id: \.self) { d in
+                let on = d == day
+                let isToday = d == DayKey.of(Date())
+                let future = d > DayKey.of(Date())
+                Button { app.refreshDay(d) } label: {
+                    VStack(spacing: 5) {
+                        Text(weekName(d))
+                            .font(.system(size: 11, weight: on ? .semibold : .regular))
+                            .foregroundColor(on ? .white : (isToday ? Theme.accent : Theme.dim))
+                        Text(dayNum(d))
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundColor(on ? .white : (isToday ? Theme.accent : Theme.text))
+                        Circle()
+                            .fill(isToday ? (on ? Color.white : Theme.accent) : Color.clear)
+                            .frame(width: 4, height: 4)
                     }
-                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 60)
+                    .background(on ? Theme.accent : (isToday ? Theme.accentSoft : Color.clear))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .opacity(future && !on ? 0.45 : 1)
                 }
+                .buttonStyle(.plain)
             }
-            .padding(.vertical, 2)
         }
+        .padding(.vertical, 2)
     }
 
     private var reviewCard: some View {
@@ -323,11 +328,15 @@ struct MemoryView: View {
 
     // MARK: 工具
 
-    private var recentDays: [String] {
-        let cal = Calendar(identifier: .gregorian)
-        let today = cal.startOfDay(for: Date())
-        return (0..<14).compactMap { i in
-            cal.date(byAdding: .day, value: -i, to: today).map { DayKey.of($0) }
+    /// 本周一到周日，7 格固定顺序
+    private var weekDays: [String] {
+        var cal = Calendar(identifier: .gregorian)
+        cal.firstWeekday = 2          // 周一为一周开始
+        cal.locale = Locale(identifier: "zh_CN")
+        let today = Date()
+        let start = cal.dateInterval(of: .weekOfYear, for: today)?.start ?? today
+        return (0..<7).compactMap { i in
+            cal.date(byAdding: .day, value: i, to: start).map { DayKey.of($0) }
         }
     }
 
@@ -335,14 +344,12 @@ struct MemoryView: View {
         String(d.suffix(2)).replacingOccurrences(of: "0", with: "", options: .anchored)
     }
 
-    private func weekShort(_ d: String) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        guard let date = f.date(from: d) else { return "" }
-        let w = DateFormatter()
-        w.locale = Locale(identifier: "zh_CN")
-        w.dateFormat = "EEE"
-        return w.string(from: date)
+    /// 周几，固定「周一…周日」写法
+    private func weekName(_ d: String) -> String {
+        guard let date = DayKey.date(from: d) else { return "" }
+        let names = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
+        let w = Calendar(identifier: .gregorian).component(.weekday, from: date)
+        return names[(w - 1 + 7) % 7]
     }
 
     private func genReview() async {
