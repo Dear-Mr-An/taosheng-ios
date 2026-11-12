@@ -10,7 +10,7 @@
 
 ## 〇、ipa 已经出好了
 
-**产物：`C:\项目分区\涛声app\dist\TaoSheng-v0.3.2.ipa`**（886 KB，未签名，arm64，iOS 16.0+，仅 iPhone）
+**产物：`C:\项目分区\涛声app\dist\TaoSheng-v0.4.0.ipa`**（916 KB，未签名，arm64，iOS 16.0+，仅 iPhone）
 
 已在 GitHub Actions（`macos-15` + Xcode 16.4）真实编译通过，可直接拿去签：
 
@@ -18,8 +18,8 @@
 |---|---|
 | Bundle ID | `app.taosheng.TaoSheng` |
 | 显示名 | 涛声 |
-| 版本 | 0.3.2 (6) |
-| 可执行文件 | `Payload/TaoSheng.app/TaoSheng`（arm64，1.73 MB，MH_EXECUTE） |
+| 版本 | 0.4.0 (7) |
+| 可执行文件 | `Payload/TaoSheng.app/TaoSheng`（arm64，1.79 MB，MH_EXECUTE） |
 | 最低系统 | iOS 16.0 |
 | 签名状态 | 无 `_CodeSignature`、无 `embedded.mobileprovision`（纯未签名，签名工具会补） |
 | Info.plist | 已转成 XML（不是二进制 bplist），国产签名工具能正常解析 |
@@ -27,6 +27,20 @@
 
 仓库：<https://github.com/Dear-Mr-An/taosheng-ios>（public，改代码 push 后自动重出包，
 Actions → `build-ipa` → Artifacts → `TaoSheng-unsigned-ipa`）。
+
+### 0.4.0 做了什么：模式、聆听按钮，以及把"只有界面"的地方补成真功能
+
+- **今天页去掉「整理用的大模型」卡**：设置 → 智能 → 整理模型 里已经有同一份配置，不再重复。
+- **日常模式 / 会议模式**：Hero 卡里直接切。
+  - 日常：停顿 1.5 秒断句，一段最长 3 分钟，随手说的话也记。
+  - 会议：灵敏度更高、停顿 2.5 秒才断句、一段最长 5 分钟；整理时追加会议规则——同一议题不按停顿切碎、标题写「和谁·做了什么」、summary 先给结论、points 必须覆盖讨论要点/已定结论/明确分工、people 列出被称呼到的参会人、会上领走的事自动提成待办。
+  - 切换模式时如果正在录音，会自动停一下再用新参数续上。
+- **开始聆听 / 停止聆听**：Hero 卡里一个整宽按钮，替代原来"点状态文字"的隐晦交互。
+- **待办页「按住说话」真的能说话了**：`QuickSpeech`（SFSpeechRecognizer + AVAudioEngine）实时出字，松手把文字填进添加待办的输入框，再走自然语言拆卡。
+- **环境音识别真的在跑**：`EnvSound` 对每个转写片段做本地特征判断（能量 / 过零率 / 高频占比），给出 人声 / 音乐 / 键盘 / 家电 / 环境噪音 / 安静，写进 `env_tag` 表；整理时附在原话行后面（`（环境：键盘）`），设置页能看到今天识别了多少段。
+- **足迹真的在定位**：`LocationEngine`（CLLocationManager，100 米精度、80 米位移过滤、5 分钟采样、停留超 2 分钟入库、CLGeocoder 反查地名），只写本机 `place` 表。
+- **外观设置真的生效**：主题色改成动态色（浅色米白 / 深色炭黑），日间 / 夜间 / 跟随系统 现在会真的切。
+- **版本号不再是写死的**：设置页读 `CFBundleShortVersionString`。
 
 ### 0.3.2 做了什么：按原版逻辑重写
 
