@@ -1151,6 +1151,56 @@ struct ModelSettingsView: View {
 
     // MARK: 工具
 
+    private var modelEntryCard: some View {
+        Button { showModel = true } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("整理用的大模型").font(.system(size: 14.5, weight: .medium)).foregroundColor(Theme.text)
+                    Text(settings.effectiveLLM.key.isEmpty ? "还没填密钥" : "\(settings.llmModel)")
+                        .font(.system(size: 11.5)).foregroundColor(Theme.dim)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold)).foregroundColor(Theme.dim2)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var keepDaysSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("原声保留 \(settings.keepAudioDays) 天")
+                    .font(.system(size: 18, weight: .semibold))
+                Stepper("保留天数", value: $settings.keepAudioDays, in: 1...365)
+                Text("标了重点的录音长期保留。现在占用 \(ByteText.short(stats.bytes))。")
+                    .font(.system(size: 12)).foregroundColor(Theme.dim)
+                Button {
+                    AppState.shared.purgeOldAudio()
+                    reload()
+                } label: {
+                    Text("立即清理过期录音")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 18).padding(.vertical, 10)
+                        .background(Theme.accent).clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                Spacer()
+            }
+            .padding(20)
+            .navigationTitle("原声")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("关闭") { showKeepDays = false } } }
+        }
+    }
+
+    // MARK: 工具
+
     private func reload() {
         let today = Store.shared.transcribedMinutes(days: 1)
         let month = Store.shared.transcribedMinutes(days: 30)
