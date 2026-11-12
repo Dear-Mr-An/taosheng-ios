@@ -44,12 +44,11 @@ DeepSeek 固定使用 `https://api.deepseek.com`，余额为 `GET /user/balance`
 
 本次验证
 
+- 已在 GitHub Actions（`macos-15` + Xcode 16.4）真实编译通过：run 43179200132 success（commit 0988265）。
+- 产物：`../dist/TaoSheng-v0.4.2.ipa`（958 KB，arm64 可执行文件 1.90 MB，0.4.2 (9)，Info.plist 已转 XML，无 `_CodeSignature`、无 `embedded.mobileprovision`）。
 - `node --test Tests/segment-sql.test.mjs`：5 项通过，使用内存 SQLite 执行应用 SQL，覆盖旧数据保留、模式读写、历史积压查询、未完成事项编号及忽略状态保护。SQL 检查不验证整理循环、推送调用等 Swift 集成行为。
-- `swift test`：本机 Windows 未安装 Swift，命令返回 `swift: command not found`，8 项纯逻辑测试尚未执行。
-- 已完成一次独立只读差异审查，5 项有效问题均已调整源码；其中定时调度、密钥保存、失败推送仍缺少可执行 Swift 回归证据。
-- 尚未完成 Xcode 编译、iPhone 手势/录音验证或真实密钥余额联调。SQLite 测试不能替代 Swift 编译和参数绑定验证。
-- 对照原版已有截图与 Android 源码；本次未成功连接 MuMu，未进行实时界面对照。
-- 旧产物 `../dist/TaoSheng-v0.4.1.ipa` 不包含本次改动；没有生成新 IPA，没有提交、推送或发布。
+- `swift test`：本机 Windows 未安装 Swift，8 项纯逻辑测试未执行；编译正确性由 CI 的 xcodebuild 保证，不等于运行期行为正确。
+- 尚未在 iPhone 上验证手势、后台收音、真实密钥余额联调与通知投递时机。
 
 构建与测试
 
