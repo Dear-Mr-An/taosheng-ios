@@ -12,6 +12,16 @@ Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 Swift
 - 余额查询显示真实金额、赠送额度、更新时间和失败提示；优先人民币，成功结果缓存一小时，可手动刷新。低额提醒只在设置页展示，不是后台通知。
 - 自动整理遵守开关、间隔或每日整点设置，包含历史积压并分批处理；手动整理不占用定时任务的成功记录。深度思考仅用于整理请求。定时任务依赖 App 实际运行，不能保证 iOS 挂起时准点执行。
 
+0.4.12 复审修复（2026-11-12）
+
+- 录音：首个有声 buffer 在打开新录音段后正确记作人声，避免短语音落盘又被误删；转写队列先跳过已失败三次的记录，再取后续 8 段，避免队头堵塞。
+- 记忆：重新整理保留原有事件标星；清空数据覆盖事件、事项、技能卡、寻物与环境标签；近期原话先按时间筛选再截取。
+- 备份：WebDAV 地址已有百分号编码时避免二次编码，目录列表由 XML 解析并核对路径，建目录失败会明确报错。
+- 回顾与技能：每日和每周回顾可同日触发，运行中去重并对失败退避，空白周报不落库；技能字段不符时不再把原始 JSON 当成正文。
+- 界面：切换日期与后台刷新不再互相覆盖，历史问答搜索先完整配对再按关键词筛选；云端转写费用说明能实际弹出。
+- 本版回归：`node --test Tests/segment-sql.test.mjs` 8 项通过；iOS 编译结果以本次 GitHub Actions 为准。
+- 待完善：备份恢复仍仅恢复旧摘要/事项，未覆盖全部记忆和配置；S3 尚未实现按保留份数清理。
+
 0.4.11 全量 bug 审查修复
 
 - 提醒：重排待办提醒时不再把整理自动排的提醒一起清掉；重启后按未完成待办补排一次；只有日期的截止统一落到当天 09:00，过期不再补响。
@@ -57,9 +67,9 @@ DeepSeek 固定使用 `https://api.deepseek.com`，余额为 `GET /user/balance`
 
 本次验证
 
-- 已在 GitHub Actions（`macos-15` + Xcode 16.4）真实编译通过：run 43179200132 success（commit 0988265）。
-- 产物：`../dist/TaoSheng-v0.4.2.ipa`（958 KB，arm64 可执行文件 1.90 MB，0.4.2 (9)，Info.plist 已转 XML，无 `_CodeSignature`、无 `embedded.mobileprovision`）。
-- `node --test Tests/segment-sql.test.mjs`：5 项通过，使用内存 SQLite 执行应用 SQL，覆盖旧数据保留、模式读写、历史积压查询、未完成事项编号及忽略状态保护。SQL 检查不验证整理循环、推送调用等 Swift 集成行为。
+- 0.4.12 源码由 GitHub Actions（`macos-15`）构建；最终 run 号与产物验证见交付记录。
+- 目标产物：`../dist/TaoSheng-v0.4.12.ipa`（arm64，Info.plist 转 XML，未签名）。
+- `node --test Tests/segment-sql.test.mjs`：8 项通过，使用内存 SQLite 执行应用 SQL，覆盖迁移、积压查询、事件标星、清空表以及最近原话截取。SQL 检查不验证设备录音和云服务行为。
 - `swift test`：本机 Windows 未安装 Swift，8 项纯逻辑测试未执行；编译正确性由 CI 的 xcodebuild 保证，不等于运行期行为正确。
 - 尚未在 iPhone 上验证手势、后台收音、真实密钥余额联调与通知投递时机。
 
