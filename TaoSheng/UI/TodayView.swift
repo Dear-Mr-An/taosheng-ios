@@ -209,6 +209,7 @@ struct TodayView: View {
     }
 
     private var heroNote: String {
+        if let y = capture.yieldReason, !y.isEmpty { return y }
         if let e = capture.lastError, !e.isEmpty { return e }
         if let e = digest.lastError, !e.isEmpty { return e }
         if settings.effectiveLLM.key.isEmpty {

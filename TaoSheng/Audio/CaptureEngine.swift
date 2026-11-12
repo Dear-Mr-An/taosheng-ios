@@ -12,6 +12,8 @@ final class CaptureEngine: ObservableObject {
     @Published private(set) var level: Double = 0          // 0...1，给 UI 的波形
     @Published private(set) var isSpeaking = false
     @Published private(set) var lastError: String?
+    /// 麦克风被别人抢走（来电、微信/QQ 语音、系统录音）时的说明，给界面显示。
+    @Published private(set) var yieldReason: String?
 
     private let engine = AVAudioEngine()
     private var file: AVAudioFile?
@@ -30,6 +32,9 @@ final class CaptureEngine: ObservableObject {
     private var bufferGeneration: UInt64 = 0
     private var recordingMode: CaptureMode = .daily
     private var minimumDuration: Double = 2
+    /// 连续收到严格为 0 的样本帧数（判断麦克风是否已被别人独占）
+    private var zeroFrames = 0
+    private var yieldedBySilence = false
 
     /// 落盘参数：16kHz / 16bit / 单声道 PCM WAV —— 云转写（豆包、Whisper）都认这个。
     /// 硬件原始格式是 48kHz float32，直接按它写 WAV 会变成 IEEE float，很多服务拒收。
@@ -49,7 +54,115 @@ final class CaptureEngine: ObservableObject {
 
     var onSegmentSaved: ((Segment) -> Void)?
 
-    private init() {}
+    private init() {
+        let c = NotificationCenter.default
+        c.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] n in
+            self?.handleInterruption(n)
+        }
+        c.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] n in
+            self?.handleRouteChange(n)
+        }
+        c.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self, !self.isRunning else { return }
+            if UserDefaults.standard.bool(forKey: "captureWanted") { self.start() }
+        }
+    }
+
+    // MARK: - 被打断 / 设备变化
+
+    /// 来电、微信语音、别的录音 App 要麦克风时，系统会先打断我们。
+    /// 这里必须立刻停采集并 deactivate 会话，否则我们占着输入设备，对方听不到你说话。
+    private func handleInterruption(_ n: Notification) {
+        guard let raw = n.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+        switch type {
+        case .began:
+            if isRunning {
+                yieldReason = "麦克风被其他 App 占用（来电或语音通话），已让出"
+            }
+            stopForInterruption()
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        case .ended:
+            let optRaw = n.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let opts = AVAudioSession.InterruptionOptions(rawValue: optRaw)
+            let want = UserDefaults.standard.bool(forKey: "captureWanted")
+            guard want else { yieldReason = nil; return }
+            if opts.contains(.shouldResume) {
+                yieldReason = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+                    guard let self, !self.isRunning else { return }
+                    self.start()
+                }
+            } else {
+                yieldReason = "通话结束，点「开始聆听」继续"
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    /// 拔耳机、蓝牙断开、插入新设备：重启引擎，避免继续往一个已经没了的输入口录音。
+    private func handleRouteChange(_ n: Notification) {
+        guard let raw = n.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else { return }
+        switch reason {
+        case .oldDeviceUnavailable:
+            let pref = Settings.shared.preferredInputUID
+            if !pref.isEmpty {
+                let stillThere = AVAudioSession.sharedInstance().availableInputs?.contains { $0.uid == pref } ?? false
+                if !stillThere { Settings.shared.preferredInputUID = "" }
+            }
+            if isRunning { restartSoon() }
+        case .newDeviceAvailable:
+            if isRunning { restartSoon() }
+        default:
+            break
+        }
+    }
+
+    private func restartSoon() {
+        guard UserDefaults.standard.bool(forKey: "captureWanted") else { return }
+        stopForInterruption()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            guard let self, !self.isRunning else { return }
+            self.start()
+        }
+    }
+
+    /// 打断时停下，但不动 captureWanted —— 通话结束后还要能自己接上。
+    private func stopForInterruption() {
+        generation &+= 1
+        isStarting = false
+        guard isRunning else { return }
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        queue.sync {
+            self.acceptingBuffers = false
+            self.closeSegment(force: true)
+            self.converter = nil
+            self.writeFormat = nil
+            self.lastVoiceAt = nil
+            self.zeroFrames = 0
+            self.yieldedBySilence = false
+        }
+        isRunning = false
+        startedAt = nil
+        isSpeaking = false
+        level = 0
+    }
+
+    /// 有些场景系统不给我们打断通知（比如别的 App 用 VoIP 抢占），
+    /// 但我们的 tap 会一直收到严格为 0 的样本。连续 20 秒全零就认定被占用，主动让出。
+    private func yieldForOtherApp() {
+        guard isRunning else { return }
+        yieldReason = "麦克风被其他 App 占用，已让出；结束后会自动接上"
+        stopForInterruption()
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
+            guard let self, !self.isRunning else { return }
+            if UserDefaults.standard.bool(forKey: "captureWanted") { self.start() }
+        }
+    }
 
     /// 是否处于「夜里不录」时段
     static func inSilenceWindow() -> Bool {
@@ -91,9 +204,11 @@ final class CaptureEngine: ObservableObject {
     private func startSessionAndEngine() {
         do {
             let session = AVAudioSession.sharedInstance()
+            // 不要 .defaultToSpeaker：那会把微信语音、来电的声音强制外放，而且录音根本不需要它。
+            // .mixWithOthers 保证我们不打断别人正在放的音乐/视频。
             try session.setCategory(.playAndRecord,
                                     mode: .default,
-                                    options: [.allowBluetooth, .allowBluetoothA2DP, .mixWithOthers, .defaultToSpeaker])
+                                    options: [.allowBluetooth, .mixWithOthers])
             try session.setActive(true, options: [])
 
             let input = engine.inputNode
@@ -113,6 +228,8 @@ final class CaptureEngine: ObservableObject {
                 self.recordingMode = mode
                 self.minimumDuration = minimum
                 self.lastVoiceAt = nil
+                self.zeroFrames = 0
+                self.yieldedBySilence = false
                 return self.bufferGeneration
             }
             input.removeTap(onBus: 0)
@@ -125,6 +242,7 @@ final class CaptureEngine: ObservableObject {
             isRunning = true
             startedAt = Date()
             lastError = nil
+            yieldReason = nil
             NSLog("涛声: 采集已启动 \(format.sampleRate)Hz \(format.channelCount)ch")
         } catch {
             engine.inputNode.removeTap(onBus: 0)
@@ -179,6 +297,16 @@ final class CaptureEngine: ObservableObject {
             sum += v * v
         }
         let rms = sqrt(sum / Double(n))
+        // 严格为 0 不是"安静房间"，是"拿不到输入"：别人独占麦克风时系统塞给我们的就是全零。
+        if rms < 1e-7 {
+            zeroFrames += n
+            if zeroFrames > 16000 * 20 && !yieldedBySilence {
+                yieldedBySilence = true
+                DispatchQueue.main.async { [weak self] in self?.yieldForOtherApp() }
+            }
+        } else {
+            zeroFrames = 0
+        }
         // tap 的 buffer 由系统复用，跨队列前复制样本，不能保留回调内存直接异步写。
         guard let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength) else { return }
         copy.frameLength = buffer.frameLength
