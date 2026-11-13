@@ -3,6 +3,105 @@
 Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 SwiftUI 重写，iOS 16+，无第三方运行依赖。
 全天收音 → 人声切片 → 转写 → DeepSeek 整理事件、待办和记忆。数据使用本机 SQLite。
 
+0.5.2 第三轮修复（审查清单驱动，2026-11-14）
+
+版本号 0.5.2 (24)。按 `.tmp/plan-0.5.2.md` 的 P0 → P1 → P2 顺序逐条修，每条都对着源码核过。功能不变，只修错、修一致、修数据安全。
+
+一、P0 三个显性问题
+
+1. 待办页 FAB 与 TabBar 撞在一起：`TodosView` 原来把 `.tabBarClearance()` 加在整屏 ZStack 上、又给 FAB 加了 `.floatingTabBarPadding`，两处叠加；改成一屏一份（clearance 只挂 ScrollView，FAB 只留 floating），占位从写死的 120 改成「FAB 56 + 16」。
+2. 添加人物弹窗的输入框只露一半：`.alert` 里塞 TextField 在 iOS 上会被裁。新增通用 `TaoSheng/UI/TextInputSheet.swift`（sheet + presentationDetents + 自动聚焦 + 去空白后为空则禁用确定），替换「新的人物」「编辑这件事」两处 alert。现在全仓 `.alert` 里没有输入框。
+3. 键盘弹出时底部仍留 66pt：`tabBarClearance` / `floatingTabBarPadding` 改成读 `KeyboardObserver.isVisible`，键盘可见时高度归零，带 0.18s 动画。
+
+二、P1 录音与转写
+
+- CaptureEngine 加 `AVAudioEngineConfigurationChange` 监听 + 5 秒看门狗：引擎还在跑但 5 秒没收到 buffer，或引擎已被系统停掉，自动重建（原来换蓝牙、来电、共享音频后可能静默停录，界面还显示在录）。
+- 媒体服务重置的守卫写反了（`!isRunning` 才处理），改为无条件拆 tap、停引擎、收尾当前段、重建后重启。
+- 录音写入加背压（最多 16 块待写），写盘跟不上时丢块而不是无限堆积。
+- 转写队列改 `@MainActor`，一次 tick 跑到队列清空（最多 40 轮 × 8 段），缺文件的段直接进终态不再反复重试。
+- 段 id 改完整 UUID + 纯 INSERT + 冲突换 id 重试；`insert` 返回 Bool，写库失败不再谎报「已保存」。
+- NetWatcher 提前初始化，首次 path 到达前 `canUpload = false`，避免冷启动把「还没检测到网络」当成「有网」。
+- SegmentPlayer 在听筒输出时临时切扬声器，停或播完还原；新增连播队列，详情页「播放这件事」按时间连播全部原话。
+- Voiceprint 只分析前 60 秒（10 分钟的段原来要整段解码，约 38MB 峰值）；向量含 NaN/Inf 直接丢弃（否则写入声纹时 JSONSerialization 抛不可捕获异常，闪退）。
+- 指认说话人的声纹计算挪到后台线程 + 进度态。
+
+三、P1 整理、技能、回顾
+
+- 整理失败按天记次数 + 指数退避（300 秒起翻倍，上限 1 小时），连续 5 次停自动重试并在整理卡提示；模型输出被截断时批次对半重跑。
+- `markDigested` 挪到写库之后，中途失败不会把没整理的段标成已整理。
+- 已删除的事件不再被重新整理复活（`upsertEvent` 查旧行不再过滤 deleted）。
+- 技能「没有内容」不再锁死当天；同一天同技能覆盖写同一张卡。
+- 回顾的时间窗按「被生成的那一天」算，不再用 `Date()`（补生成历史天时窗口会错位）。
+
+四、P1 提醒、推送、备份
+
+- 完成/忽略/删除待办、清空数据时同步撤销对应本地提醒；启动时补排还没到点的 pending/accepted 待办；过期的一次性提醒不再排队。
+- 推送按通道解析响应体（企微 errcode、PushPlus code、Server酱 code、飞书 code、Telegram ok、Bark code），业务失败不再显示成「已推送」；正文按各通道上限截断。
+- ntfy 频道地址不再拼成 `/topic/topic`；只填 host 时不再往公共频道推。
+- 坚果云通道用自己的账号密码走 WebDAV，目录不存在先 MKCOL。
+- 备份改为「上次备份日 → 昨天」逐日补齐 + 今天按 6 小时间隔，空天跳过，防重入。
+
+五、P1 数据层
+
+- `ensureColumn` 的 skill.fields 缺 `ALTER TABLE` 前缀，老库永远加不上这一列（已修）。
+- `wipeAll` 补 voice_cluster；`purgeDerived` 补 item/digest/skill_run/voice_cluster；删段顺带删 env_tag。
+- 过期清理改后台 + SQL 筛选（未标星、早于截止时间），只删音频文件并清空文件名，保留转写与整理结果，清完提示删了几段。
+- 豆包资源档位迁移改成只跑一次。
+
+六、P1 设置页
+
+- 豆包密钥输入框「打一个字就消失」：改成独立草稿 + 显式保存。
+- 四个密钥（转写 Key、豆包 Key、整理 Key、备份密码）从 UserDefaults 搬进钥匙串，启动时把旧明文迁进钥匙串并抹掉。
+- 技能详情的全局「生成后推送」删除；技能可左滑删除；保存校验名字非空；周计划补上「周几 / 小时 / 分钟」。
+- 识别档位改短名（大模型 / 极速 / 闲时），不再被截断。
+- 录音包与 Markdown 导出改后台 + 进度 + 禁用按钮。
+- 「从云端恢复」加二次确认。
+
+七、P1 页面
+
+- 问问：发送中/错误状态挪进 AppState（切页不再丢），回车发送，详情页「问问」的预填不再丢。
+- 记忆：切分类先清空、勾选后图标立刻变、重点列表点得开详情、周条能翻上一周/下一周、生成回顾有进行中状态、删除原话前确认并停止播放。
+- 今天：切模式的重试会看用户是否已经手动停录，时间线标星走统一的 AppState，时间线 sheet 数据改后台查。
+- 详情：播放按钮订阅播放器、点击区 32pt、加载中显示骨架而不是「没有原话」、未识别说话人显示中性「未识别」。
+- 待办：拆分失败的错误提示从 toast 改成弹窗内联（原来被 sheet 盖住看不见）。
+
+八、P2 UI 统一
+
+- 字号收敛到 `Theme.fsHero / fsCardTitle / fsTitle / fsBody / fsSmall / fsCaption`（全仓 44 处改用令牌），圆角统一到 `radiusSmall 12 / radius 16 / radiusLarge 22`。
+- 空状态全部带图标 + 说明；列表加载中显示 `LoadingHint` 骨架（今天时间线、记忆分类、详情原话）。
+- 分段控件选中态改 `accentSoft` 底 + accent 字；页面标题统一 `fsHero`。
+- 删掉 `ThingsView`（无入口）、`scheduleDaily`（无调用）、`pendingCountImmediate` 等死代码。
+
+九、新增文件
+
+- `TaoSheng/UI/TextInputSheet.swift`：通用文本输入弹层。
+- `TaoSheng/Core/Secrets.swift`：钥匙串读写与明文迁移。
+- `TaoSheng/Core/Formatters.swift`：共享 DateFormatter 与安全文件名。
+- `TaoSheng/Core/Policies/PushRules.swift`：推送地址拼接、响应判定、截断、周名、退避、LIKE 转义（纯逻辑，带单测）。
+- `TaoSheng/UI/ShotMode.swift`：截图模式（`-TSShot <screen>`）的跳转与演示数据。
+- `Tests/Policies/PushRulesTests.swift`：上面这些纯逻辑的 8 组用例。
+
+十、模拟器截图（本轮新增的验收手段）
+
+- 新增独立工作流 `.github/workflows/ios-shots.yml`：在 macos-15 上建 iPhone 16 Pro 与 iPhone SE (3rd generation) 模拟器，用启动参数 `-TSShot <screen>` 直接跳到指定画面、灌少量演示数据，截 8 张图上传 artifact `shots-052`。
+- 截图只是证据，失败不影响 IPA 打包（所以拆成独立 workflow，避免连带取消）。
+- 截图步骤全程包超时（macOS runner 没有 GNU timeout，用 coreutils 的 gtimeout），设备只启动一次，避免 simctl 卡死把 job 拖到上限。
+
+十一、验证
+
+- CI `build-ipa` #65（9f0a2ba）：success，编译 0 error / 0 warning；`swift test` 8 项、`node --test Tests/segment-sql.test.mjs` 8 项全过。
+- CI `shots` #7（9f0a2ba）：success，8 张截图上传。
+- 产物 `../dist/TaoSheng-v0.5.2.ipa`：包内 `Payload/TaoSheng.app/Info.plist` 为 XML，`CFBundleShortVersionString = 0.5.2`、`CFBundleVersion = 24`、`CFBundleIdentifier = app.taosheng.TaoSheng`、`CFBundleSupportedPlatforms` 单条 `iPhoneOS`。
+- 截图落在 `../.tmp/shots-0.5.2/`：`iphone16-todo.png`（FAB 与 TabBar 间距）、`iphone16-recording-bottom.png`（设置子页滚到底，停录时段完整露出）、`iphone16-person-add.png`（弹层输入框 + 键盘）、`iphone16-event-edit.png`（编辑弹层）、`iphone16-today.png`、`iphone16-ask.png`、`iphone16-memory.png`、`iphonese-todo.png`（小屏）。
+
+十二、本轮未修与理由
+
+- 声纹算法本身（24 维 mel 均值 + 方差）不动：换算法是产品改动，要重做阈值与聚类验证，不属于「修 bug」。
+- BackupEngine 的备份结构仍是 0.4.x 的「段 + 待办 + 日报」，没扩到 memory_event / memory_item / skill_card / thing：改格式要做版本迁移与向下兼容，单独一轮更稳。
+- S3 备份的路径仍按原样拼 key（含中文或空格会失败）：要同时改 SigV4 的 canonical URI，风险高于收益，记为已知限制。
+- 点击区统一到 44×44 没做全：本轮只把详情页播放键从 12pt 提到 32pt；星标、勾选圈这些小控件的点击区要逐页对着真机校准，留到下一轮和截图一起调，避免盲改把行高撑开。
+- `.onChange(of:)` 仍是 iOS 16 的单参闭包：本工程 deployment target 16.0，双参 API 要 17+，现阶段不产生警告（CI 实测 0 warning）。
+
 0.5.1 第二轮修复（真机反馈，2026-11-13）
 
 版本号 0.5.1 (23)。真机装上 0.5.0 后暴露两类问题：底部悬浮 TabBar 盖住内容、设置里「整理模型 / 服务商」是多余入口。本轮按此修，功能不变。
