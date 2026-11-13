@@ -158,7 +158,7 @@ DeepSeek 固定使用 `https://api.deepseek.com`，余额为 `GET /user/balance`
 
 - 0.5.0 源码由 GitHub Actions（`macos-15`）构建通过：run 43414690508 success（commit ae48d73），编译 **0 error / 0 warning**（工作流新增「编译警告清单」步骤，`grep -c "warning:"` 输出 0；上一版遗留的 `Store+Ext.swift:662` 未使用返回值警告已修）。
 - 产物：`../dist/TaoSheng-v0.5.0.ipa`（1274207 B，iOS 16+ arm64，版本 0.5.0 (22)，`CFBundleIdentifier` 为 `app.taosheng.TaoSheng`，无签名文件与描述文件）。
-- `node --test Tests/segment-sql.test.mjs`：8 项通过，使用内存 SQLite 执行应用 SQL，覆盖迁移、积压查询、事件标星、清空表以及最近原话截取。SQL 检查不验证设备录音和云服务行为。
+- `node --test Tests/segment-sql.test.mjs`：8 项通过，使用内存 SQLite 执行应用 SQL，覆盖迁移、积压查询、事件标星、手改保护的 `edited` 回写、清空表以及最近原话截取。本版起该测试也在 CI 里跑（macos-15 + Node 24），不再只靠本机。SQL 检查不验证设备录音和云服务行为。
 - `swift test`：本版起由 CI 的「策略单元测试」步骤真正执行（本机 Windows 无 Swift），8 项纯逻辑测试全部通过：`CaptureMode.restored`、`DeepSeekConfiguration.migrated` ×3、`DeepSeekBalance.parse` ×2、`VoiceSessionState`、`DigestSchedule.shouldRun` 全分支。
 - 尚未在 iPhone 上验证手势、后台收音、真实密钥余额联调与通知投递时机。
 
