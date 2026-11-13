@@ -1424,6 +1424,7 @@ struct PrivacyView: View {
     @State private var confirmWipe = false
     @State private var purgeTip = ""
     @State private var exportingMd = false
+    @State private var exportTip = ""
 
     var body: some View {
         Form {
@@ -1449,7 +1450,7 @@ struct PrivacyView: View {
                 Button {
                     guard !exportingMd else { return }
                     exportingMd = true
-                    exportTip = nil
+                    exportTip = ""
                     let day = DayKey.of(Date())
                     Task {
                         // 一天上千段时拼 Markdown + 写文件也不轻，别堵主线程
@@ -1482,6 +1483,9 @@ struct PrivacyView: View {
                     }
                 }
                 .disabled(exportingMd)
+                if !exportTip.isEmpty {
+                    Text(exportTip).font(.system(size: Theme.fsCaption)).foregroundColor(Theme.bad)
+                }
                 NavigationLink("导入录音文件") { ImportView() }
             }
 

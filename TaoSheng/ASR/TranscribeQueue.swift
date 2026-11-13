@@ -10,7 +10,6 @@ import Combine
 final class TranscribeQueue: ObservableObject {
     // 单例本身无状态，谁都能拿到；它的可变状态仍然只在主线程读写
     nonisolated(unsafe) static let shared = TranscribeQueue()
-    nonisolated init() {}
 
     @Published private(set) var busy = false
     @Published private(set) var pendingCount = 0
@@ -26,10 +25,7 @@ final class TranscribeQueue: ObservableObject {
 
     /// 一轮最多循环多少次（每次 8 段）。正常一天几十段，40 轮足够；
     /// 设上限只是防止「一直转写失败又被反复捞出来」时死循环。
-    private static let maxRounds = 40
-    private static let batchSize = 8
-
-    private init() {}
+    nonisolated private init() {}
 
     func start() {
         timer?.invalidate()
@@ -87,7 +83,7 @@ final class TranscribeQueue: ObservableObject {
 
             // 一直转到队列清空：以前一轮只处理 8 段，开会一下午攒下几十段时
             // 用户要等好几轮才能看到文字。现在同一次唤醒里连续处理。
-            for _ in 0 ..< TranscribeQueue.maxRounds {
+            for _ in 0 ..< 40 {
                 if Task.isCancelled { return }
 
                 let pending = Store.shared.pendingSegments(limit: 999)
@@ -98,7 +94,7 @@ final class TranscribeQueue: ObservableObject {
                 let batch = Array(
                     pending.lazy
                         .filter { !blocked.contains($0.id) }
-                        .prefix(TranscribeQueue.batchSize)
+                        .prefix(8)
                 )
                 if batch.isEmpty { return }
 
@@ -131,7 +127,7 @@ final class TranscribeQueue: ObservableObject {
                             Store.shared.setEnvTag(segmentId: seg.id, tag: tag)
                         }
                         await MainActor.run { self.lastMessage = "已转写 \(seg.timeText) 的 \(Int(seg.duration)) 秒" }
-                        await MainActor.run { self.failCount.removeValue(forKey: seg.id) }
+                        await MainActor.run { _ = self.failCount.removeValue(forKey: seg.id) }
                         didWork = true
                     } catch {
                         Store.shared.updateTranscript(id: seg.id, transcript: "", state: .failed)

@@ -429,6 +429,7 @@ struct TimelineFullView: View {
     /// 800 行查询从 body 里搬出来：以前每次重绘都同步查库，滚动时明显掉帧
     @State private var loaded: [MemoryEvent] = []
     @State private var timelineLoading = false
+    @EnvironmentObject private var app: AppState
 
     private var dayList: [String] {
         (0..<3).map { DayKey.of(Date().addingTimeInterval(-Double($0) * 86_400)) }
@@ -473,56 +474,9 @@ struct TimelineFullView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .center) {
-                    Text("时间线 · \(events.count) 件事")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(Theme.dim)
-                    Spacer(minLength: 8)
-                    segControl
-                }
-
-                HStack(spacing: 8) {
-                    chip("全部", active: !onlyMedia) { onlyMedia = false }
-                    chip("● 媒体 \(mediaCount)", active: onlyMedia) { onlyMedia = true }
-                    Spacer(minLength: 0)
-                    Button { earlyFirst.toggle() } label: {
-                        Text(earlyFirst ? "早的在上" : "晚的在上")
-                            .font(.system(size: 12))
-                            .foregroundColor(Theme.dim)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if timelineLoading && events.isEmpty {
-                    LoadingHint(rows: 3, text: "正在读取…")
-                } else if events.isEmpty {
-                    EmptyHint(symbol: "clock.badge.questionmark", title: "这一天还没有整理出事件", detail: "有录音后等自动整理，或到设置里手动整理")
-                } else {
-                    ForEach(Array(groups.enumerated()), id: \.offset) { _, g in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("\(g.0) · \(g.1.count) 件")
-                                .font(.system(size: 12.5))
-                                .foregroundColor(Theme.dim2)
-                                .padding(.top, 4)
-                            VStack(spacing: 0) {
-                                ForEach(Array(g.1.enumerated()), id: \.element.id) { idx, e in
-                                    TimelineLine(event: e, onStar: {
-                                        app.starEvent(e.id, starred: !e.starred)
-                                        reloadTick &+= 1
-                                    }, onTap: { detailEvent = e })
-                                    if idx < g.1.count - 1 {
-                                        Rectangle().fill(Theme.line)
-                                            .frame(height: 0.6)
-                                            .padding(.leading, 58)
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 2)
-                            .background(Theme.card)
-                            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
-                        }
-                    }
-                }
+                headerRow
+                filterRow
+                listBody
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
@@ -543,6 +497,78 @@ struct TimelineFullView: View {
         }
     }
 
+    /// 标题行拆成独立属性：整段 body 写在一起会触发「类型检查超时」
+    private var headerRow: some View {
+        HStack(alignment: .center) {
+            Text("时间线 · \(events.count) 件事")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(Theme.dim)
+            Spacer(minLength: 8)
+            segControl
+        }
+    }
+
+    private var filterRow: some View {
+        HStack(spacing: 8) {
+            chip("全部", active: !onlyMedia) { onlyMedia = false }
+            chip("● 媒体 \(mediaCount)", active: onlyMedia) { onlyMedia = true }
+            Spacer(minLength: 0)
+            Button { earlyFirst.toggle() } label: {
+                Text(earlyFirst ? "早的在上" : "晚的在上")
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.dim)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private var listBody: some View {
+        if timelineLoading && events.isEmpty {
+            LoadingHint(rows: 3, text: "正在读取…")
+        } else if events.isEmpty {
+            EmptyHint(symbol: "clock.badge.questionmark",
+                      title: "这一天还没有整理出事件",
+                      detail: "有录音后等自动整理，或到设置里手动整理")
+        } else {
+            ForEach(Array(groups.enumerated()), id: \.offset) { _, g in
+                groupBlock(part: g.0, list: g.1)
+            }
+        }
+    }
+
+    private func groupBlock(part: String, list: [MemoryEvent]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("\(part) · \(list.count) 件")
+                .font(.system(size: 12.5))
+                .foregroundColor(Theme.dim2)
+                .padding(.top, 4)
+            VStack(spacing: 0) {
+                ForEach(Array(list.enumerated()), id: \.element.id) { idx, e in
+                    lineRow(event: e, showDivider: idx < list.count - 1)
+                }
+            }
+            .padding(.vertical, 2)
+            .background(Theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+        }
+    }
+
+    private func lineRow(event e: MemoryEvent, showDivider: Bool) -> some View {
+        VStack(spacing: 0) {
+            TimelineLine(event: e, onStar: {
+                app.starEvent(e.id, starred: !e.starred)
+                reloadTick &+= 1
+            }, onTap: {
+                detailEvent = e
+            })
+            if showDivider {
+                Rectangle().fill(Theme.line)
+                    .frame(height: 0.6)
+                    .padding(.leading, 58)
+            }
+        }
+    }
     private var segControl: some View {
         HStack(spacing: 0) {
             ForEach(0..<3, id: \.self) { i in

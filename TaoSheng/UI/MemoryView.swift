@@ -78,10 +78,8 @@ struct MemoryView: View {
                     let md = await Task.detached(priority: .userInitiated) {
                         AppState.shared.exportMarkdown(day: day)
                     }.value
-                    await MainActor.run {
-                        exportBusy = false
-                        if md.count < 40 { toast = "这一天还没有可导出的内容" } else { exported = md; showShare = true }
-                    }
+                    exportBusy = false
+                    if md.count < 40 { toast = "这一天还没有可导出的内容" } else { exported = md; showShare = true }
                 }
             } label: {
                 Text(exportBusy ? "整理中…" : "导出")

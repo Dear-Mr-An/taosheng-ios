@@ -78,6 +78,9 @@ final class ReviewEngine {
 
     func generateDaily(day: String) async throws -> ReviewRecord {
         let s = Settings.shared
+        // 时间窗与「标星多久没进展」都以被回顾的那一天为准：
+        // 跨天补跑时用 Date() 会把窗口错到今天，模型看到的事件全在窗外。
+        let refDate = ReviewEngine.dateOf(day) ?? Date()
         // Store 按时间倒序返回；回顾契约要求按时间升序编号和输入。
         let evs = store.events(day: day, limit: 400).reversed()
         let allItems = store.items(day: day, status: nil, category: nil, limit: 400)
@@ -151,10 +154,7 @@ final class ReviewEngine {
             if stale.count == 5 { break }
         }
 
-        // 时间窗：昨晚 reviewHour → 当天 reviewHour。
-        // 这里必须用参数 day 换算，不能用 Date()：补生成前几天的回顾时，
-        // Date() 会把时间窗错到今天，模型看到的事件全在窗外。
-        let refDate = ReviewEngine.dateOf(day) ?? Date()
+        // 时间窗：昨晚 reviewHour → 当天 reviewHour（用上面按 day 算出的 refDate）
         let end = cal.date(bySettingHour: s.reviewHour, minute: 0, second: 0, of: refDate) ?? refDate
         let start = cal.date(byAdding: .day, value: -1, to: end) ?? end
 
