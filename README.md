@@ -48,7 +48,7 @@ TabBar 是 `ZStack(alignment: .bottom)` 里的浮层，不占布局空间。0.5.
 
 - CI（macos-15）`xcodegen` + `xcodebuild archive` 零错误，警告清单 0 条；
 - `swift test`（策略包 8 项）与 `node --test Tests/segment-sql.test.mjs`（SQL 回归 8 项）全通过；
-- 产物：`../dist/TaoSheng-v0.5.1.ipa`（未签名，`CFBundleShortVersionString` 0.5.1 / `CFBundleVersion` 23）；
+- 产物：`../dist/TaoSheng-v0.5.1.ipa`（未签名，1251515 B，`CFBundleShortVersionString` 0.5.1 / `CFBundleVersion` 23，`Info.plist` 为 XML、`CFBundleSupportedPlatforms` 恰好一条 `iPhoneOS`）；
 - 底部让位只在模拟器与真机手工核对，自动化测不到浮层遮挡，仍需装机复看一遍。
 
 0.5.0 全量质量提升（2026-11-13）
