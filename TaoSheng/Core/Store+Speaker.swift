@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 
 /// 未知说话人聚类。
 ///

@@ -264,12 +264,37 @@ struct TodayView: View {
                 rhythmCell("\(app.meetingCount)", "次开会", Theme.ok)
             }
 
-            LevelBars(level: min(1.0, app.todaySeconds / 3600.0), count: 32, color: Theme.accent.opacity(0.7))
-                .frame(height: 34)
+            hourBars
         }
         .padding(14)
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+    }
+
+    /// 一天 24 小时里每个小时说了多少，柱高按当天最忙的一小时归一
+    private var hourBars: some View {
+        let totals = hourlyTotals()
+        let peak = max(totals.max() ?? 0, 1)
+        return HStack(alignment: .bottom, spacing: 3) {
+            ForEach(0..<24, id: \.self) { i in
+                let h = totals[i] / peak
+                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                    .fill(totals[i] > 0 ? Theme.accent.opacity(0.30 + 0.55 * h) : Theme.line)
+                    .frame(height: max(2.5, 34 * h))
+                    .frame(maxWidth: .infinity, alignment: .bottom)
+            }
+        }
+        .frame(height: 34, alignment: .bottom)
+    }
+
+    private func hourlyTotals() -> [Double] {
+        var out = [Double](repeating: 0, count: 24)
+        let cal = Calendar.current
+        for s in app.todaySegments {
+            let h = cal.component(.hour, from: s.startedAt)
+            if h >= 0 && h < 24 { out[h] += max(1, s.duration) }
+        }
+        return out
     }
 
     private func rhythmCell(_ v: String, _ l: String, _ c: Color) -> some View {
