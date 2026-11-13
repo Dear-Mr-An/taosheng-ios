@@ -75,8 +75,9 @@ struct MemoryView: View {
                 guard !exportBusy else { return }
                 exportBusy = true
                 Task {
+                    // AppState 是主线程隔离的，跨线程取值要 await
                     let md = await Task.detached(priority: .userInitiated) {
-                        AppState.shared.exportMarkdown(day: day)
+                        await AppState.shared.exportMarkdown(day: day)
                     }.value
                     exportBusy = false
                     if md.count < 40 { toast = "这一天还没有可导出的内容" } else { exported = md; showShare = true }
