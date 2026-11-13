@@ -18,10 +18,6 @@ struct RootView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                // 与 TabBar 实际占用高度共用同一个常量，避免列表最后一行被压住
-                Color.clear.frame(height: kb.isVisible ? 0 : TabBar.reservedHeight)
-            }
 
             if !kb.isVisible {
                 TabBar(selected: $tab)
@@ -38,8 +34,8 @@ struct RootView: View {
 struct TabBar: View {
     @Binding var selected: Int
 
-    /// 悬浮 TabBar 实际占用的高度：上 8 + 胶囊 44 + 下 4 + 底部留白 6
-    static let reservedHeight: CGFloat = 62
+    /// 悬浮 TabBar 实际占用的高度：内边距 8+2+4 + 胶囊（图标 22 + 间距 3 + 文字 13 + 上下 5+5）
+    static let reservedHeight: CGFloat = 66
 
     private let items: [(icon: String, iconOn: String, title: String)] = [
         ("sun.max", "sun.max.fill", "今天"),
@@ -90,5 +86,21 @@ struct TabBar: View {
         )
         .padding(.horizontal, 14)
         .padding(.bottom, 4)
+    }
+}
+
+extension View {
+    /// 悬浮 TabBar 的占位：凡是会被 TabBar 盖住的滚动页面都要自己声明一次，
+    /// 这样最后一行才能完整滚到 TabBar 上方。底部安全区（Home 指示条）
+    /// 由 ScrollView / List 自身处理，这里只补 TabBar 实际占用的高度。
+    func tabBarClearance(_ extra: CGFloat = 12) -> some View {
+        safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear.frame(height: TabBar.reservedHeight + extra)
+        }
+    }
+
+    /// 悬浮按钮（FAB、输入条）用的底部内边距：直接让控件本身越过 TabBar
+    func floatingTabBarPadding(_ extra: CGFloat = 8) -> some View {
+        padding(.bottom, TabBar.reservedHeight + extra)
     }
 }

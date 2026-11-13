@@ -3,6 +3,54 @@
 Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 SwiftUI 重写，iOS 16+，无第三方运行依赖。
 全天收音 → 人声切片 → 转写 → DeepSeek 整理事件、待办和记忆。数据使用本机 SQLite。
 
+0.5.1 第二轮修复（真机反馈，2026-11-13）
+
+版本号 0.5.1 (23)。真机装上 0.5.0 后暴露两类问题：底部悬浮 TabBar 盖住内容、设置里「整理模型 / 服务商」是多余入口。本轮按此修，功能不变。
+
+一、底部让位（根因）
+
+TabBar 是 `ZStack(alignment: .bottom)` 里的浮层，不占布局空间。0.5.0 上一轮把各页写死的底部留白从 78/100 压到 16–24，而 RootView 里那层 62pt 的 `safeAreaInset` 同时被删掉，于是所有页面都少了这一层——Tab 页末行紧贴 TabBar，`NavigationStack` 推入的设置子页（`safeAreaInset` 不透传给推入页）直接被盖住，待办页 FAB 也一样。
+
+修法：在 `TaoSheng/UI/RootView.swift` 末尾新增两个修饰符，页面自己声明，推入页同样生效。
+
+- `tabBarClearance(_ extra: CGFloat = 12)`：`safeAreaInset(edge: .bottom)` 补 `TabBar.reservedHeight + extra`，给滚动内容用；
+- `floatingTabBarPadding(_ extra: CGFloat = 8)`：`padding(.bottom, TabBar.reservedHeight + extra)`，给悬浮控件用；
+- `TabBar.reservedHeight` 62 → 66（按 8 + 22 + 3 + 13 + 5 + 5 + 2 + 2 + 4 实测内容高度，原值低估 4pt）。
+
+逐页结果（均已加占位，最后一行/悬浮控件完整露在 TabBar 上方）：
+
+| 页面 | 处理 |
+| --- | --- |
+| 今天 `TodayView` | `.tabBarClearance()`；原 `frame(height: 78)` 占位改 16（避免与占位叠加） |
+| 问问 `AskView` | 输入条 `.padding(.bottom, kb.isVisible ? 8 : TabBar.reservedHeight + 12)`；内容由 `safeAreaInset` 抬到输入条之上 |
+| 记忆 `MemoryView` | `.tabBarClearance()`；原 78 占位改 16 |
+| 记忆 → 原话 `RawLinesView` | `.tabBarClearance()`（推入页，原来完全被盖） |
+| 记忆 → 寻物 `ThingsView` | `.tabBarClearance()` |
+| 待办 `TodosView` | `.tabBarClearance()`；FAB 区 `.padding(.bottom, 20)` → `.floatingTabBarPadding(12)` |
+| 设置 `SettingsView` | `.tabBarClearance()`；删掉旧的 `.padding(.bottom, 110)` |
+| 设置 → 录音与后台 | `.tabBarClearance()`（本轮上报的「停录时段」被挡） |
+| 设置 → 热词 / 声纹与人物 / 整理技能 / 技能详情 / 推送通道 / 数据备份 / 模型与整理 / 回顾与提醒 / 隐私与数据 / 导入录音 / 关于涛声 | 同上，各 `.tabBarClearance()` |
+| 设置 → 环境音识别 / 足迹 | 同上 |
+| 各处弹窗（`sheet`：时间线、回顾、历史、这是谁、新通道、原声、模型和转写） | 不动：弹窗盖住整个屏幕，没有 TabBar |
+
+二、删除「整理用的大模型 / 服务商」
+
+整理本来就只有 DeepSeek 一条路（`Settings.init` 每次都把 `llmProviderID` 写回 `deepseek`、`llmFallback` 写回 `false`），服务商列表和自动换备用是改不动的死配置，界面上却给了两个入口。
+
+- 删除 `TaoSheng/UI/DeepSeekSettingsView.swift`（整理模型页 + 添加服务商页）；
+- `SettingsView` 的「智能 → 整理模型」入口删除；「记录 → 原话与转写」改名为「模型与整理」（`ModelSettingsView`），页内新增 `llmCard`（密钥、模型、检测连接、余额与余额提醒）与 `timingCard`（自动整理、按间隔/时间点、整理前先思考、参考地点与环境音），原「什么时候整理」不再单独挂在一个不可达的页里；
+- `Settings.swift` 删除 `llmProviderID` / `llmFallback` / `providersJSON` 三个字段与 `providers` / `saveProviders` / `upsertProvider` / `deleteProvider` / `backupProviders`，以及 `LLMProvider` 结构；旧 `providersJSON` 仍作为**只读**历史值传给 `DeepSeekConfiguration.migrated` 做一次性密钥迁移，迁移后不再写入；
+- `LLMAuto.completeAny` 去掉备用服务商轮询，失败直接抛错（整理失败照旧保留原话、300s 后重试）。
+
+自动整理不受影响：`DigestEngine` 走 `Settings.effectiveLLM`（固定 `https://api.deepseek.com` + 规范化模型 + `llmKey`），本次没有改动这条链路。
+
+三、验证
+
+- CI（macos-15）`xcodegen` + `xcodebuild archive` 零错误，警告清单 0 条；
+- `swift test`（策略包 8 项）与 `node --test Tests/segment-sql.test.mjs`（SQL 回归 8 项）全通过；
+- 产物：`../dist/TaoSheng-v0.5.1.ipa`（未签名，`CFBundleShortVersionString` 0.5.1 / `CFBundleVersion` 23）；
+- 底部让位只在模拟器与真机手工核对，自动化测不到浮层遮挡，仍需装机复看一遍。
+
 0.5.0 全量质量提升（2026-11-13）
 
 本版做了一轮完整审查 + 修复 + UI 统一，目标是把「能用」推到「不崩、不卡、不歪、不像半成品」。版本号 0.5.0 (22)。

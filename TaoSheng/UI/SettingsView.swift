@@ -18,9 +18,9 @@ struct SettingsView: View {
                             dot: capture.isRunning ? Theme.ok : Theme.dim2,
                             detail: capture.isRunning ? "正在聆听" : "已暂停")
                         sep
-                        nav(ModelSettingsView(part: .asr), icon: "text.bubble", title: "原话与转写",
-                            dot: settings.asrReady ? Theme.ok : Theme.warn,
-                            detail: settings.asrReady ? settings.asrKind.title : "转写未就绪")
+                        nav(ModelSettingsView(), icon: "text.bubble", title: "模型与整理",
+                            dot: settings.llmReady && settings.asrReady ? Theme.ok : Theme.warn,
+                            detail: settings.llmReady ? settings.llmModel : "整理未就绪")
                         sep
                         nav(EnvironmentSoundView(), icon: "wind", title: "环境音识别",
                             dot: settings.envSoundOn ? Theme.ok : Theme.dim2,
@@ -32,10 +32,6 @@ struct SettingsView: View {
                     }
 
                     group("智能") {
-                        nav(DeepSeekSettingsView(), icon: "brain", title: "整理模型",
-                            dot: settings.effectiveLLM.key.isEmpty ? Theme.warn : Theme.ok,
-                            detail: settings.effectiveLLM.key.isEmpty ? "未填密钥" : settings.llmModel)
-                        sep
                         nav(SkillsView(), icon: "wand.and.stars", title: "整理技能",
                             dot: Theme.dim2,
                             detail: "开了 \(app.skills.filter { $0.enabled }.count) 个")
@@ -103,8 +99,8 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
-                .padding(.bottom, 110)
             }
+        .tabBarClearance()
             .background(Theme.bg.ignoresSafeArea())
             .navigationBarHidden(true)
         }
@@ -210,6 +206,7 @@ struct EnvironmentSoundView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
+        .tabBarClearance()
         .navigationTitle("环境音识别")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { todayTags = Store.shared.envTags(day: DayKey.of(Date())) }
@@ -245,6 +242,7 @@ struct FootprintView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
+        .tabBarClearance()
         .navigationTitle("足迹")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {

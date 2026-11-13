@@ -51,22 +51,6 @@ enum DoubaoResource {
     }
 }
 
-// MARK: - 大模型服务商
-struct LLMProvider: Identifiable, Codable, Hashable {
-    var id: String
-    var name: String
-    var baseURL: String
-    var model: String
-    var key: String
-    var note: String
-    var builtin: Bool
-
-    static let presets: [LLMProvider] = [
-        LLMProvider(id: "deepseek", name: "DeepSeek", baseURL: DeepSeekConfiguration.baseURL,
-                    model: DeepSeekConfiguration.models[0], key: "", note: "按量计费，同一密钥查询余额", builtin: true)
-    ]
-}
-
 // MARK: - 备份
 enum BackupKind: String, CaseIterable, Identifiable {
     case none
@@ -111,9 +95,8 @@ final class Settings: ObservableObject {
     @Published var llmBaseURL: String { didSet { d.set(llmBaseURL, forKey: "llmBaseURL") } }
     @Published var llmModel: String { didSet { d.set(llmModel, forKey: "llmModel") } }
     @Published var llmKey: String { didSet { d.set(llmKey, forKey: "llmKey") } }
-    @Published var llmProviderID: String { didSet { d.set(llmProviderID, forKey: "llmProviderID") } }
-    @Published var llmFallback: Bool { didSet { d.set(llmFallback, forKey: "llmFallback") } }
-    @Published var providersJSON: String { didSet { d.set(providersJSON, forKey: "providersJSON") } }
+    // 只保留 DeepSeek 一套配置：底座地址固定，不给切换服务商的口子。
+
     @Published var deepThinking: Bool { didSet { d.set(deepThinking, forKey: "deepThinking") } }
     @Published var balanceAlertThreshold: Double { didSet { d.set(balanceAlertThreshold, forKey: "balanceAlertThreshold") } }
 
@@ -209,9 +192,7 @@ final class Settings: ObservableObject {
         llmBaseURL = DeepSeekConfiguration.baseURL
         llmModel = migrated.model
         llmKey = migrated.key
-        llmProviderID = "deepseek"
-        llmFallback = false
-        providersJSON = d.string(forKey: "providersJSON") ?? ""
+
         deepThinking = d.bool(forKey: "deepThinking")
         balanceAlertThreshold = d.object(forKey: "balanceAlertThreshold") as? Double ?? 10
 
@@ -261,8 +242,7 @@ final class Settings: ObservableObject {
         d.set(llmBaseURL, forKey: "llmBaseURL")
         d.set(llmModel, forKey: "llmModel")
         d.set(llmKey, forKey: "llmKey")
-        d.set("deepseek", forKey: "llmProviderID")
-        d.set(false, forKey: "llmFallback")
+
         d.set(captureModeRaw, forKey: "captureModeRaw")
     }
 
@@ -303,8 +283,7 @@ final class Settings: ObservableObject {
         llmBaseURL = DeepSeekConfiguration.baseURL
         llmModel = DeepSeekConfiguration.normalizedModel(model)
         llmKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        llmProviderID = "deepseek"
-        llmFallback = false
+
         // 只停用旧配置，不删除历史密钥；显式保存后不再从旧列表恢复空密钥。
         d.set(true, forKey: "deepSeekConfigurationSaved")
     }
@@ -312,46 +291,5 @@ final class Settings: ObservableObject {
     var effectiveLLM: (base: String, model: String, key: String) {
         (DeepSeekConfiguration.baseURL, DeepSeekConfiguration.normalizedModel(llmModel),
          llmKey.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-
-    // MARK: - 服务商（DeepSeek 为主，其余只当备用）
-
-    /// 服务商列表。没配置过时只有 DeepSeek 一条。
-    var providers: [LLMProvider] {
-        if let data = providersJSON.data(using: .utf8),
-           let list = try? JSONDecoder().decode([LLMProvider].self, from: data),
-           !list.isEmpty {
-            return list
-        }
-        return [LLMProvider.presets[0]]
-    }
-
-    func saveProviders(_ list: [LLMProvider]) {
-        let safe = list.isEmpty ? [LLMProvider.presets[0]] : list
-        providersJSON = (try? JSONEncoder().encode(safe))
-            .flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
-
-    func upsertProvider(_ p: LLMProvider) {
-        var list = providers
-        if let i = list.firstIndex(where: { $0.id == p.id }) {
-            list[i] = p
-        } else {
-            list.append(p)
-        }
-        saveProviders(list)
-    }
-
-    /// DeepSeek 是主服务商，不允许删掉
-    func deleteProvider(id: String) {
-        guard id != "deepseek" else { return }
-        saveProviders(providers.filter { $0.id != id })
-    }
-
-    /// 主服务商出问题时能接手的：填了地址和密钥、且不是当前这个
-    var backupProviders: [LLMProvider] {
-        providers.filter { p in
-            p.id != llmProviderID && !p.key.isEmpty && !p.baseURL.isEmpty && !p.model.isEmpty
-        }
     }
 }

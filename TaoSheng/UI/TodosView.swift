@@ -41,6 +41,7 @@ struct TodosView: View {
 
             fab
         }
+        .tabBarClearance()
         .background(Theme.bg.ignoresSafeArea())
         .navigationBarHidden(true)
         .sheet(isPresented: $showAdd, onDismiss: cancelParsing) { addSheet }
@@ -304,7 +305,7 @@ struct TodosView: View {
                 .shadow(color: Theme.accent.opacity(0.35), radius: 10, x: 0, y: 5)
         }
         .padding(.trailing, 16)
-        .padding(.bottom, 20)
+        .floatingTabBarPadding(12)
     }
 
     // MARK: 添加待办

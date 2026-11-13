@@ -29,6 +29,7 @@ struct TodayView: View {
             .padding(.horizontal, 16)
             .padding(.top, 8)
         }
+        .tabBarClearance()
         .background(Theme.bg.ignoresSafeArea())
         .navigationBarHidden(true)
         .task { await loadLastReview() }

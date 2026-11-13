@@ -40,26 +40,8 @@ extension LLMClient {
 
     static func completeAny(system: String, user: String, temperature: Double = 0.3, thinking: Bool = false) async throws -> String {
         guard let primary = auto() else { throw LLMError.notConfigured }
-        do {
-            return try await run(primary, system: system, user: user,
-                                 temperature: temperature, thinking: thinking)
-        } catch {
-            // 用户取消请求时不要继续向备用服务商发送原话。
-            try Task.checkCancellation()
-            let s = Settings.shared
-            guard s.llmFallback else { throw error }
-            for p in s.backupProviders {
-                try Task.checkCancellation()
-                let client = LLMClient(baseURL: p.baseURL, apiKey: p.key, model: p.model)
-                do {
-                    return try await run(client, system: system, user: user,
-                                         temperature: temperature, thinking: thinking)
-                } catch {
-                    try Task.checkCancellation()
-                }
-            }
-            throw error
-        }
+        return try await run(primary, system: system, user: user,
+                             temperature: temperature, thinking: thinking)
     }
 }
 

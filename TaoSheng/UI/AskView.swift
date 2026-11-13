@@ -263,7 +263,7 @@ struct AskView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
-        .padding(.bottom, kb.isVisible ? 8 : 12)
+        .padding(.bottom, kb.isVisible ? 8 : TabBar.reservedHeight + 12)
         .background(Theme.bg)
     }
 

@@ -33,6 +33,7 @@ struct MemoryView: View {
             .padding(.horizontal, 16)
             .padding(.top, 8)
         }
+        .tabBarClearance()
         .background(Theme.bg.ignoresSafeArea())
         .navigationBarHidden(true)
         .task(id: "\(cat)|\(byDay)") { await loadCat() }
@@ -472,6 +473,7 @@ struct RawLinesView: View {
             }
         }
         .background(Theme.bg.ignoresSafeArea())
+        .tabBarClearance()
         .navigationTitle("原话 · \(rows.count) 段")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -514,6 +516,7 @@ struct ThingsView: View {
                 .padding(.vertical, 3)
             }
         }
+        .tabBarClearance()
         .navigationTitle("寻物")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
