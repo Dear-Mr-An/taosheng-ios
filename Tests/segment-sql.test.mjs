@@ -159,9 +159,11 @@ test('reorganized event keeps its identity and user star state', () => {
   const db = new DatabaseSync(':memory:');
   try {
     createTable(db, 'memory_event');
+    // edited 是 ensureColumn 加的列，CREATE TABLE 里没有，测试里补上
+    db.exec('ALTER TABLE memory_event ADD COLUMN edited INTEGER DEFAULT 0');
     const insert = db.prepare(sqlIn('Store+Memory.swift', 'upsertEvent'));
-    const event = (id, title, starred, starredAt) => [id, '2026-11-12', 100, null, '其他', title,
-      '', '[]', '[]', null, '平静', 3, 0, starred, starredAt, 'same-entity', 0, 1, 0, 100];
+    const event = (id, title, starred, starredAt, edited = 0) => [id, '2026-11-12', 100, null, '其他', title,
+      '', '[]', '[]', null, '平静', 3, 0, starred, starredAt, 'same-entity', 0, 1, 0, 100, edited];
     insert.run(...event('original', '第一版', 1, 123));
     const existing = db.prepare('SELECT id,starred,starred_at FROM memory_event WHERE entity_id=? AND deleted=0 LIMIT 1')
       .get('same-entity');
@@ -169,6 +171,16 @@ test('reorganized event keeps its identity and user star state', () => {
     assert.deepEqual({ ...db.prepare('SELECT id,title,starred,starred_at FROM memory_event').get() },
       { id: 'original', title: '第二版', starred: 1, starred_at: 123 });
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM memory_event').get().n, 1);
+    // 手改过的内容不能被下一次自动整理覆盖（0.5.0 修复）：edited 标记写回、标题摘要保留
+    assert.match(body, /WHERE entity_id=\? AND deleted=0 LIMIT 1/);
+    assert.match(body, /SELECT id,starred,starred_at,edited,title,summary FROM memory_event/);
+    assert.match(body, /sqlite3_bind_int\(st, 21, keepEdited \? 1 : 0\)/);
+    db.prepare("UPDATE memory_event SET edited=1, title='手改标题', summary='手改摘要' WHERE id='original'").run();
+    const keep = db.prepare("SELECT edited,title FROM memory_event WHERE entity_id=? AND deleted=0 LIMIT 1").get("same-entity");
+    insert.run(...event("original", keep.title, 1, 123, keep.edited));
+    assert.deepEqual({ ...db.prepare("SELECT title,edited FROM memory_event").get() },
+      { title: "手改标题", edited: 1 });
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM memory_event").get().n, 1);
   } finally { db.close(); }
 });
 

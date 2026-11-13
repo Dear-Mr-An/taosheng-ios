@@ -25,6 +25,18 @@ jobs:
       - name: 安装 XcodeGen
         run: brew install xcodegen
 
+      - name: 安装 Node（SQL 回归用）
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: SQL 回归（node --test）
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          if [ -f project.yml ]; then ROOT="."; else ROOT="ios"; fi
+          cd "$ROOT"
+          node --test Tests/segment-sql.test.mjs
+
       - name: 策略单元测试（swift test）
         run: |
           set -o pipefail
