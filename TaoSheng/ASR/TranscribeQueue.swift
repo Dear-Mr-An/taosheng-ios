@@ -10,6 +10,7 @@ import Combine
 final class TranscribeQueue: ObservableObject {
     // 单例本身无状态，谁都能拿到；它的可变状态仍然只在主线程读写
     nonisolated(unsafe) static let shared = TranscribeQueue()
+    nonisolated init() {}
 
     @Published private(set) var busy = false
     @Published private(set) var pendingCount = 0

@@ -95,6 +95,7 @@ enum ShotDemo {
 /// Form/ScrollView 默认从顶部开始；截图要把「最后一行有没有被 TabBar 挡住」拍出来，
 /// 所以在截图模式下让内容先贴到底部。
 struct ShotBottomAnchor: ViewModifier {
+    @ViewBuilder
     func body(content: Content) -> some View {
         if #available(iOS 17.0, *) {
             content.defaultScrollAnchor(ShotMode.active ? .bottom : .top)

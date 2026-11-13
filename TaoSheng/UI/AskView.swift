@@ -239,8 +239,7 @@ struct AskView: View {
                 .onChange(of: input) { v in
                     // axis: .vertical 的 TextField 里回车是换行，onSubmit 不会触发，
                     // 所以在这里拦掉末尾换行，做「回车即发送」。
-                    if v.hasSuffix("
-") {
+                    if v.hasSuffix("\n") {
                         input = String(v.dropLast())
                         send()
                     }
