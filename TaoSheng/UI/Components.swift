@@ -68,6 +68,11 @@ struct SpeakerDot: View {
 // MARK: - 原话一行
 struct SegmentRow: View {
     let seg: Segment
+    var starred: Bool = false
+    /// 只有真正接了回调的地方才显示这两项 —— 否则长按出来的「这是谁 / 删除」
+    /// 点了没有任何反应，比不显示更糟
+    var canAssign: Bool = false
+    var canDelete: Bool = false
     var onPlay: () -> Void = {}
     var onStar: () -> Void = {}
     var onAssign: () -> Void = {}
@@ -117,10 +122,16 @@ struct SegmentRow: View {
         .contentShape(Rectangle())
         .contextMenu {
             Button { onPlay() } label: { Label("播放", systemImage: "play") }
-            Button { onStar() } label: { Label("标为重点", systemImage: "star") }
-            Button { onAssign() } label: { Label("这是谁", systemImage: "person.crop.circle.badge.questionmark") }
-            Divider()
-            Button(role: .destructive) { onDelete() } label: { Label("删除", systemImage: "trash") }
+            Button { onStar() } label: {
+                Label(starred ? "取消重点" : "标为重点", systemImage: starred ? "star.slash" : "star")
+            }
+            if canAssign {
+                Button { onAssign() } label: { Label("这是谁", systemImage: "person.crop.circle.badge.questionmark") }
+            }
+            if canDelete {
+                Divider()
+                Button(role: .destructive) { onDelete() } label: { Label("删除", systemImage: "trash") }
+            }
         }
     }
 }

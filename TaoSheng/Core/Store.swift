@@ -92,30 +92,49 @@ final class Store {
 
     // MARK: - 段
 
-    func insert(_ s: Segment) {
-        queue.sync {
-            let sql = """
-            INSERT OR REPLACE INTO segment
-            (id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?);
-            """
-            var st: OpaquePointer?
-            guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return }
-            defer { sqlite3_finalize(st) }
-            bind(st, 1, s.id)
-            sqlite3_bind_double(st, 2, s.startedAt.timeIntervalSince1970)
-            sqlite3_bind_double(st, 3, s.endedAt.timeIntervalSince1970)
-            sqlite3_bind_double(st, 4, s.duration)
-            bind(st, 5, s.fileName)
-            sqlite3_bind_int64(st, 6, Int64(s.byteSize))
-            bind(st, 7, s.transcript)
-            bind(st, 8, s.speaker)
-            bind(st, 9, s.state.rawValue)
-            bind(st, 10, s.day)
-            sqlite3_bind_double(st, 11, s.createdAt.timeIntervalSince1970)
-            bind(st, 12, s.captureMode.rawValue)
-            sqlite3_step(st)
+    /// 插入一段原话。
+    /// 这里用纯 INSERT：以前的 INSERT OR REPLACE 配上 8 位短 id，一旦撞号就把
+    /// 别人那一段静默覆盖、音频文件还对不上。撞了就换一个完整 UUID 重试。
+    @discardableResult
+    func insert(_ s: Segment) -> Bool {
+        var id = s.id
+        for _ in 0 ..< 3 {
+            let ok = queue.sync { self.writeSegment(s, id: id) }
+            if ok { return true }
+            NSLog("涛声: 原话 id 冲突，换 id 重试 \(id)")
+            id = UUID().uuidString.lowercased()
         }
+        return false
+    }
+
+    /// 必须在 queue 内调用
+    private func writeSegment(_ s: Segment, id: String) -> Bool {
+        let sql = """
+        INSERT INTO segment
+        (id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?);
+        """
+        var st: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return false }
+        defer { sqlite3_finalize(st) }
+        bind(st, 1, id)
+        sqlite3_bind_double(st, 2, s.startedAt.timeIntervalSince1970)
+        sqlite3_bind_double(st, 3, s.endedAt.timeIntervalSince1970)
+        sqlite3_bind_double(st, 4, s.duration)
+        bind(st, 5, s.fileName)
+        sqlite3_bind_int64(st, 6, Int64(s.byteSize))
+        bind(st, 7, s.transcript)
+        bind(st, 8, s.speaker)
+        bind(st, 9, s.state.rawValue)
+        bind(st, 10, s.day)
+        sqlite3_bind_double(st, 11, s.createdAt.timeIntervalSince1970)
+        bind(st, 12, s.captureMode.rawValue)
+        let rc = sqlite3_step(st)
+        if rc != SQLITE_DONE {
+            NSLog("涛声: 写入原话失败 rc=\(rc) \(String(cString: sqlite3_errmsg(db)))")
+            return false
+        }
+        return true
     }
 
     func updateTranscript(id: String, transcript: String, state: SegmentState) {
@@ -153,6 +172,13 @@ final class Store {
             }
             sqlite3_finalize(d)
 
+            var e: OpaquePointer?
+            if sqlite3_prepare_v2(db, "DELETE FROM env_tag WHERE segment_id=?;", -1, &e, nil) == SQLITE_OK {
+                bind(e, 1, id)
+                sqlite3_step(e)
+            }
+            sqlite3_finalize(e)
+
             if let day = day, remaining(day: day) == 0 {
                 purgeDerived(day: day)
             }
@@ -160,6 +186,53 @@ final class Store {
         if removeFile, let n = name {
             try? FileManager.default.removeItem(at: Store.audioDir.appendingPathComponent(n))
         }
+    }
+
+    /// 超出保留期、还没标星、并且确实还占着音频文件的段
+    func purgeableSegments(before date: Date, limit: Int = 4000) -> [Segment] {
+        queue.sync { () -> [Segment] in
+            let sql = """
+            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred
+            FROM segment
+            WHERE started_at < ? AND starred = 0 AND file_name <> ''
+            ORDER BY started_at ASC LIMIT \(limit);
+            """
+            var st: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
+            defer { sqlite3_finalize(st) }
+            sqlite3_bind_double(st, 1, date.timeIntervalSince1970)
+            var out: [Segment] = []
+            while sqlite3_step(st) == SQLITE_ROW { out.append(readSegment(st)) }
+            return out
+        }
+    }
+
+    /// 只丢音频文件，保留转写文字、整理结果与时间线
+    /// （老实现是整行删，历史记录也跟着一起消失）
+    @discardableResult
+    func dropAudio(id: String) -> Bool {
+        var name: String?
+        queue.sync {
+            var st: OpaquePointer?
+            if sqlite3_prepare_v2(db, "SELECT file_name FROM segment WHERE id=?;", -1, &st, nil) == SQLITE_OK {
+                bind(st, 1, id)
+                if sqlite3_step(st) == SQLITE_ROW, let c = sqlite3_column_text(st, 0) {
+                    name = String(cString: c)
+                }
+            }
+            sqlite3_finalize(st)
+
+            var u: OpaquePointer?
+            if sqlite3_prepare_v2(db, "UPDATE segment SET file_name='', byte_size=0 WHERE id=?;", -1, &u, nil) == SQLITE_OK {
+                bind(u, 1, id)
+                sqlite3_step(u)
+            }
+            sqlite3_finalize(u)
+        }
+        if let n = name, !n.isEmpty {
+            try? FileManager.default.removeItem(at: Store.audioDir.appendingPathComponent(n))
+        }
+        return name != nil
     }
 
     /// 这一天还剩多少段原话
@@ -176,7 +249,10 @@ final class Store {
 
     /// 原话全没了，这一天整理出来的东西也不再成立
     private func purgeDerived(day: String) {
-        for table in ["memory_event", "memory_item", "skill_card"] {
+        // 以前只清三张表，导致「删掉当天所有原话后」提待办、技能卡、
+        // 备份用的 item/digest、声纹簇还留着，看起来像删不干净。
+        for table in ["memory_event", "memory_item", "skill_card", "skill_run",
+                      "item", "digest", "voice_cluster"] {
             var st: OpaquePointer?
             if sqlite3_prepare_v2(db, "DELETE FROM \(table) WHERE day=?;", -1, &st, nil) == SQLITE_OK {
                 bind(st, 1, day)
@@ -188,7 +264,7 @@ final class Store {
 
     func segments(day: String? = nil, limit: Int = 500) -> [Segment] {
         queue.sync { () -> [Segment] in
-            var sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode FROM segment"
+            var sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred FROM segment"
             if day != nil { sql += " WHERE day=?" }
             sql += " ORDER BY started_at DESC LIMIT \(limit);"
             var st: OpaquePointer?
@@ -206,7 +282,7 @@ final class Store {
     func pendingSegments(limit: Int = 20) -> [Segment] {
         queue.sync { () -> [Segment] in
             let sql = """
-            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode
+            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred
             FROM segment WHERE state IN ('recorded','failed') ORDER BY started_at ASC LIMIT \(limit);
             """
             var st: OpaquePointer?
@@ -235,7 +311,7 @@ final class Store {
         let kw = "%\(q)%"
         return queue.sync { () -> [Segment] in
             let sql = """
-            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode
+            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred
             FROM segment WHERE transcript LIKE ? ORDER BY started_at DESC LIMIT \(limit);
             """
             var st: OpaquePointer?
@@ -273,32 +349,44 @@ final class Store {
 
     func replaceItems(day: String, items: [DigestItem]) {
         queue.sync {
+            // 先删后插的两步之间崩溃会留下「删干净了但没插回去」的空白天；
+            // 放进一个事务里，要么整批换掉要么原样不动。
+            exec("BEGIN IMMEDIATE;")
             var d: OpaquePointer?
             if sqlite3_prepare_v2(db, "DELETE FROM item WHERE day=?;", -1, &d, nil) == SQLITE_OK {
                 bind(d, 1, day)
                 sqlite3_step(d)
             }
             sqlite3_finalize(d)
+            for i in items { writeItem(i) }
+            exec("COMMIT;")
         }
-        items.forEach { insert($0) }
     }
 
     func insert(_ i: DigestItem) {
-        queue.sync {
-            let sql = "INSERT OR REPLACE INTO item (id,day,kind,title,detail,due,status,created_at) VALUES (?,?,?,?,?,?,?,?);"
-            var st: OpaquePointer?
-            guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return }
-            defer { sqlite3_finalize(st) }
-            bind(st, 1, i.id)
-            bind(st, 2, i.day)
-            bind(st, 3, i.kind.rawValue)
-            bind(st, 4, i.title)
-            bind(st, 5, i.detail)
-            bind(st, 6, i.due)
-            bind(st, 7, i.status.rawValue)
-            sqlite3_bind_double(st, 8, i.createdAt.timeIntervalSince1970)
-            sqlite3_step(st)
-        }
+        queue.sync { writeItem(i) }
+    }
+
+    /// 必须在 queue 内调用。按 id 合并：同一条待办被重新整理时保留原始创建时间。
+    private func writeItem(_ i: DigestItem) {
+        let sql = """
+        INSERT INTO item (id,day,kind,title,detail,due,status,created_at) VALUES (?,?,?,?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET
+            day=excluded.day, kind=excluded.kind, title=excluded.title,
+            detail=excluded.detail, due=excluded.due, status=excluded.status;
+        """
+        var st: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(st) }
+        bind(st, 1, i.id)
+        bind(st, 2, i.day)
+        bind(st, 3, i.kind.rawValue)
+        bind(st, 4, i.title)
+        bind(st, 5, i.detail)
+        bind(st, 6, i.due)
+        bind(st, 7, i.status.rawValue)
+        sqlite3_bind_double(st, 8, i.createdAt.timeIntervalSince1970)
+        sqlite3_step(st)
     }
 
     func toggleItem(id: String) {
@@ -381,7 +469,7 @@ final class Store {
     }
 
     private func readSegment(_ st: OpaquePointer?) -> Segment {
-        Segment(
+        var s = Segment(
             id: col(st, 0),
             startedAt: Date(timeIntervalSince1970: sqlite3_column_double(st, 1)),
             endedAt: Date(timeIntervalSince1970: sqlite3_column_double(st, 2)),
@@ -395,5 +483,7 @@ final class Store {
             createdAt: Date(timeIntervalSince1970: sqlite3_column_double(st, 10)),
             captureModeRaw: col(st, 11)
         )
+        s.starred = sqlite3_column_int(st, 12) == 1
+        return s
     }
 }

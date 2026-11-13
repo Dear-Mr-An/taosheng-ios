@@ -21,6 +21,8 @@ struct Segment: Identifiable, Codable, Hashable {
     var day: String               // yyyy-MM-dd（本机时区）
     var createdAt: Date
     var captureModeRaw: String? = nil
+    /// 是否标了重点（只有从库里读出来的段才有值，新录的段是 nil）
+    var starred: Bool? = nil
 
     var captureMode: CaptureMode { CaptureMode.restored(captureModeRaw ?? "") }
 

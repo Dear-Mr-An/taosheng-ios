@@ -49,6 +49,16 @@ enum DoubaoResource {
     static func title(_ id: String) -> String {
         all.first(where: { $0.id == id })?.title ?? id
     }
+
+    /// 分段控件用短标题：全称三档挤在一行会被截成「豆包语音…」
+    static func shortTitle(_ id: String) -> String {
+        switch id {
+        case seedASR: return "大模型"
+        case turbo: return "极速"
+        case idle: return "闲时"
+        default: return title(id)
+        }
+    }
 }
 
 // MARK: - 备份
@@ -79,14 +89,14 @@ final class Settings: ObservableObject {
     @Published var asrKind: ASRKind { didSet { d.set(asrKind.rawValue, forKey: "asrKind") } }
     @Published var asrBaseURL: String { didSet { d.set(asrBaseURL, forKey: "asrBaseURL") } }
     @Published var asrModel: String { didSet { d.set(asrModel, forKey: "asrModel") } }
-    @Published var asrKey: String { didSet { d.set(asrKey, forKey: "asrKey") } }
+    @Published var asrKey: String { didSet { Secrets.set("asrKey", asrKey) } }
     @Published var asrLanguage: String { didSet { d.set(asrLanguage, forKey: "asrLanguage") } }
     @Published var asrFullURL: String { didSet { d.set(asrFullURL, forKey: "asrFullURL") } }
     @Published var transcribeIntervalMin: Int { didSet { d.set(transcribeIntervalMin, forKey: "transcribeIntervalMin") } }
     @Published var hotwordEnabled: Bool { didSet { d.set(hotwordEnabled, forKey: "hotwordEnabled") } }
 
     // 豆包语音（火山引擎）原生接口
-    @Published var doubaoApiKey: String { didSet { d.set(doubaoApiKey, forKey: "doubaoApiKey") } }
+    @Published var doubaoApiKey: String { didSet { Secrets.set("doubaoApiKey", doubaoApiKey) } }
     @Published var doubaoAppKey: String { didSet { d.set(doubaoAppKey, forKey: "doubaoAppKey") } }
     @Published var doubaoAccessKey: String { didSet { d.set(doubaoAccessKey, forKey: "doubaoAccessKey") } }
     @Published var doubaoResourceId: String { didSet { d.set(doubaoResourceId, forKey: "doubaoResourceId") } }
@@ -94,7 +104,7 @@ final class Settings: ObservableObject {
     // 大模型
     @Published var llmBaseURL: String { didSet { d.set(llmBaseURL, forKey: "llmBaseURL") } }
     @Published var llmModel: String { didSet { d.set(llmModel, forKey: "llmModel") } }
-    @Published var llmKey: String { didSet { d.set(llmKey, forKey: "llmKey") } }
+    @Published var llmKey: String { didSet { Secrets.set("llmKey", llmKey) } }
     // 只保留 DeepSeek 一套配置：底座地址固定，不给切换服务商的口子。
 
     @Published var deepThinking: Bool { didSet { d.set(deepThinking, forKey: "deepThinking") } }
@@ -141,7 +151,7 @@ final class Settings: ObservableObject {
     @Published var backupKindRaw: String { didSet { d.set(backupKindRaw, forKey: "backupKind") } }
     @Published var backupURL: String { didSet { d.set(backupURL, forKey: "backupURL") } }
     @Published var backupUser: String { didSet { d.set(backupUser, forKey: "backupUser") } }
-    @Published var backupPass: String { didSet { d.set(backupPass, forKey: "backupPass") } }
+    @Published var backupPass: String { didSet { Secrets.set("backupPass", backupPass) } }
     @Published var backupBucket: String { didSet { d.set(backupBucket, forKey: "backupBucket") } }
     @Published var backupRegion: String { didSet { d.set(backupRegion, forKey: "backupRegion") } }
     @Published var backupAuto: Bool { didSet { d.set(backupAuto, forKey: "backupAuto") } }
@@ -161,37 +171,43 @@ final class Settings: ObservableObject {
     @Published var usePlaceInDigest: Bool { didSet { d.set(usePlaceInDigest, forKey: "usePlaceInDigest") } }
 
     private init() {
+        // 老版本把密钥明文写在 UserDefaults 里，启动时顺手搬进钥匙串并抹掉明文
+        Secrets.migrateFromDefaults(d)
+
         asrKind = ASRKind(rawValue: d.string(forKey: "asrKind") ?? "") ?? .doubao
         asrBaseURL = d.string(forKey: "asrBaseURL") ?? "https://api.openai.com/v1"
         asrModel = d.string(forKey: "asrModel") ?? "whisper-1"
-        asrKey = d.string(forKey: "asrKey") ?? ""
+        asrKey = Secrets.get("asrKey") ?? ""
         asrLanguage = d.string(forKey: "asrLanguage") ?? "zh"
         asrFullURL = d.string(forKey: "asrFullURL") ?? ""
         transcribeIntervalMin = d.object(forKey: "transcribeIntervalMin") as? Int ?? 30
         hotwordEnabled = d.object(forKey: "hotwordEnabled") as? Bool ?? true
 
-        doubaoApiKey = d.string(forKey: "doubaoApiKey") ?? ""
+        doubaoApiKey = Secrets.get("doubaoApiKey") ?? ""
         doubaoAppKey = d.string(forKey: "doubaoAppKey") ?? ""
         doubaoAccessKey = d.string(forKey: "doubaoAccessKey") ?? ""
         // 旧版本默认写的是极速版资源（volc.bigasr.auc_turbo），多数账号只开通了
         // 豆包语音识别大模型的 volc.seedasr.auc，命中旧默认值时自动迁移。
         let savedResource = d.string(forKey: "doubaoResourceId") ?? ""
-        if savedResource.isEmpty || savedResource == "volc.bigasr.auc_turbo" {
+        // 只迁移一次：用户后来手动选回 turbo（账号真开通了）不该每次启动被改回去
+        let migrated = d.bool(forKey: "ts.resourceMigrated")
+        if !migrated && (savedResource.isEmpty || savedResource == "volc.bigasr.auc_turbo") {
             doubaoResourceId = DoubaoResource.fallback
             d.set(DoubaoResource.fallback, forKey: "doubaoResourceId")
+            d.set(true, forKey: "ts.resourceMigrated")
         } else {
             doubaoResourceId = savedResource
         }
 
-        let migrated = DeepSeekConfiguration.migrated(
+        let dsMigrated = DeepSeekConfiguration.migrated(
             baseURL: d.string(forKey: "llmBaseURL") ?? DeepSeekConfiguration.baseURL,
             model: d.string(forKey: "llmModel") ?? "",
-            key: d.string(forKey: "llmKey") ?? "",
+            key: Secrets.get("llmKey") ?? "",
             providersJSON: d.string(forKey: "providersJSON") ?? "",
             allowLegacyProviders: !d.bool(forKey: "deepSeekConfigurationSaved"))
         llmBaseURL = DeepSeekConfiguration.baseURL
-        llmModel = migrated.model
-        llmKey = migrated.key
+        llmModel = dsMigrated.model
+        llmKey = dsMigrated.key
 
         deepThinking = d.bool(forKey: "deepThinking")
         balanceAlertThreshold = d.object(forKey: "balanceAlertThreshold") as? Double ?? 10
@@ -221,7 +237,7 @@ final class Settings: ObservableObject {
         backupKindRaw = d.string(forKey: "backupKind") ?? BackupKind.none.rawValue
         backupURL = d.string(forKey: "backupURL") ?? ""
         backupUser = d.string(forKey: "backupUser") ?? ""
-        backupPass = d.string(forKey: "backupPass") ?? ""
+        backupPass = Secrets.get("backupPass") ?? ""
         backupBucket = d.string(forKey: "backupBucket") ?? ""
         backupRegion = d.string(forKey: "backupRegion") ?? "auto"
         backupAuto = d.object(forKey: "backupAuto") as? Bool ?? false
@@ -241,7 +257,7 @@ final class Settings: ObservableObject {
         // 初始化赋值不触发 didSet，显式保存规范化配置；旧服务商记录保留但不再参与请求。
         d.set(llmBaseURL, forKey: "llmBaseURL")
         d.set(llmModel, forKey: "llmModel")
-        d.set(llmKey, forKey: "llmKey")
+        Secrets.set("llmKey", llmKey)
 
         d.set(captureModeRaw, forKey: "captureModeRaw")
     }

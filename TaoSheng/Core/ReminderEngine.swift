@@ -11,6 +11,22 @@ final class ReminderEngine {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
+    /// 权限被拒时调用方要提示「去设置里打开」，否则提醒静默失效，用户以为 App 坏了
+    func authDenied(_ done: @escaping (Bool) -> Void) {
+        UNUserNotificationCenter.current().getNotificationSettings { s in
+            DispatchQueue.main.async { done(s.authorizationStatus == .denied) }
+        }
+    }
+
+    /// 清掉所有涛声排的本地通知（清空数据 / 退出登录时用）
+    func cancelAllPending() {
+        let center = UNUserNotificationCenter.current()
+        center.getPendingNotificationRequests { reqs in
+            let ids = reqs.map { $0.identifier }.filter { $0.hasPrefix("ts-") }
+            if !ids.isEmpty { center.removePendingNotificationRequests(withIdentifiers: ids) }
+        }
+    }
+
     func schedule(_ r: Reminder) {
         guard r.enabled else { return }
         let content = UNMutableNotificationContent()
@@ -21,6 +37,10 @@ final class ReminderEngine {
             content.interruptionLevel = .timeSensitive
         }
         content.userInfo = ["reminderId": r.id]
+
+        // 一次性提醒如果时间已经过去，排上去会被系统立刻触发一次「该做了」，
+        // 用户看到的是莫名其妙的过期提醒。
+        if !r.repeatDaily, r.fireAt <= Date() { return }
 
         let cal = Calendar.current
         var comps = cal.dateComponents([.year, .month, .day, .hour, .minute], from: r.fireAt)
@@ -78,17 +98,4 @@ final class ReminderEngine {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["ts-quick-\(id)"])
     }
 
-    /// 每日回顾 / 整理完成的轻提醒
-    func scheduleDaily(kind: String, title: String, body: String, hour: Int, minute: Int) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        var comps = DateComponents()
-        comps.hour = hour
-        comps.minute = minute
-        let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
-        let req = UNNotificationRequest(identifier: "ts-daily-\(kind)", content: content, trigger: trigger)
-        UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
-    }
 }

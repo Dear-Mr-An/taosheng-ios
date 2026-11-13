@@ -13,6 +13,14 @@ final class DigestEngine: ObservableObject {
 
     private var timer: Timer?
     private var lastAttempt: [String: Date] = [:]
+    /// 每天连续失败次数：失败越多下次等越久，连续 5 次就停掉自动重试
+    private var failStreak: [String: Int] = [:]
+    private static let maxAutoRetry = 5
+
+    /// 失败退避：300s、600s、1200s……最多 1 小时（纯逻辑在 PushRules 里，可单测）
+    static func retryDelay(streak: Int) -> TimeInterval {
+        PushRules.retryDelay(streak: streak)
+    }
 
     private init() {}
 
@@ -40,8 +48,11 @@ final class DigestEngine: ObservableObject {
         let lastSuccess = UserDefaults.standard.object(forKey: "digestLastAutomaticSuccess") as? Date
         guard DigestSchedule.shouldRun(enabled: s.autoDigest, byInterval: s.digestByInterval,
             intervalMinutes: s.digestIntervalMin, hour: s.digestHour, now: now, lastRun: lastSuccess) else { return }
-        // 失败后至少等五分钟，时间点模式失败不应阻止当天重试。
-        if let last = lastAttempt[day], now.timeIntervalSince(last) < 300 { return }
+        // 失败按指数退避重试（时间点模式失败不该阻止当天再试）；
+        // 连续失败 5 次就停掉自动重试，免得 Key 失效时一直烧请求。
+        let streak = failStreak[day] ?? 0
+        guard streak < Self.maxAutoRetry else { return }
+        if let last = lastAttempt[day], now.timeIntervalSince(last) < Self.retryDelay(streak: streak) { return }
         let days = Store.shared.undigestedDays(through: day)
         guard !days.isEmpty else { return }
 
@@ -88,7 +99,9 @@ final class DigestEngine: ObservableObject {
                 try Task.checkCancellation()
                 do {
                     _ = try await performDigest(day: day, full: false)
+                    failStreak[day] = 0
                 } catch {
+                    failStreak[day, default: 0] += 1
                     // 一天失败不能拖垮整批：记下来继续下一天，
                     // 否则积压里永远卡在最前面那天，后面的新录音永远轮不到。
                     failed = "\(day)：\(error.localizedDescription)"
@@ -96,6 +109,9 @@ final class DigestEngine: ObservableObject {
             }
             if let f = failed { lastError = f } else {
                 UserDefaults.standard.set(Date(), forKey: "digestLastAutomaticSuccess")
+            }
+            if let over = failStreak.filter({ $0.value >= Self.maxAutoRetry }).keys.sorted().first {
+                lastError = "\(over) 的整理连续失败 \(Self.maxAutoRetry) 次，已暂停自动重试，可在整理卡里手动重试"
             }
         } catch {
             lastError = error.localizedDescription
@@ -134,14 +150,28 @@ final class DigestEngine: ObservableObject {
                 NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
             }
         }
+        /// 跑一批。模型报「输出过长被截断」时把这一批拆两半重跑，
+        /// 不然一段特别长的会议就能让整天整理永远失败。
+        func runBatch(_ rows: [Segment], system: String) async throws -> [BatchResult] {
+            do {
+                return [try await digestRows(rows, day: day, system: system)]
+            } catch LLMError.badReply(let msg) where msg.contains("输出过长") && rows.count > 1 {
+                let mid = rows.count / 2
+                var out: [BatchResult] = []
+                out += try await runBatch(Array(rows[..<mid]), system: system)
+                out += try await runBatch(Array(rows[mid...]), system: system)
+                return out
+            }
+        }
         for batch in batches {
             guard let first = batch.first else { continue }
-            let result = try await digestRows(batch, day: day, system: systemPrompt(for: first.captureMode))
-            total.events += result.events
-            total.items += result.items.count
-            addedItems.append(contentsOf: result.items)
-            summaries.append(result.summary)
-            transcripts.append(result.transcript)
+            for result in try await runBatch(batch, system: systemPrompt(for: first.captureMode)) {
+                total.events += result.events
+                total.items += result.items.count
+                addedItems.append(contentsOf: result.items)
+                summaries.append(result.summary)
+                transcripts.append(result.transcript)
+            }
         }
         SkillEngine.shared.runAfterDigest(day: day)
         PushEngine.shared.pushDigest(day: day, summary: summaries.joined(separator: "\n"),
@@ -265,13 +295,15 @@ final class DigestEngine: ObservableObject {
         for hint in out.done_hints ?? [] {
             guard allowedIDs.contains(hint.item_id), let line = hint.line_id, segById[line] != nil else { continue }
             Store.shared.completeOpenItem(id: hint.item_id)
+            // 已经做完了，那条提醒不用再响
+            ReminderEngine.shared.cancelQuick(hint.item_id)
         }
 
-        // 7. 寻物（失败不影响整理）
-        await runThings(day: day, rows: rows)
-
-        // 8. 标记已整理；技能、推送和通知由整轮汇总触发。
+        // 7. 先落「已整理」标记：后面寻物失败也不该让这批原话被反复重发
         Store.shared.markDigested(rows.map { $0.id })
+
+        // 8. 寻物（失败不影响整理）
+        await runThings(day: day, rows: rows)
         return BatchResult(events: eventCount, items: newItems,
             summary: out.events.compactMap { $0.summary }.joined(separator: "\n"),
             transcript: lines.joined(separator: "\n"))

@@ -4,6 +4,8 @@ struct MemoryView: View {
     @ObservedObject private var app = AppState.shared
     @State private var byDay = true
     @State private var showShare = false
+    @State private var exportBusy = false
+    @State private var exported = ""
     @State private var showReview = false
     @State private var toast: String?
     @State private var cat = "重点"
@@ -11,6 +13,10 @@ struct MemoryView: View {
     /// 分类页的 200 行查询从 body 里搬出来（每次重绘同步查库会卡滚动）
     @State private var catItems: [MemoryItem] = []
     @State private var catLoading = false
+    /// catItems 当前装的是哪个分类：切到别的分类时先清空，否则会闪一下上一类的数据
+    @State private var loadedCat = ""
+    @State private var weekOffset = 0
+    @State private var reviewBusy = false
 
     private let cats = ["重点", "寻物", "灵感", "关键信息", "决定"]
 
@@ -41,10 +47,16 @@ struct MemoryView: View {
             Task { await loadCat() }
         }
         .sheet(isPresented: $showShare) {
-            ShareSheet(items: [app.exportMarkdown(day: day)])
+            ShareSheet(items: [exported])
         }
         .sheet(isPresented: $showReview) {
             NavigationStack { ReviewSheet(day: day) }
+        }
+        .sheet(item: $detailEvent) { e in
+            EventDetailView(event: e)
+                .environmentObject(app)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .alert("提示", isPresented: Binding(get: { toast != nil }, set: { if !$0 { toast = nil } })) {
             Button("好") { toast = nil }
@@ -60,10 +72,19 @@ struct MemoryView: View {
                 .foregroundColor(Theme.text)
             Spacer()
             Button {
-                let md = app.exportMarkdown(day: day)
-                if md.count < 40 { toast = "这一天还没有可导出的内容" } else { showShare = true }
+                guard !exportBusy else { return }
+                exportBusy = true
+                Task {
+                    let md = await Task.detached(priority: .userInitiated) {
+                        AppState.shared.exportMarkdown(day: day)
+                    }.value
+                    await MainActor.run {
+                        exportBusy = false
+                        if md.count < 40 { toast = "这一天还没有可导出的内容" } else { exported = md; showShare = true }
+                    }
+                }
             } label: {
-                Text("导出")
+                Text(exportBusy ? "整理中…" : "导出")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(Theme.accent)
                     .padding(.horizontal, 14)
@@ -106,6 +127,36 @@ struct MemoryView: View {
     // MARK: 按天
 
     private var dayStrip: some View {
+        VStack(spacing: 6) {
+        HStack(spacing: 6) {
+            Button {
+                weekOffset -= 1
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Theme.dim)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("上一周")
+            Text(weekLabel)
+                .font(.system(size: Theme.fsCaption))
+                .foregroundColor(Theme.dim)
+                .frame(maxWidth: .infinity)
+            Button {
+                weekOffset += 1
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Theme.dim)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(weekOffset >= 0)
+            .accessibilityLabel("下一周")
+        }
         HStack(spacing: 4) {
             ForEach(weekDays, id: \.self) { d in
                 let on = d == day
@@ -126,13 +177,19 @@ struct MemoryView: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: 60)
                     .background(on ? Theme.accent : (isToday ? Theme.accentSoft : Color.clear))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
                     .opacity(future && !on ? 0.45 : 1)
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(.vertical, 2)
+        }
+    }
+
+    private var weekLabel: String {
+        if weekOffset == 0 { return "本周" }
+        return weekOffset < 0 ? "\(-weekOffset) 周前" : "\(weekOffset) 周后"
     }
 
     private var reviewCard: some View {
@@ -162,15 +219,20 @@ struct MemoryView: View {
             }
             HStack(spacing: 8) {
                 Button {
+                    guard !reviewBusy else { return }
                     Task { await genReview() }
                 } label: {
-                    Text(app.dayReview == nil ? "生成回顾" : "重新生成")
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(Theme.accent).clipShape(Capsule())
+                    HStack(spacing: 5) {
+                        if reviewBusy { ProgressView().scaleEffect(0.6).tint(.white) }
+                        Text(reviewBusy ? "正在写…" : (app.dayReview == nil ? "生成回顾" : "重新生成"))
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(reviewBusy ? Theme.dim2 : Theme.accent).clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .disabled(reviewBusy)
                 if app.dayReview != nil {
                     Button { showReview = true } label: {
                         Text("查看完整回顾")
@@ -220,12 +282,6 @@ struct MemoryView: View {
         .padding(14)
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
-        .sheet(item: $detailEvent) { e in
-            EventDetailView(event: e)
-                .environmentObject(app)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-        }
     }
 
     private var catChips: some View {
@@ -250,7 +306,9 @@ struct MemoryView: View {
                     EmptyHint(symbol: "star", title: "还没有标过重点", detail: "在时间线里长按一条可以标重点")
                 } else {
                     ForEach(app.starredList) { e in
-                        EventRow(event: e, onStar: { app.starEvent(e.id, starred: false) })
+                        EventRow(event: e,
+                                 onStar: { app.starEvent(e.id, starred: false) },
+                                 onTap: { detailEvent = e })
                     }
                 }
             }
@@ -268,7 +326,11 @@ struct MemoryView: View {
                     EmptyHint(symbol: "tray", title: "还没有这一类的内容", detail: "整理出来的提取项会按类别归到这里")
                 } else {
                     ForEach(list) { it in
-                        ItemRow(item: it) { st in app.setItemStatus(it.id, status: st) }
+                        ItemRow(item: it) { st in
+                            app.setItemStatus(it.id, status: st)
+                            // 勾完这一条状态变了，重新读一遍分类列表，图标才跟得上
+                            Task { await loadCat() }
+                        }
                     }
                 }
             }
@@ -281,6 +343,10 @@ struct MemoryView: View {
     private func loadCat() async {
         guard !byDay, cat != "重点", cat != "寻物" else { catLoading = false; return }
         let key = cat
+        if loadedCat != key {
+            catItems = []
+            loadedCat = key
+        }
         if catItems.isEmpty { catLoading = true }
         let list = await Task.detached(priority: .userInitiated) {
             Store.shared.items(day: nil, status: nil, category: key, limit: 200)
@@ -335,7 +401,8 @@ struct MemoryView: View {
         cal.firstWeekday = 2          // 周一为一周开始
         cal.locale = Locale(identifier: "zh_CN")
         let today = Date()
-        let start = cal.dateInterval(of: .weekOfYear, for: today)?.start ?? today
+        let thisWeek = cal.dateInterval(of: .weekOfYear, for: today)?.start ?? today
+        let start = cal.date(byAdding: .weekOfYear, value: weekOffset, to: thisWeek) ?? thisWeek
         return (0..<7).compactMap { i in
             cal.date(byAdding: .day, value: i, to: start).map { DayKey.of($0) }
         }
@@ -354,6 +421,8 @@ struct MemoryView: View {
     }
 
     private func genReview() async {
+        reviewBusy = true
+        defer { reviewBusy = false }
         do {
             _ = try await ReviewEngine.shared.generateDaily(day: day)
             app.refreshDay(day)
@@ -398,7 +467,7 @@ struct CardView: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.cardSoft)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
     }
 }
 
@@ -446,6 +515,7 @@ struct RawLinesView: View {
     let day: String
     @State private var rows: [Segment] = []
     @State private var selected: Segment?
+    @State private var pendingDelete: Segment?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -456,6 +526,9 @@ struct RawLinesView: View {
                 }
                 ForEach(rows) { s in
                     SegmentRow(seg: s,
+                               starred: s.starred ?? false,
+                               canAssign: true,
+                               canDelete: true,
                                onPlay: { SegmentPlayer.shared.toggle(segment: s) },
                                onStar: {
                                    Store.shared.setStar(id: s.id, starred: !Store.shared.isStarred(id: s.id))
@@ -463,13 +536,10 @@ struct RawLinesView: View {
                                    Task { await reload() }
                                },
                                onAssign: { selected = s },
-                               onDelete: {
-                                   Store.shared.deleteSegment(id: s.id, removeFile: true)
-                                   Task { await reload() }
-                               })
+                               onDelete: { pendingDelete = s })
                     .padding(.horizontal, 16)
                 }
-                Color.clear.frame(height: 40)
+                Color.clear.frame(height: 8)
             }
         }
         .background(Theme.bg.ignoresSafeArea())
@@ -485,6 +555,19 @@ struct RawLinesView: View {
                 Task { await reload() }
             }
         }
+        .alert("删除这段原话？", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })) {
+            Button("删除", role: .destructive) {
+                guard let s = pendingDelete else { return }
+                pendingDelete = nil
+                if SegmentPlayer.shared.isPlaying(s.id) { SegmentPlayer.shared.stop() }
+                Store.shared.deleteSegment(id: s.id, removeFile: true)
+                NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
+                Task { await reload() }
+            }
+            Button("取消", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text("录音文件和转写都会删掉，删了找不回来。")
+        }
     }
 
     private func reload() async {
@@ -493,42 +576,6 @@ struct RawLinesView: View {
             Store.shared.segments(day: key, limit: 600)
         }.value
         rows = list
-    }
-}
-
-// MARK: - 寻物
-
-struct ThingsView: View {
-    @State private var things: [Thing] = []
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        List {
-            if things.isEmpty {
-                Text("还没有记录过东西放哪了")
-                    .foregroundColor(Theme.dim)
-            }
-            ForEach(things) { t in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(t.name).font(.system(size: 15, weight: .medium))
-                    Text(sub(t)).font(.system(size: 12)).foregroundColor(Theme.dim)
-                }
-                .padding(.vertical, 3)
-            }
-        }
-        .tabBarClearance()
-        .navigationTitle("寻物")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { dismiss() } }
-        }
-        .onAppear { things = Store.shared.things(limit: 200) }
-    }
-
-    private func sub(_ t: Thing) -> String {
-        if let h = t.holder, !h.isEmpty { return "借给 \(h)" }
-        if let p = t.place, !p.isEmpty { return "在 \(p)" }
-        return "位置未知"
     }
 }
 
@@ -541,6 +588,7 @@ struct SpeakerAssignSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var persons: [Person] = []
     @State private var newName = ""
+    @State private var assigning = false
 
     var body: some View {
         NavigationStack {
@@ -587,19 +635,27 @@ struct SpeakerAssignSheet: View {
     }
 
     private func assign(_ p: Person) {
+        guard !assigning else { return }
+        assigning = true
         Store.shared.setSpeaker(id: segment.id, speaker: p.name)
         let url = Store.audioDir.appendingPathComponent(segment.fileName)
-        if let v = Voiceprint.vector(from: url) {
-            Store.shared.insertVoiceSample(VoiceSample(
-                id: UUID().uuidString,
-                personId: p.id,
-                segmentId: segment.id,
-                vector: v,
-                createdAt: Date()
-            ))
+        let personId = p.id
+        let segmentId = segment.id
+        // 声纹要解码整段音频，放在后台算，算完再存样本
+        Task {
+            let vector = await Task.detached(priority: .userInitiated) { Voiceprint.vector(from: url) }.value
+            if let vector {
+                Store.shared.insertVoiceSample(VoiceSample(
+                    id: UUID().uuidString,
+                    personId: personId,
+                    segmentId: segmentId,
+                    vector: vector,
+                    createdAt: Date()
+                ))
+            }
+            AppState.shared.refresh()
+            onDone()
+            dismiss()
         }
-        AppState.shared.refresh()
-        onDone()
-        dismiss()
     }
 }

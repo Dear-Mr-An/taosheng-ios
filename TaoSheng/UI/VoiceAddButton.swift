@@ -20,7 +20,7 @@ struct VoiceAddButton: UIViewRepresentable {
         button.accessibilityHint = "轻点打字，长按说话，松手结束"
         button.addTarget(context.coordinator, action: #selector(Coordinator.tap), for: .touchUpInside)
         let hold = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.hold(_:)))
-        hold.minimumPressDuration = 0.25
+        hold.minimumPressDuration = 0.45
         hold.allowableMovement = 90
         hold.cancelsTouchesInView = true
         button.addGestureRecognizer(hold)

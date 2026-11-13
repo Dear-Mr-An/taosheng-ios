@@ -15,7 +15,7 @@ final class CaptureEngine: ObservableObject {
     /// 麦克风被别人抢走（来电、微信/QQ 语音、系统录音）时的说明，给界面显示。
     @Published private(set) var yieldReason: String?
 
-    private let engine = AVAudioEngine()
+    private var engine = AVAudioEngine()
     private var file: AVAudioFile?
     private var fileURL: URL?
     private var segmentStart: Date?
@@ -35,6 +35,9 @@ final class CaptureEngine: ObservableObject {
     /// 连续收到严格为 0 的样本帧数（判断麦克风是否已被别人独占）
     private var zeroFrames = 0
     private var yieldedBySilence = false
+    /// 最近一次收到音频块的时间，看门狗用（在 queue 上写）
+    private var lastBufferAt: Date?
+    private var watchdog: Timer?
 
     /// 待写盘块数（背压用）：音频线程自增、queue 上自减
     private let backlogLock = NSLock()
@@ -66,10 +69,15 @@ final class CaptureEngine: ObservableObject {
         c.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] n in
             self?.handleRouteChange(n)
         }
-        c.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self, !self.isRunning else { return }
-            if UserDefaults.standard.bool(forKey: "captureWanted") { self.start() }
+        // 换输入设备、蓝牙切换、硬件采样率变化都会发这个通知：引擎会自己停掉，
+        // 但 isRunning 还是 true，界面显示"正在聆听"其实没在录 —— 必须重建。
+        c.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil, queue: .main) { [weak self] _ in
+            self?.handleEngineConfigChange()
         }
+        c.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.handleMediaReset()
+        }
+        startWatchdog()
     }
 
     // MARK: - 被打断 / 设备变化
@@ -124,10 +132,73 @@ final class CaptureEngine: ObservableObject {
         }
     }
 
-    private func restartSoon() {
+    /// 换设备 / 看门狗 / 媒体服务重置后统一走这里：先彻底停，再按需重启。
+    func restartSoon() {
         guard UserDefaults.standard.bool(forKey: "captureWanted") else { return }
         stopForInterruption()
+        queue.sync { self.lastBufferAt = nil }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            guard let self, !self.isRunning else { return }
+            self.start()
+        }
+    }
+
+    // MARK: - 看门狗 / 引擎重建
+
+    /// 5 秒一次体检：引擎悄悄停了（换设备、被系统回收）或 tap 收不到数据，
+    /// 就重建引擎。否则界面一直显示「正在聆听」，实际一个字都没录。
+    private func startWatchdog() {
+        watchdog?.invalidate()
+        let t = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+            self?.watchdogTick()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        watchdog = t
+    }
+
+    private func watchdogTick() {
+        guard isRunning, !suspendedForVoice, !isStarting else { return }
+        let last = queue.sync { self.lastBufferAt }
+        let stale = last.map { Date().timeIntervalSince($0) > 5 } ?? false
+        let dead = !engine.isRunning
+        guard dead || stale else { return }
+        NSLog("涛声: 看门狗触发 engine=\(engine.isRunning) stale=\(stale)，重启采集")
+        restartSoon()
+    }
+
+    /// 换输入设备、蓝牙断开、采样率变化都会让引擎自己停，这里统一重建。
+    private func handleEngineConfigChange() {
+        guard isRunning, !suspendedForVoice else { return }
+        restartSoon()
+    }
+
+    /// 媒体服务重置：旧引擎、tap、音频会话全部失效，只能无条件拆掉重建。
+    private func handleMediaReset() {
+        let want = UserDefaults.standard.bool(forKey: "captureWanted") || isRunning
+        generation &+= 1
+        isStarting = false
+        if isRunning {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+            queue.sync {
+                self.acceptingBuffers = false
+                self.closeSegment(force: true)
+                self.converter = nil
+                self.writeFormat = nil
+                self.lastVoiceAt = nil
+                self.lastBufferAt = nil
+                self.zeroFrames = 0
+                self.yieldedBySilence = false
+            }
+            isRunning = false
+            startedAt = nil
+            isSpeaking = false
+            level = 0
+        }
+        engine = AVAudioEngine()
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        guard want, !suspendedForVoice else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             guard let self, !self.isRunning else { return }
             self.start()
         }
@@ -232,6 +303,7 @@ final class CaptureEngine: ObservableObject {
                 self.recordingMode = mode
                 self.minimumDuration = minimum
                 self.lastVoiceAt = nil
+                self.lastBufferAt = Date()
                 self.zeroFrames = 0
                 self.yieldedBySilence = false
                 return self.bufferGeneration
@@ -330,6 +402,7 @@ final class CaptureEngine: ObservableObject {
             defer { self.releaseSlot() }
             guard self.acceptingBuffers, self.bufferGeneration == token else { return }
             // 灵敏度 / 静音断句 / 单段上限都按「当前设置」实时取，录音中改设置立即生效
+            self.lastBufferAt = now
             let live = Settings.shared.captureMode
             let liveThreshold = Settings.shared.modeSensitivity
             let speaking = rms > liveThreshold
@@ -337,10 +410,14 @@ final class CaptureEngine: ObservableObject {
                 self.lastVoiceAt = now
             }
             let isSpeaking = self.lastVoiceAt.map { now.timeIntervalSince($0) <= live.silenceGap } ?? false
+            // level/isSpeaking 都是 @Published：每 85ms 写一次会让所有观察 CaptureEngine
+            // 的页面（今天、设置、设置子页）整页重绘，而目前没有任何 UI 读 level。
+            // 只在「是否在说话」真的变化时更新，电平按 2% 量化后再写。
             DispatchQueue.main.async {
                 guard self.isRunning, self.bufferGeneration == token else { return }
-                self.level = min(1.0, Double(rms) * 12)
-                self.isSpeaking = isSpeaking
+                let newLevel = min(1.0, Double(rms) * 12)
+                if abs(newLevel - self.level) > 0.02 { self.level = newLevel }
+                if self.isSpeaking != isSpeaking { self.isSpeaking = isSpeaking }
             }
 
             // 开始一段
@@ -476,7 +553,7 @@ final class CaptureEngine: ObservableObject {
             return
         }
         let seg = Segment(
-            id: shortID(),
+            id: UUID().uuidString.lowercased(),
             startedAt: start,
             endedAt: end,
             duration: duration,
@@ -489,7 +566,15 @@ final class CaptureEngine: ObservableObject {
             createdAt: end,
             captureModeRaw: recordingMode.rawValue
         )
-        Store.shared.insert(seg)
+        // 写库失败（磁盘满、库损坏）就别再报「保存成功」，
+        // 否则用户看到一段原话，重启后消失。
+        guard Store.shared.insert(seg) else {
+            try? FileManager.default.removeItem(at: url)
+            DispatchQueue.main.async {
+                self.lastError = "这段录音没能存进数据库，已丢弃"
+            }
+            return
+        }
         DispatchQueue.main.async {
             self.onSegmentSaved?(seg)
             AppState.shared.refresh()

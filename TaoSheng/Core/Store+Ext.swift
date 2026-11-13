@@ -43,7 +43,7 @@ extension Store {
                 fields TEXT NOT NULL DEFAULT ''
             );
             """)
-            ensureColumn(table: "skill", column: "fields", ddl: "TEXT NOT NULL DEFAULT ''")
+            ensureColumn(table: "skill", column: "fields", ddl: "ALTER TABLE skill ADD COLUMN fields TEXT NOT NULL DEFAULT '';")
             exec("""
             CREATE TABLE IF NOT EXISTS skill_run (
                 id TEXT PRIMARY KEY,
@@ -203,6 +203,12 @@ extension Store {
     // MARK: - 声纹样本
 
     func insertVoiceSample(_ s: VoiceSample) {
+        // JSONSerialization 遇到 NaN / Inf 会直接抛异常（不可 try），
+        // 声纹里出现一次非有限数就能让整个「指认说话人」流程崩掉，先挡掉。
+        guard s.vector.allSatisfy({ $0.isFinite }) else {
+            NSLog("涛声: 声纹向量含非有限值，跳过保存")
+            return
+        }
         let json = (try? JSONSerialization.data(withJSONObject: s.vector, options: [])) ?? Data()
         let text = String(data: json, encoding: .utf8) ?? "[]"
         queue.sync {
@@ -790,7 +796,7 @@ extension Store {
     func starredSegments(limit: Int = 100) -> [Segment] {
         queue.sync { () -> [Segment] in
             let sql = """
-            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode
+            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred
             FROM segment WHERE starred=1 ORDER BY started_at DESC LIMIT \(limit);
             """
             var st: OpaquePointer?
@@ -845,16 +851,16 @@ extension Store {
         let kws = Store.keywords(from: q)
         guard !kws.isEmpty else { return [] }
         return queue.sync { () -> [Segment] in
-            let clauses = Array(repeating: "transcript LIKE ?", count: kws.count).joined(separator: " OR ")
+            let clauses = Array(repeating: "transcript LIKE ? ESCAPE '\\'", count: kws.count).joined(separator: " OR ")
             let sql = """
-            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode
+            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred
             FROM segment WHERE state='transcribed' AND (\(clauses))
             ORDER BY started_at DESC LIMIT \(min(limit * 4, 80));
             """
             var st: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
             defer { sqlite3_finalize(st) }
-            for (i, k) in kws.enumerated() { bind(st, Int32(i + 1), "%\(k)%") }
+            for (i, k) in kws.enumerated() { bind(st, Int32(i + 1), "%" + PushRules.escapeLike(k) + "%") }
             var rows: [Segment] = []
             while sqlite3_step(st) == SQLITE_ROW { rows.append(readSegRow(st)) }
             // 命中词多的排前面，同分按时间新→旧
@@ -908,7 +914,7 @@ extension Store {
     func recentTranscripts(days: Int, limit: Int = 400) -> [Segment] {
         queue.sync { () -> [Segment] in
             let sql = """
-            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode
+            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred
             FROM segment WHERE state='transcribed' AND LENGTH(TRIM(transcript))>0 AND started_at>=?
             ORDER BY started_at DESC LIMIT \(limit);
             """
@@ -926,7 +932,7 @@ extension Store {
     func segment(id: String) -> Segment? {
         queue.sync { () -> Segment? in
             let sql = """
-            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode
+            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred
             FROM segment WHERE id=?;
             """
             var st: OpaquePointer?
@@ -1006,7 +1012,7 @@ extension Store {
     }
 
     func readSegRow(_ st: OpaquePointer?) -> Segment {
-        Segment(
+        var s = Segment(
             id: col(st, 0),
             startedAt: Date(timeIntervalSince1970: sqlite3_column_double(st, 1)),
             endedAt: Date(timeIntervalSince1970: sqlite3_column_double(st, 2)),
@@ -1020,5 +1026,8 @@ extension Store {
             createdAt: Date(timeIntervalSince1970: sqlite3_column_double(st, 10)),
             captureModeRaw: col(st, 11)
         )
+        // 第 13 列是 starred（0.5.2 起所有原话查询都带上）
+        if sqlite3_column_count(st) > 12 { s.starred = sqlite3_column_int(st, 12) == 1 }
+        return s
     }
 }

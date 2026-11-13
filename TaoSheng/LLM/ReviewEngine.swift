@@ -71,6 +71,11 @@ final class ReviewEngine {
 
     // MARK: - 每日
 
+    /// "2026-11-13" → 当天 00:00
+    static func dateOf(_ day: String) -> Date? {
+        Fmt.df("yyyy-MM-dd").date(from: day)
+    }
+
     func generateDaily(day: String) async throws -> ReviewRecord {
         let s = Settings.shared
         // Store 按时间倒序返回；回顾契约要求按时间升序编号和输入。
@@ -127,7 +132,7 @@ final class ReviewEngine {
                 "points": [], "people": [],
                 "emotion": "平静", "intensity": 3,
                 "important": false, "starred": false,
-                "startAt": iso.string(from: Date()),
+                "startAt": iso.string(from: refDate),
                 "items": orphans
             ])
         }
@@ -137,7 +142,7 @@ final class ReviewEngine {
         var stale: [[String: Any]] = []
         for e in store.starredEvents(limit: 60) {
             guard let at = e.starredAt else { continue }
-            let days = cal.dateComponents([.day], from: at, to: Date()).day ?? 0
+            let days = cal.dateComponents([.day], from: at, to: refDate).day ?? 0
             guard days >= 3, numOf[e.id] == nil else { continue }
             stale.append(["id": evArr.count + stale.count + 1,
                           "title": e.title,
@@ -146,8 +151,11 @@ final class ReviewEngine {
             if stale.count == 5 { break }
         }
 
-        // 时间窗：昨晚 reviewHour → 今晚 reviewHour
-        let end = cal.date(bySettingHour: s.reviewHour, minute: 0, second: 0, of: Date()) ?? Date()
+        // 时间窗：昨晚 reviewHour → 当天 reviewHour。
+        // 这里必须用参数 day 换算，不能用 Date()：补生成前几天的回顾时，
+        // Date() 会把时间窗错到今天，模型看到的事件全在窗外。
+        let refDate = ReviewEngine.dateOf(day) ?? Date()
+        let end = cal.date(bySettingHour: s.reviewHour, minute: 0, second: 0, of: refDate) ?? refDate
         let start = cal.date(byAdding: .day, value: -1, to: end) ?? end
 
         let payload: [String: Any] = [

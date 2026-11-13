@@ -9,6 +9,10 @@ struct EventDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var lines: [Segment] = []
+    @State private var loadingLines = true
+    @State private var shotOpened = false
+    // 播放按钮要跟着播放器状态走，否则点了不变化
+    @ObservedObject private var player = SegmentPlayer.shared
     @State private var showEdit = false
     @State private var draftTitle = ""
     @State private var draftSummary = ""
@@ -70,8 +74,11 @@ struct EventDetailView: View {
                     }
                     .padding(.top, 4)
 
-                    if lines.isEmpty {
-                        EmptyHint(text: "这件事没有对应的原话片段")
+                    if loadingLines && lines.isEmpty {
+                        LoadingHint(rows: 2, text: "正在找这段原话…")
+                    } else if lines.isEmpty {
+                        EmptyHint(symbol: "text.magnifyingglass", title: "没有对应的原话片段",
+                                  detail: "这件事可能是从别的内容里整理出来的")
                     } else {
                         VStack(alignment: .leading, spacing: 18) {
                             ForEach(lines) { seg in
@@ -93,15 +100,29 @@ struct EventDetailView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .onAppear {
+            if ShotMode.screen == "event-edit", !shotOpened {
+                shotOpened = true
+                draftTitle = current.title
+                draftSummary = current.summary
+                showEdit = true
+                return
+            }
             draftTitle = event.title
             draftSummary = event.summary
         }
         .task { await loadLines() }
-        .alert("编辑这件事", isPresented: $showEdit) {
-            TextField("标题", text: $draftTitle)
-            TextField("摘要", text: $draftSummary)
-            Button("保存") { saveEdit() }
-            Button("取消", role: .cancel) {}
+        .sheet(isPresented: $showEdit) {
+            TextInputSheet(title: "编辑这件事",
+                           fields: [
+                               TextInputField(label: "标题", placeholder: "这件事叫什么", text: draftTitle),
+                               TextInputField(label: "摘要", placeholder: "一两句话说明", kind: .multiline, text: draftSummary)
+                           ],
+                           confirmTitle: "保存",
+                           message: "改过之后，自动整理不会再覆盖你写的标题和摘要。") { values in
+                draftTitle = values.first ?? ""
+                draftSummary = values.count > 1 ? values[1] : ""
+                saveEdit()
+            }
         }
         .confirmationDialog("删除后这段原话对应的整理结果也会一起清掉", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("删除这件事", role: .destructive) { app.deleteEvent(event.id); dismiss() }
@@ -139,6 +160,9 @@ struct EventDetailView: View {
             }
             .buttonStyle(.plain)
             Button {
+                // 每次打开都用最新的 current 重置草稿，取消不会残留上一次的输入
+                draftTitle = current.title
+                draftSummary = current.summary
                 showEdit = true
             } label: {
                 Text("编辑")
@@ -165,16 +189,13 @@ struct EventDetailView: View {
     }
 
     private func timeText(_ d: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm"
-        return f.string(from: d)
+        Fmt.hm.string(from: d)
     }
 
     // MARK: 原话行
 
     private func lineRow(_ seg: Segment) -> some View {
-        let no = speakerNo(seg.speaker)
-        let name = seg.speaker.isEmpty ? "说话人\(no)" : seg.speaker
+        let name = seg.speaker.trimmingCharacters(in: .whitespaces).isEmpty ? "未识别" : seg.speaker
         let tint = Theme.personColor(name)
         return HStack(alignment: .top, spacing: 10) {
             Text(avatarText(name))
@@ -195,11 +216,14 @@ struct EventDetailView: View {
                     Button {
                         SegmentPlayer.shared.toggle(segment: seg)
                     } label: {
-                        Image(systemName: SegmentPlayer.shared.isPlaying(seg.id) ? "pause.fill" : "play.fill")
-                            .font(.system(size: 10))
+                        Image(systemName: player.isPlaying(seg.id) ? "pause.fill" : "play.fill")
+                            .font(.system(size: 11, weight: .semibold))
                             .foregroundColor(Theme.accent)
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(player.isPlaying(seg.id) ? "暂停这段" : "播放这段")
                 }
                 Text(seg.transcript)
                     .font(.system(size: 15.5))
@@ -208,12 +232,6 @@ struct EventDetailView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-    }
-
-    private func speakerNo(_ speaker: String) -> Int {
-        let digits = speaker.filter { $0.isNumber }
-        if let n = Int(digits), n > 0 { return n }
-        return 1
     }
 
     /// 头像文字：实名说话人取首字（以前不论叫什么都显示 ①）
@@ -310,11 +328,16 @@ struct EventDetailView: View {
             return rows.filter { $0.startedAt >= ev.startAt.addingTimeInterval(-1) && $0.startedAt <= end.addingTimeInterval(1) }
         }.value
         lines = result
+        loadingLines = false
     }
 
     private func playAll() {
-        guard let first = lines.first else { return }
-        SegmentPlayer.shared.toggle(segment: first)
+        guard !lines.isEmpty else { return }
+        if player.isPlayingAny {
+            player.stop()
+        } else {
+            player.playAll(lines)
+        }
     }
 
     private func copyText() {

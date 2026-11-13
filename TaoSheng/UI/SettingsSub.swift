@@ -43,6 +43,8 @@ struct RecordingSettingsView: View {
                     Button {
                         settings.preferredInputUID = i.id
                         MicRouter.shared.applyPreferred()
+                        // 换设备后音频引擎会自己停，必须重建一次，否则仍在用旧设备
+                        if capture.isRunning { capture.restartSoon() }
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: iconFor(i.kind))
@@ -73,7 +75,7 @@ struct RecordingSettingsView: View {
             } header: {
                 Text("转写")
             } footer: {
-                Text("录完 1 分钟就自动转，不用自己调间隔。")
+                Text("录完先落盘，之后每 \(max(1, settings.transcribeIntervalMin)) 分钟批量转写一次（可在下方调整）。")
             }
 
             Section {
@@ -113,6 +115,7 @@ struct RecordingSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
         .tabBarClearance()
+        .modifier(ShotBottomAnchor())
         .navigationTitle("录音与后台")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { inputs = MicRouter.shared.inputs() }
@@ -187,6 +190,7 @@ struct PersonsView: View {
     @EnvironmentObject var app: AppState
     @State private var newName = ""
     @State private var showAdd = false
+    @State private var shotOpened = false
 
     var body: some View {
         Form {
@@ -237,13 +241,22 @@ struct PersonsView: View {
         .tabBarClearance()
         .navigationTitle("声纹与人物")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("新的人物", isPresented: $showAdd) {
-            TextField("名字", text: $newName)
-            Button("添加") {
-                let n = newName.trimmingCharacters(in: .whitespaces)
-                if !n.isEmpty { app.addPerson(name: n) }
+        .onAppear {
+            // 截图模式：直接弹出新增人物，看输入框有没有被裁
+            if ShotMode.screen == "person-add", !shotOpened {
+                shotOpened = true
+                showAdd = true
             }
-            Button("取消", role: .cancel) {}
+        }
+        .sheet(isPresented: $showAdd) {
+            TextInputSheet(title: "新的人物",
+                           fields: [TextInputField(label: "名字", placeholder: "例如 老王", text: newName)],
+                           confirmTitle: "添加",
+                           message: "指定一次原话，之后就能自动认出这个人的声音。") { values in
+                let n = values.first ?? ""
+                if !n.isEmpty { app.addPerson(name: n) }
+                newName = ""
+            }
         }
     }
 
@@ -284,11 +297,18 @@ struct SkillDetailView: View {
                     Text("只手动").tag(SkillSchedule.manual)
                 }
                 if skill.schedule == .daily || skill.schedule == .weekly {
-                    Stepper(value: $skill.hour, in: 0...23) {
-                        Text("时间 \(String(format: "%02d:%02d", skill.hour, skill.minute))")
+                    if skill.schedule == .weekly {
+                        Picker("周几", selection: $skill.weekday) {
+                            ForEach(1...7, id: \.self) { w in
+                                Text(SkillDef.weekName(w)).tag(w)
+                            }
+                        }
                     }
+                    Stepper("小时 \(skill.hour) 点", value: $skill.hour, in: 0...23)
+                    Stepper("分钟 \(skill.minute) 分", value: $skill.minute, in: 0...55, step: 5)
                 }
-                Toggle("生成后推送", isOn: $settings.pushOnDigest)
+                // 推送开关是全局设置，放在单个技能里会让人以为只影响这个技能
+
             } header: {
                 Text("什么时候运行")
             } footer: {
@@ -341,9 +361,16 @@ struct SkillDetailView: View {
 
             Section {
                 Button("保存") {
+                    let name = skill.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !name.isEmpty else {
+                        msg = "名字不能为空"
+                        return
+                    }
+                    skill.name = name
                     app.saveSkill(skill)
                     msg = "已保存"
                 }
+                .disabled(skill.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .scrollContentBackground(.hidden)
@@ -406,10 +433,17 @@ struct SkillsView: View {
                         }
                         Toggle("", isOn: Binding(
                             get: { s.enabled },
-                            set: { _ in app.toggleSkill(s.id) }
+                            set: { app.setSkillEnabled(s.id, $0) }
                         ))
                         .labelsHidden()
                         .tint(Theme.accent)
+                    }
+                    .swipeActions {
+                        if !s.builtin {
+                            Button(role: .destructive) {
+                                app.deleteSkill(s.id)
+                            } label: { Label("删除", systemImage: "trash") }
+                        }
                     }
                 }
             } header: {
@@ -500,6 +534,8 @@ struct ChannelsView: View {
     @State private var name = ""
     @State private var url = ""
     @State private var extra = ""
+    @State private var davUser = ""
+    @State private var davPass = ""
     @State private var testing: String?
     @State private var testResult: String?
 
@@ -528,6 +564,7 @@ struct ChannelsView: View {
                             .font(.system(size: 12))
                             .buttonStyle(.bordered)
                             .tint(Theme.accent)
+                            .disabled(testing != nil)
                     }
                     .swipeActions {
                         Button(role: .destructive) {
@@ -549,7 +586,7 @@ struct ChannelsView: View {
 
             Section {
                 Button {
-                    name = ""; url = ""; extra = ""
+                    name = ""; url = ""; extra = ""; davUser = ""; davPass = ""
                     adding = true
                 } label: {
                     Label("添加通道", systemImage: "plus.circle")
@@ -581,7 +618,22 @@ struct ChannelsView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                     }
-                    TextField("附加参数（可选）", text: $extra)
+                    if kind == .nutstore {
+                        TextField("WebDAV 地址（https://dav.jianguoyun.com/dav/）", text: $url)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+                        TextField("账号（邮箱）", text: $davUser)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.emailAddress)
+                        SecureField("应用密码", text: $davPass)
+                        TextField("保存路径（可选，默认 taosheng/digest.md）", text: $extra)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    } else {
+                        TextField("附加参数（可选）", text: $extra)
+                    }
                 }
                 .navigationTitle("新通道")
                 .navigationBarTitleDisplayMode(.inline)
@@ -591,23 +643,42 @@ struct ChannelsView: View {
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("保存") {
+                            let u = url.trimmingCharacters(in: .whitespacesAndNewlines)
                             let c = Channel(id: shortID(),
                                             kind: kind,
                                             name: name.isEmpty ? kind.title : name,
-                                            url: url,
-                                            extra: extra,
+                                            url: u,
+                                            extra: extra.trimmingCharacters(in: .whitespacesAndNewlines),
                                             enabled: true,
                                             lastPushAt: nil,
                                             lastStatus: "",
-                                            createdAt: Date())
+                                            createdAt: Date(),
+                                            user: davUser.trimmingCharacters(in: .whitespacesAndNewlines),
+                                            pass: davPass)
                             app.addChannel(c)
                             adding = false
                         }
+                        .disabled(!canSaveChannel)
                     }
                 }
             }
             .presentationDetents([.medium, .large])
         }
+    }
+
+    /// 必填校验：坚果云要地址+账号+密码，其他只要地址（ntfy 还要频道名）
+    private var canSaveChannel: Bool {
+        let u = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        if kind == .nutstore {
+            return !u.isEmpty && !davUser.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        if kind.needsURL && u.isEmpty { return false }
+        if kind == .ntfy && extra.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // 频道名可以直接写在地址里，这时地址必须带路径
+            if let comp = URLComponents(string: u), !comp.path.isEmpty, comp.path != "/" { return true }
+            return false
+        }
+        return true
     }
 
     private func test(_ c: Channel) {
@@ -632,6 +703,7 @@ struct BackupView: View {
     @EnvironmentObject var app: AppState
     @State private var busy = false
     @State private var msg: String?
+    @State private var confirmRestore = false
 
     var body: some View {
         Form {
@@ -682,7 +754,7 @@ struct BackupView: View {
                     .disabled(busy)
 
                     Button {
-                        restore()
+                        confirmRestore = true
                     } label: {
                         Label("从云端恢复", systemImage: "arrow.down.to.line")
                     }
@@ -699,6 +771,12 @@ struct BackupView: View {
         .tabBarClearance()
         .navigationTitle("数据备份")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog("从云端恢复会用云上的内容覆盖本机这一天和待办", isPresented: $confirmRestore, titleVisibility: .visible) {
+            Button("继续恢复", role: .destructive) { restore() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("恢复只覆盖整理结果与待办，原话录音不会被动。")
+        }
     }
 
     private func backupNow() {
@@ -732,6 +810,7 @@ struct ModelSettingsView: View {
 
     @State private var exportURL: URL?
     @State private var exportError: String?
+    @State private var exporting = false
     @State private var showAdvanced = false
     @State private var showLLM = false
     @State private var showImport = false
@@ -743,6 +822,7 @@ struct ModelSettingsView: View {
     @State private var checkMessage: String?
     @State private var checkOK = false
     @State private var checkTask: Task<Void, Never>?
+    @State private var purgeTip = ""
 
     private struct Stats {
         var todayMinutes: Double = 0
@@ -866,7 +946,7 @@ struct ModelSettingsView: View {
             Divider().overlay(Theme.lineSoft)
             statRow("原声", audioLine) { showKeepDays = true }
             Divider().overlay(Theme.lineSoft)
-            statRow("录音包", "把手机里的原始录音打包导出") { exportAudio() }
+            statRow("录音包", exporting ? "正在打包录音…" : "把手机里的原始录音打包导出") { exportAudio() }
 
             HStack {
                 Text("录音原话")
@@ -971,8 +1051,12 @@ struct ModelSettingsView: View {
             } else {
                 ForEach(todaySegments.prefix(5)) { s in
                     SegmentRow(seg: s,
+                               starred: Store.shared.isStarred(id: s.id),
                                onPlay: { SegmentPlayer.shared.toggle(segment: s) },
-                               onStar: { Store.shared.setStar(id: s.id, starred: !Store.shared.isStarred(id: s.id)) })
+                               onStar: {
+                                   Store.shared.setStar(id: s.id, starred: !Store.shared.isStarred(id: s.id))
+                                   Task { await reloadAsync() }
+                               })
                 }
                 NavigationLink {
                     RawLinesView(day: DayKey.of(Date()))
@@ -1191,8 +1275,13 @@ struct ModelSettingsView: View {
                 Text("标了重点的录音长期保留。现在占用 \(ByteText.short(stats.bytes))。")
                     .font(.system(size: 12)).foregroundColor(Theme.dim)
                 Button {
-                    AppState.shared.purgeOldAudio()
-                    reload()
+                    Task {
+                        let n = await AppState.shared.purgeOldAudio()
+                        await MainActor.run {
+                            reload()
+                            purgeTip = n > 0 ? "已清理 \(n) 段原声，转写文字和整理结果都还在" : "没有需要清理的原声"
+                        }
+                    }
                 } label: {
                     Text("立即清理过期录音")
                         .font(.system(size: 14, weight: .semibold))
@@ -1201,6 +1290,11 @@ struct ModelSettingsView: View {
                         .background(Theme.accent).clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                if !purgeTip.isEmpty {
+                    Text(purgeTip)
+                        .font(.system(size: Theme.fsSmall))
+                        .foregroundStyle(Theme.dim)
+                }
                 Spacer()
             }
             .padding(20)
@@ -1234,11 +1328,21 @@ struct ModelSettingsView: View {
     }
 
     private func exportAudio() {
+        guard !exporting else { return }
         exportError = nil
-        do {
-            exportURL = try AudioExport.zipAudio()
-        } catch {
-            exportError = error.localizedDescription
+        exporting = true
+        Task {
+            let outcome = await Task.detached(priority: .userInitiated) { () -> Result<URL, Error> in
+                do { return .success(try AudioExport.zipAudio()) }
+                catch { return .failure(error) }
+            }.value
+            await MainActor.run {
+                exporting = false
+                switch outcome {
+                case .success(let u): exportURL = u
+                case .failure(let e): exportError = e.localizedDescription
+                }
+            }
         }
     }
 
@@ -1274,7 +1378,7 @@ struct ReviewSettingsView: View {
                 Stepper(value: $settings.reviewHour, in: 0...23) {
                     Text("每天 \(settings.reviewHour):00 生成")
                 }
-                Text("自动整理的间隔和时间点在「整理模型」里设置。")
+                Text("自动整理的间隔和时间点在「模型与整理」里设置。")
                     .font(.caption).foregroundColor(Theme.dim)
             }
 
@@ -1318,6 +1422,8 @@ struct PrivacyView: View {
     @State private var showExport = false
     @State private var items: [Any] = []
     @State private var confirmWipe = false
+    @State private var purgeTip = ""
+    @State private var exportingMd = false
 
     var body: some View {
         Form {
@@ -1326,30 +1432,64 @@ struct PrivacyView: View {
                     Text("原录音保留 \(settings.keepAudioDays) 天")
                 }
                 Button("现在就清掉过期的") {
-                    app.purgeOldAudio()
+                    Task {
+                        let n = await app.purgeOldAudio()
+                        await MainActor.run {
+                            purgeTip = n > 0 ? "已清理 \(n) 段原声，转写和整理结果保留" : "没有需要清理的原声"
+                        }
+                    }
                 }
             } header: {
                 Text("原录音")
             } footer: {
-                Text("标了重点的不会被清掉。转写文本和整理结果一直留着。")
+                Text(purgeTip.isEmpty ? "标了重点的不会被清掉。转写文本和整理结果一直留着。" : purgeTip)
             }
 
             Section("导出") {
                 Button {
-                    let md = app.exportMarkdown(day: DayKey.of(Date()))
-                    let url = FileManager.default.temporaryDirectory.appendingPathComponent("涛声-\(DayKey.of(Date())).md")
-                    if (try? md.write(to: url, atomically: true, encoding: .utf8)) != nil {
-                        items = [url]
-                        showExport = true
+                    guard !exportingMd else { return }
+                    exportingMd = true
+                    exportTip = nil
+                    let day = DayKey.of(Date())
+                    Task {
+                        // 一天上千段时拼 Markdown + 写文件也不轻，别堵主线程
+                        let outcome = await Task.detached(priority: .userInitiated) { () -> Result<URL, Error> in
+                            let md = AppState.shared.exportMarkdown(day: day)
+                            let url = FileManager.default.temporaryDirectory.appendingPathComponent("涛声-\(day).md")
+                            do {
+                                try md.write(to: url, atomically: true, encoding: .utf8)
+                                return .success(url)
+                            } catch {
+                                return .failure(error)
+                            }
+                        }.value
+                        await MainActor.run {
+                            exportingMd = false
+                            switch outcome {
+                            case .success(let u):
+                                items = [u]
+                                showExport = true
+                            case .failure(let e):
+                                exportTip = "导出失败：\(e.localizedDescription)"
+                            }
+                        }
                     }
                 } label: {
-                    Label("导出今天的原话和整理", systemImage: "doc.text")
+                    HStack {
+                        Label(exportingMd ? "正在整理导出文件…" : "导出今天的原话和整理", systemImage: "doc.text")
+                        Spacer()
+                        if exportingMd { ProgressView().scaleEffect(0.7) }
+                    }
                 }
+                .disabled(exportingMd)
                 NavigationLink("导入录音文件") { ImportView() }
             }
 
             Section {
                 Toggle("记下每天去过哪", isOn: $settings.locationOn).tint(Theme.accent)
+                    .onChange(of: settings.locationOn) { on in
+                        LocationEngine.shared.syncWithSettings()
+                    }
                 Toggle("整理时参考地点和环境音", isOn: $settings.usePlaceInDigest).tint(Theme.accent)
                 Toggle("识别环境音", isOn: $settings.envSoundOn).tint(Theme.accent)
             } footer: {
@@ -1473,7 +1613,7 @@ struct AboutView: View {
             }
 
             Section {
-                Text("一直在听，从不外传。录音、转写、整理都在你自己的设备和你的接口上完成。")
+                Text("一直在听。录音留在本机；转写时音频会发给你配置的转写服务（默认豆包云端），整理时原话会发给你配置的大模型服务。除此之外不上传任何地方。")
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.text2)
             }
@@ -1502,6 +1642,11 @@ struct TranscribeSettingsSheet: View {
     @State private var showAdvanced = false
     @State private var testResult: String?
     @State private var testing = false
+    // 密钥用草稿编辑：直接绑 settings.doubaoApiKey 时，输入第一个字符就让「未填写」变「已填写」，
+    // 输入框随条件消失，用户看到的是打一个字就没了
+    @State private var keyDraft = ""
+    @State private var editingKey = false
+    @FocusState private var keyFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -1571,7 +1716,11 @@ struct TranscribeSettingsSheet: View {
                         .font(.system(size: 13.5))
                         .foregroundColor(Theme.text2)
                     Spacer(minLength: 0)
-                    Button { showAdvanced = true } label: {
+                    Button {
+                        keyDraft = settings.doubaoApiKey
+                        editingKey = true
+                        keyFocused = true
+                    } label: {
                         Text(settings.doubaoApiKey.isEmpty ? "填写" : "更换")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(Theme.accent)
@@ -1580,7 +1729,7 @@ struct TranscribeSettingsSheet: View {
                     }
                     .buttonStyle(.plain)
                     if !settings.doubaoApiKey.isEmpty {
-                        Button { settings.doubaoApiKey = "" } label: {
+                        Button { settings.doubaoApiKey = ""; keyDraft = ""; editingKey = false } label: {
                             Text("清除")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(Theme.accent)
@@ -1591,14 +1740,26 @@ struct TranscribeSettingsSheet: View {
                     }
                 }
 
-                if showAdvanced || settings.doubaoApiKey.isEmpty {
-                    SecureField("豆包语音 API Key", text: $settings.doubaoApiKey)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.system(size: 14))
-                        .padding(11)
-                        .background(Theme.cardSoft)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                if editingKey {
+                    HStack(spacing: 8) {
+                        SecureField("豆包语音 API Key", text: $keyDraft)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .focused($keyFocused)
+                            .font(.system(size: 14))
+                            .padding(11)
+                            .background(Theme.cardSoft)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
+                            .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall).stroke(Theme.line, lineWidth: 0.8))
+                        Button("保存") {
+                            settings.doubaoApiKey = keyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                            editingKey = false
+                            keyFocused = false
+                        }
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Theme.accent)
+                        .disabled(keyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
                 }
 
                 Text("只存在这台手机的安全区里，填好后任何地方都不再显示。")
@@ -1613,7 +1774,7 @@ struct TranscribeSettingsSheet: View {
 
                 Picker("识别档位", selection: $settings.doubaoResourceId) {
                     ForEach(DoubaoResource.all, id: \.id) { item in
-                        Text(item.title).tag(item.id)
+                        Text(DoubaoResource.shortTitle(item.id)).tag(item.id)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -1701,7 +1862,7 @@ struct TranscribeSettingsSheet: View {
             .font(.system(size: 14))
             .padding(11)
             .background(Theme.cardSoft)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
     }
 
     private func secure(_ title: String, text: Binding<String>) -> some View {
@@ -1711,7 +1872,7 @@ struct TranscribeSettingsSheet: View {
             .font(.system(size: 14))
             .padding(11)
             .background(Theme.cardSoft)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
     }
 
     private var intervalCard: some View {
@@ -1734,7 +1895,7 @@ struct TranscribeSettingsSheet: View {
                     .font(.system(size: 14))
             }
 
-            Text("每 \(max(1, settings.transcribeIntervalMin)) 分钟把攒下的录音转写一次。整理成事件另在「整理模型」里设置。")
+            Text("每 \(max(1, settings.transcribeIntervalMin)) 分钟把攒下的录音转写一次。整理成事件另在「模型与整理」里设置。")
                 .font(.system(size: 11.5)).foregroundColor(Theme.dim2)
                 .fixedSize(horizontal: false, vertical: true)
         }

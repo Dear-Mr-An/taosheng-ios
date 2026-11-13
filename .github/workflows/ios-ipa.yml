@@ -145,3 +145,87 @@ jobs:
             --notes "自动构建的未签名 IPA。commit ${GITHUB_SHA}。用 Sideloadly / AltStore 自签安装。" \
             --latest
           echo "已发布: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+  shots:
+    name: 模拟器截图
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - name: 取出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成 Xcode 工程
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          if [ -f project.yml ]; then ROOT="."; else ROOT="ios"; fi
+          cd "$ROOT"
+          xcodegen generate
+
+      - name: 关掉模拟器硬件键盘（截图要看到软键盘）
+        run: defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false || true
+
+      - name: 编译模拟器包
+        run: |
+          set -o pipefail
+          cd "$GITHUB_WORKSPACE"
+          if [ -f project.yml ]; then ROOT="."; else ROOT="ios"; fi
+          cd "$ROOT"
+          xcodebuild \
+            -project TaoSheng.xcodeproj \
+            -scheme TaoSheng \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=YES \
+            -quiet 2>&1 | tail -n 60
+
+      - name: 启动模拟器并截图
+        run: |
+          set -x
+          APP="$RUNNER_TEMP/dd/Build/Products/Debug-iphonesimulator/TaoSheng.app"
+          if [ ! -d "$APP" ]; then
+            echo "找不到模拟器包，列出产物："
+            find "$RUNNER_TEMP/dd/Build/Products" -maxdepth 3 -name "*.app" || true
+            exit 1
+          fi
+          BID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist")
+          OUT="$GITHUB_WORKSPACE/shots"
+          mkdir -p "$OUT"
+
+          shoot() {
+            DEV="$1"; NAME="$2"; SCREEN="$3"; WAIT="${4:-4}"
+            echo "== $NAME / $SCREEN"
+            xcrun simctl boot "$DEV" 2>/dev/null || true
+            xcrun simctl bootstatus "$DEV" -b
+            xcrun simctl install "$DEV" "$APP"
+            xcrun simctl terminate "$DEV" "$BID" 2>/dev/null || true
+            xcrun simctl launch "$DEV" "$BID" -TSShot "$SCREEN" || true
+            sleep "$WAIT"
+            xcrun simctl io "$DEV" screenshot "$OUT/$NAME-$SCREEN.png"
+            xcrun simctl terminate "$DEV" "$BID" 2>/dev/null || true
+            xcrun simctl shutdown "$DEV" 2>/dev/null || true
+          }
+
+          shoot "iPhone 16" "iphone16" "todo"
+          shoot "iPhone 16" "iphone16" "today"
+          shoot "iPhone 16" "iphone16" "ask"
+          shoot "iPhone 16" "iphone16" "memory"
+          shoot "iPhone 16" "iphone16" "recording-bottom" 5
+          shoot "iPhone 16" "iphone16" "person-add" 5
+          shoot "iPhone 16" "iphone16" "event-edit" 5
+          shoot "iPhone SE (3rd generation)" "iphonese" "todo"
+
+          ls -la "$OUT"
+
+      - name: 上传截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shots-052
+          path: ${{ github.workspace }}/shots
+          retention-days: 30
+          if-no-files-found: warn

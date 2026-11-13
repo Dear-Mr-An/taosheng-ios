@@ -13,8 +13,11 @@ final class NetWatcher {
     private let lock = NSLock()
 
     private var _expensive = false
-    private var _online = true
+    /// 首帧路径还没回来时按「没网」算：否则 App 刚启动那几百毫秒会被当成 WiFi，
+    /// 蜂窝下也立刻开始上传录音。
+    private var _online = false
     private var _isWiFi = false
+    private var _resolved = false
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -23,6 +26,7 @@ final class NetWatcher {
             self._online = (path.status == .satisfied)
             self._expensive = path.isExpensive
             self._isWiFi = path.usesInterfaceType(.wifi)
+            self._resolved = true
             self.lock.unlock()
         }
         monitor.start(queue: q)
@@ -54,8 +58,15 @@ final class NetWatcher {
     }
 
     var label: String {
+        lock.lock()
+        let resolved = _resolved
+        let online = _online
+        let wifi = _isWiFi
+        let expensive = _expensive
+        lock.unlock()
+        if !resolved { return "检查网络…" }
         if !online { return "没有网络" }
-        if isWiFi { return "WiFi" }
+        if wifi { return "WiFi" }
         return expensive ? "移动网络" : "网络"
     }
 }

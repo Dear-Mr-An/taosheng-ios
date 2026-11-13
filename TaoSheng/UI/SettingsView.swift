@@ -90,7 +90,8 @@ struct SettingsView: View {
                             dot: Theme.dim2, detail: "每天 \(settings.reviewHour):00")
                     }
 
-                    Text("所有录音、转写和整理结果都只存在这台手机上。没有账号，没有我们的服务器。")
+                    Text("录音、转写和整理结果都只存在这台手机上，没有账号，也没有我们的服务器。
+转写时音频会发给你配置的转写服务，整理时原话会发给你配置的大模型服务。")
                         .font(.system(size: Theme.fsCaption))
                         .foregroundColor(Theme.dim2)
                         .multilineTextAlignment(.center)

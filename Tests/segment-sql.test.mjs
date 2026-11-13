@@ -28,7 +28,8 @@ function migrateSegments(db) {
 
 function sqlIn(file, name) {
   const source = sources[file];
-  const start = source.indexOf(`    func ${name}(`);
+  let start = source.indexOf(`    func ${name}(`);
+  if (start === -1) start = source.indexOf(`    private func ${name}(`);
   assert.notEqual(start, -1, `Missing ${name}`);
   const body = source.slice(start).split(/\n    (?:private )?func /)[0];
   const sql = body.match(/(?:let|var) sql = """([\s\S]*?)"""/)?.[1]
@@ -42,13 +43,13 @@ function fixture() {
   const db = new DatabaseSync(':memory:');
   createTable(db, 'segment');
   migrateSegments(db);
-  const insert = db.prepare(sqlIn('Store.swift', 'insert'));
+  const insert = db.prepare(sqlIn('Store.swift', 'writeSegment'));
   for (const [index, mode] of ['daily', 'meeting', 'training', 'call'].entries()) {
-    insert.run(mode, 100 + index, 110 + index, 10, `${mode}.wav`, 320000,
+    insert.run(`seg-${mode}`, 100 + index, 110 + index, 10, `${mode}.wav`, 320000,
       `测试 ${mode}`, '', 'transcribed', '2026-11-12', 110 + index, mode);
   }
   insert.run('pending', 200, 210, 10, 'pending.wav', 320000, '', '', 'recorded', '2026-11-12', 210, 'meeting');
-  db.exec("UPDATE segment SET starred=1 WHERE id='training'");
+  db.exec("UPDATE segment SET starred=1 WHERE id='seg-training'");
   return db;
 }
 
@@ -69,32 +70,34 @@ test('all segment readers return the persisted mode in the twelfth column', () =
   const db = fixture();
   try {
     const cases = [
-      ['Store.swift', 'segments', [], 'call', 'call'],
+      ['Store.swift', 'segments', [], 'seg-call', 'call'],
       ['Store.swift', 'pendingSegments', [], 'pending', 'meeting'],
-      ['Store.swift', 'search', ['%测试%'], 'meeting', 'meeting'],
-      ['Store+Ext.swift', 'starredSegments', [], 'training', 'training'],
-      ['Store+Ext.swift', 'searchForAsk', ['%测试%'], 'call', 'call'],
-      ['Store+Ext.swift', 'recentTranscripts', [0], 'training', 'training'],
-      ['Store+Ext.swift', 'segment', ['meeting'], 'meeting', 'meeting'],
-      ['Store+Memory.swift', 'undigestedSegments', ['2026-11-12'], 'call', 'call'],
-      ['Store+Memory.swift', 'transcriptRows', ['2026-11-12'], 'training', 'training'],
+      ['Store.swift', 'search', ['%测试%'], 'seg-meeting', 'meeting'],
+      ['Store+Ext.swift', 'starredSegments', [], 'seg-training', 'training'],
+      ['Store+Ext.swift', 'searchForAsk', ['%测试%'], 'seg-call', 'call'],
+      ['Store+Ext.swift', 'recentTranscripts', [0], 'seg-training', 'training'],
+      ['Store+Ext.swift', 'segment', ['seg-meeting'], 'seg-meeting', 'meeting'],
+      ['Store+Memory.swift', 'undigestedSegments', ['2026-11-12'], 'seg-call', 'call'],
+      ['Store+Memory.swift', 'transcriptRows', ['2026-11-12'], 'seg-training', 'training'],
     ];
     for (const [file, name, params, id, mode] of cases) {
       const statement = db.prepare(sqlIn(file, name));
-      assert.equal(statement.columns().length, 12, name);
+      // 0.5.2 起多带一列 starred（列表要显示星标状态）
+      assert.equal(statement.columns().length, 13, name);
       assert.equal(statement.columns()[11].name, 'capture_mode', name);
+      assert.equal(statement.columns()[12].name, 'starred', name);
       assert.equal(statement.all(...params).find(row => row.id === id)?.capture_mode, mode, name);
     }
-    db.prepare('UPDATE segment SET digested=1 WHERE id=?').run('call');
+    db.prepare('UPDATE segment SET digested=1 WHERE id=?').run('seg-call');
     assert.ok(!db.prepare(sqlIn('Store+Memory.swift', 'undigestedSegments')).all('2026-11-12')
-      .some(row => row.id === 'call'));
+      .some(row => row.id === 'seg-call'));
   } finally { db.close(); }
 });
 
 test('backlog spans multiple pages and retains earlier days for scheduled processing', () => {
   const db = fixture();
   try {
-    const insert = db.prepare(sqlIn('Store.swift', 'insert'));
+    const insert = db.prepare(sqlIn('Store.swift', 'writeSegment'));
     for (let i = 0; i < 201; i += 1) {
       insert.run(`old-${i}`, i, i + 1, 1, `${i}.wav`, 32000,
         '历史原话', '', 'transcribed', '2026-11-11', i + 1, 'daily');
@@ -132,13 +135,13 @@ test('completion hints cannot overwrite a user ignored state during a model requ
 test('recent transcripts filter by time before limit, keeping older rows from crowding out the window', () => {
   const db = fixture();
   try {
-    const insert = db.prepare(sqlIn('Store.swift', 'insert'));
+    const insert = db.prepare(sqlIn('Store.swift', 'writeSegment'));
     for (let i = 0; i < 110; i += 1) {
       insert.run(`outside-${i}`, -1000 + i, -990 + i, 10, `${i}.wav`, 100,
         '较早原话', '', 'transcribed', '2026-11-11', 1000 + i, 'daily');
     }
     const rows = db.prepare(sqlIn('Store+Ext.swift', 'recentTranscripts').replace('LIMIT 100', 'LIMIT 5')).all(101);
-    assert.deepEqual(rows.map(row => row.id), ['call', 'training', 'meeting']);
+    assert.deepEqual(rows.map(row => row.id), ['seg-call', 'seg-training', 'seg-meeting']);
   } finally { db.close(); }
 });
 
@@ -172,8 +175,10 @@ test('reorganized event keeps its identity and user star state', () => {
       { id: 'original', title: '第二版', starred: 1, starred_at: 123 });
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM memory_event').get().n, 1);
     // 手改过的内容不能被下一次自动整理覆盖（0.5.0 修复）：edited 标记写回、标题摘要保留
-    assert.match(body, /WHERE entity_id=\? AND deleted=0 LIMIT 1/);
-    assert.match(body, /SELECT id,starred,starred_at,edited,title,summary FROM memory_event/);
+    // 0.5.2：查询故意不带 deleted=0，命中已删行要直接放弃写库（否则删掉的事件会复活）
+    assert.match(body, /WHERE entity_id=\? LIMIT 1/);
+    assert.match(body, /sqlite3_column_int\(q, 6\) == 1/);
+    assert.match(body, /SELECT id,starred,starred_at,edited,title,summary,deleted FROM memory_event/);
     assert.match(body, /sqlite3_bind_int\(st, 21, keepEdited \? 1 : 0\)/);
     db.prepare("UPDATE memory_event SET edited=1, title='手改标题', summary='手改摘要' WHERE id='original'").run();
     const keep = db.prepare("SELECT edited,title FROM memory_event WHERE entity_id=? AND deleted=0 LIMIT 1").get("same-entity");

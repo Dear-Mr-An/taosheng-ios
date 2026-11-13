@@ -37,6 +37,12 @@ final class AppState: ObservableObject {
     @Published var reviews: [ReviewRecord] = []
     @Published var hotwords: [Hotword] = []
     @Published var askMessages: [AskMessage] = []
+    /// 问问的请求状态放在这里：放在 AskView 的 @State 里，切到别的页再回来就丢了，
+    /// 界面上看不到「正在翻原话」，用户会以为没反应而重复点发送。
+    @Published var askSending = false
+    @Published var askError: String?
+    /// 从事件详情点「问问」时，人可能不在问问页，先把问题存在这里，进页面再填
+    @Published var askPending: String?
     @Published var skillRuns: [SkillRun] = []
     @Published var things: [Thing] = []
 
@@ -130,6 +136,7 @@ final class AppState: ObservableObject {
 
     func wipeAll() {
         store.wipeAll()
+        ReminderEngine.shared.cancelAllPending()
         seedIfNeeded()
         refresh()
         NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
@@ -234,11 +241,16 @@ final class AppState: ObservableObject {
 
     func setItemStatus(_ id: String, status: MemItemStatus) {
         store.setItemStatus(id: id, status: status)
+        // 勾完/忽略之后那条提醒没有意义了，撤掉它，否则到点还会响
+        if status == .done || status == .ignored {
+            ReminderEngine.shared.cancelQuick(id)
+        }
         refresh()
     }
 
     func deleteItem(_ id: String) {
         store.deleteItem(id: id)
+        ReminderEngine.shared.cancelQuick(id)
         refresh()
     }
 
@@ -251,6 +263,7 @@ final class AppState: ObservableObject {
             who: nil, sourceText: nil, createdAt: Date(), updatedAt: Date()
         )
         store.insertItems([it])
+        scheduleQuickIfNeeded(it)
         refresh()
     }
 
@@ -269,7 +282,14 @@ final class AppState: ObservableObject {
             )
         }
         store.insertItems(list)
+        list.forEach { scheduleQuickIfNeeded($0) }
         refresh()
+    }
+
+    /// 带明确时间的待办顺手排一条系统提醒（不落 reminder 表）
+    private func scheduleQuickIfNeeded(_ it: MemoryItem) {
+        guard let due = it.dueAt, let fire = ReminderTime.resolve(due: due) else { return }
+        ReminderEngine.shared.scheduleQuick(id: it.id, title: it.content, at: fire)
     }
 
     // MARK: - 事件操作
@@ -281,6 +301,14 @@ final class AppState: ObservableObject {
 
     func deleteEvent(_ id: String) {
         store.deleteEvent(id: id)
+        refresh()
+    }
+
+    /// 开关直接写目标值：连点时按当前值取反会错位（用户点两下又回到原状）
+    func setSkillEnabled(_ id: String, _ on: Bool) {
+        guard var s = skills.first(where: { $0.id == id }), s.enabled != on else { return }
+        s.enabled = on
+        store.upsertSkill(s)
         refresh()
     }
 
@@ -361,6 +389,28 @@ final class AppState: ObservableObject {
         refresh()
     }
 
+    /// 发一次问题：记录、请求、回写结果都在这里，界面只负责显示状态
+    func ask(_ question: String) {
+        let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty, !askSending else { return }
+        askError = nil
+        askSending = true
+        recordAsk(question: q)
+        Task { @MainActor in
+            do {
+                let ans = try await AskEngine.shared.ask(q)
+                let cites = ans.citations.map { c -> String in
+                    let who = c.speaker.isEmpty ? "" : "· \(c.speaker) "
+                    return "\(c.timeText) \(who)\(c.transcript.prefix(40))"
+                }
+                recordAnswer(text: ans.text, citations: cites)
+            } catch {
+                askError = "没问到：\(error.localizedDescription)"
+            }
+            askSending = false
+        }
+    }
+
     func recordAnswer(text: String, citations: [String]) {
         store.insertAsk(AskMessage(id: shortID(), role: .ai, text: text, citations: citations, createdAt: Date()))
         refresh()
@@ -418,15 +468,21 @@ final class AppState: ObservableObject {
 
     // MARK: - 维护
 
-    func purgeOldAudio() {
+    /// 清理超出保留期的原声，返回清掉的段数。
+    /// 只删音频文件，转写文字和整理结果都留着，历史时间线不会断。
+    func purgeOldAudio() async -> Int {
         let keep = Settings.shared.keepAudioDays
-        guard keep > 0 else { return }
+        guard keep > 0 else { return 0 }
         let cut = Date().addingTimeInterval(-Double(keep) * 86400)
-        let old = store.segments(day: nil, limit: 5000).filter { $0.startedAt < cut }
-        for s in old where !store.isStarred(id: s.id) {
-            store.deleteSegment(id: s.id, removeFile: true)
-        }
-        refresh()
+        // 原来在主线程扫 5000 段、逐条同步删库，设置页一点就卡住
+        let ids = await Task.detached(priority: .utility) {
+            Store.shared.purgeableSegments(before: cut).map(\.id)
+        }.value
+        guard !ids.isEmpty else { return 0 }
+        var removed = 0
+        for id in ids where Store.shared.dropAudio(id: id) { removed += 1 }
+        if removed > 0 { refresh() }
+        return removed
     }
 
     func exportMarkdown(day: String) -> String {

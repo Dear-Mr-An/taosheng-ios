@@ -44,16 +44,70 @@ final class BackupEngine {
         autoBackupIfNeeded()
     }
 
+    /// 今天这天的备份最小间隔：当天内容一直在变，一天只备一次会丢掉大半
+    private static let todayInterval: TimeInterval = 6 * 3600
+    private var inFlight = false
+
     private func autoBackupIfNeeded() {
         let s = Settings.shared
-        guard s.backupAuto, s.backupKind != .none else { return }
-        guard !s.backupURL.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        // inFlight：600 秒的定时器和前后台切换都会调到这里，别并发备同一批
+        guard !inFlight, s.backupAuto, s.backupKind != .none else { return }
+        guard !s.backupURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
         let today = DayKey.of(Date())
-        if UserDefaults.standard.string(forKey: "ts.lastBackupDay") == today { return }
+        let last = UserDefaults.standard.string(forKey: "ts.lastBackupDay") ?? ""
+        var todo: [String] = []
+
+        // 上次备份到今天之间的空档要补：App 可能好几天没打开，只备今天会留下黑洞
+        if !last.isEmpty, let lastDate = Fmt.df("yyyy-MM-dd").date(from: last) {
+            var d = Calendar.current.date(byAdding: .day, value: 1, to: lastDate) ?? lastDate
+            var guardCount = 0
+            while DayKey.of(d) < today && guardCount < 30 {
+                todo.append(DayKey.of(d))
+                d = Calendar.current.date(byAdding: .day, value: 1, to: d) ?? d
+                guardCount += 1
+            }
+        } else {
+            // 从没备过：只备今天，不追溯历史
+            todo.append(today)
+        }
+
+        // 今天按间隔反复备（当天记录还在增长）
+        let stamp = UserDefaults.standard.double(forKey: "ts.lastBackupAt")
+        let todayDone = stamp > 0 && Date().timeIntervalSince1970 - stamp < Self.todayInterval
+        if !todayDone, !todo.contains(today) { todo.append(today) }
+        if todayDone, todo.isEmpty { return }
+
+        inFlight = true
         Task {
-            let msg = await self.backupNow(day: today)
-            if !msg.contains("失败") {
-                UserDefaults.standard.set(today, forKey: "ts.lastBackupDay")
+            defer { self.inFlight = false }
+            var failed = ""
+            for day in todo {
+                // 那天一条记录都没有就别生成空文件了
+                if self.store.segments(day: day, limit: 1).isEmpty,
+                   self.store.digest(day: day) == nil,
+                   self.store.events(day: day, limit: 1).isEmpty {
+                    if day == today {
+                        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "ts.lastBackupAt")
+                    } else {
+                        UserDefaults.standard.set(day, forKey: "ts.lastBackupDay")
+                    }
+                    continue
+                }
+                let msg = await self.backupNow(day: day)
+                if msg.contains("失败") {
+                    failed = msg
+                    break
+                }
+                if day == today {
+                    UserDefaults.standard.set(today, forKey: "ts.lastBackupDay")
+                    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "ts.lastBackupAt")
+                } else {
+                    UserDefaults.standard.set(day, forKey: "ts.lastBackupDay")
+                }
+            }
+            if !failed.isEmpty {
+                NSLog("涛声: 自动备份失败 %@", failed)
             }
         }
     }

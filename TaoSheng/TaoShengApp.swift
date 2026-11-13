@@ -14,6 +14,8 @@ struct TaoShengApp: App {
     init() {
         // 和 CaptureEngine 保持一致：不要 .defaultToSpeaker / .allowBluetoothA2DP，
         // 否则微信语音、来电会被强制外放。
+        // 提前起网络监听：否则首帧路径回来之前，都会以为自己在 WiFi 上
+        _ = NetWatcher.shared
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playAndRecord,
                                  mode: .default,
@@ -39,7 +41,8 @@ struct TaoShengApp: App {
                 .environmentObject(digest)
                 .preferredColorScheme(scheme)
                 .onAppear {
-                    app.refresh()
+                    ShotDemo.seedIfNeeded()
+            app.refresh()
                     queue.start()
                     digest.start()
                     ReviewEngine.shared.start()
@@ -47,14 +50,16 @@ struct TaoShengApp: App {
                     BackupEngine.shared.start()
                     ReminderEngine.shared.requestAuth()
                     ReminderEngine.shared.rescheduleAll(Store.shared.reminders())
-                    // 整理自动排的提醒不落库，启动时按未完成待办补排一次
-                    ReminderEngine.shared.rescheduleQuick(
-                        Store.shared.items(day: nil, status: .pending, category: nil, limit: 200)
-                            .compactMap { it in
-                                guard let due = it.dueAt else { return nil }
-                                return (id: it.id, title: it.content, due: due)
-                            }
-                    )
+                    // 整理自动排的提醒不落库，启动时按未完成待办补排一次。
+                    // accepted 也要排：用户点了「加入待办」但没勾完的，同样该提醒。
+                    var quicks: [(id: String, title: String, due: Date)] = []
+                    for st in [MemItemStatus.pending, .accepted] {
+                        for it in Store.shared.items(day: nil, status: st, category: nil, limit: 200) {
+                            guard let due = it.dueAt, due > Date() else { continue }
+                            quicks.append((id: it.id, title: it.content, due: due))
+                        }
+                    }
+                    ReminderEngine.shared.rescheduleQuick(quicks)
                     MicRouter.shared.applyPreferred()
                     LocationEngine.shared.syncWithSettings()
                     if UserDefaults.standard.bool(forKey: "captureWanted") && !capture.isRunning {

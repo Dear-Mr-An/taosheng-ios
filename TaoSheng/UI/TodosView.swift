@@ -8,6 +8,7 @@ struct TodosView: View {
 
     @State private var tab = 0   // 0 待确认 1 进行中 2 已完成
     @State private var showAdd = false
+    @State private var sheetTip: String?
     @State private var draft = ""
     @State private var parsing = false
     @State private var toast: String?
@@ -33,15 +34,18 @@ struct TodosView: View {
                     header
                     chips
                     content
-                    Color.clear.frame(height: 120)
+                    // 给悬浮的语音按钮留位：按钮高 56 + 上下各 8
+                    Color.clear.frame(height: 56 + 16)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
             }
+            // 占位只加在滚动区上。加在 ZStack 外层会把 FAB 一起抬起来，
+            // FAB 自己还有 floatingTabBarPadding，底部留白会算两遍。
+            .tabBarClearance()
 
             fab
         }
-        .tabBarClearance()
         .background(Theme.bg.ignoresSafeArea())
         .navigationBarHidden(true)
         .sheet(isPresented: $showAdd, onDismiss: cancelParsing) { addSheet }
@@ -299,7 +303,7 @@ struct TodosView: View {
         HStack(spacing: 10) {
             voicePill
 
-            VoiceAddButton(onTap: { if !finishingVoice { showAdd = true } }, onHold: startVoice,
+            VoiceAddButton(onTap: { if !finishingVoice { sheetTip = nil; showAdd = true } }, onHold: startVoice,
                            onRelease: endVoice, onCancel: cancelVoice)
                 .frame(width: 56, height: 56)
                 .shadow(color: Theme.accent.opacity(0.35), radius: 10, x: 0, y: 5)
@@ -322,7 +326,7 @@ struct TodosView: View {
                     .frame(minHeight: 120)
                     .padding(8)
                     .background(Theme.card)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
                     .disabled(parsing)
                     .overlay(alignment: .topLeading) {
                         if draft.isEmpty {
@@ -347,7 +351,7 @@ struct TodosView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 13)
                     .background(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Theme.dim2 : Theme.accent)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(parsing || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -360,6 +364,12 @@ struct TodosView: View {
                     Text("还没配置大模型，只能整条存下。")
                         .font(.system(size: 11))
                         .foregroundColor(Theme.warn)
+                }
+                if let tip = sheetTip {
+                    Text(tip)
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.bad)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
             }
@@ -416,7 +426,7 @@ struct TodosView: View {
             try Task.checkCancellation()
             guard let obj = JSONExtract.object(from: reply),
                   let arr = obj["items"] as? [[String: Any]] else {
-                toast = "整理结果不正确，原文已保留，可重试或直接存"
+                sheetTip = "整理结果不正确，原文已保留，可重试或直接存"
                 return
             }
             var drafts: [(content: String, category: String, due: String?)] = []
@@ -434,7 +444,7 @@ struct TodosView: View {
             let added = drafts.count
             if added > 0 { app.addItems(drafts) }
             guard added > 0 else {
-                toast = "没有识别出待办，原文已保留，可修改或直接存"
+                sheetTip = "没有识别出待办，原文已保留，可修改或直接存"
                 return
             }
             draft = ""
@@ -443,7 +453,7 @@ struct TodosView: View {
             toast = "已生成 \(added) 条待办"
         } catch {
             guard !Task.isCancelled else { return }
-            toast = error.localizedDescription
+            sheetTip = error.localizedDescription
         }
     }
 }

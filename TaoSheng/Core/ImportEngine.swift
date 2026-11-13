@@ -20,7 +20,7 @@ final class ImportEngine {
                 let size = (try? FileManager.default.attributesOfItem(atPath: dest.path)[.size] as? Int) ?? 0
                 let dur = await ImportEngine.duration(of: dest)
                 let seg = Segment(
-                    id: shortID(),
+                    id: UUID().uuidString.lowercased(),
                     startedAt: Date(),
                     endedAt: Date(),
                     duration: dur,
@@ -32,7 +32,7 @@ final class ImportEngine {
                     day: DayKey.of(Date()),
                     createdAt: Date()
                 )
-                store.insert(seg)
+                _ = store.insert(seg)
                 ok += 1
             } catch {
                 failed += 1
@@ -40,7 +40,7 @@ final class ImportEngine {
             }
         }
         NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
-        TranscribeQueue.shared.transcribeNow()
+        await MainActor.run { TranscribeQueue.shared.transcribeNow() }
         if failed == 0 { return "已导入 \(ok) 个文件，正在转写" }
         return "导入 \(ok) 个，失败 \(failed) 个"
     }

@@ -15,8 +15,12 @@ enum Voiceprint {
 
     static func vector(from url: URL) -> [Double]? {
         guard let file = try? AVAudioFile(forReading: url) else { return nil }
-        let length = AVAudioFrameCount(file.length)
-        guard length > 0 else { return nil }
+        let sr0 = file.processingFormat.sampleRate
+        // 只取前 60 秒：一整段 10 分钟的录音全读进来要 ~40MB 峰值内存，
+        // 而声纹只要一段干净语音就够，前 60 秒足够代表这个人的音色。
+        let cap = min(Double(file.length), max(sr0 * 60, 1))
+        let length = AVAudioFrameCount(max(1, cap))
+        guard length > 0, file.length > 0 else { return nil }
         guard let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: length) else { return nil }
         do { try file.read(into: buf) } catch { return nil }
         guard let chData = buf.floatChannelData else { return nil }
@@ -96,7 +100,9 @@ enum Voiceprint {
             out[b] = mean
             out[melBands + b] = sqrt(variance)
         }
-        return normalize(out)
+        let normalized = normalize(out)
+        // 录音里如果有异常采样导致出现 NaN/Inf，宁可不认人，也不要写进数据库
+        return normalized.allSatisfy { $0.isFinite } ? normalized : nil
     }
 
     static func normalize(_ v: [Double]) -> [Double] {

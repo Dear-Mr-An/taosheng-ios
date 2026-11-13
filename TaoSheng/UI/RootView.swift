@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @State private var tab: Int = 0
+    @State private var shotSheet: String?
     @StateObject private var kb = KeyboardObserver.shared
 
     var body: some View {
@@ -27,6 +28,39 @@ struct RootView: View {
         .animation(.easeOut(duration: 0.18), value: kb.isVisible)
         .onReceive(NotificationCenter.default.publisher(for: .taoshengAskPrefill)) { _ in
             withAnimation(.easeOut(duration: 0.16)) { tab = 1 }
+        }
+        .sheet(isPresented: Binding(get: { shotSheet != nil }, set: { if !$0 { shotSheet = nil } })) {
+            shotContent
+        }
+        .onAppear {
+            // 只在 CI 截图（-TSShot）时生效，正常启动这里什么都不做
+            guard let s = ShotMode.screen else { return }
+            if let t = ShotMode.tab(for: s) { tab = t }
+            switch s {
+            case "recording-bottom": shotSheet = "recording"
+            case "person-add": shotSheet = "persons"
+            case "event-edit": shotSheet = "event"
+            default: break
+            }
+        }
+    }
+
+    @ViewBuilder private var shotContent: some View {
+        switch shotSheet {
+        case "recording":
+            NavigationStack { RecordingSettingsView() }
+                .environmentObject(Settings.shared)
+                .environmentObject(AppState.shared)
+                .environmentObject(CaptureEngine.shared)
+        case "persons":
+            NavigationStack { PersonsView() }
+                .environmentObject(Settings.shared)
+                .environmentObject(AppState.shared)
+        case "event":
+            NavigationStack { EventDetailView(event: ShotDemo.event()) }
+                .environmentObject(AppState.shared)
+        default:
+            EmptyView()
         }
     }
 }
@@ -93,14 +127,37 @@ extension View {
     /// 悬浮 TabBar 的占位：凡是会被 TabBar 盖住的滚动页面都要自己声明一次，
     /// 这样最后一行才能完整滚到 TabBar 上方。底部安全区（Home 指示条）
     /// 由 ScrollView / List 自身处理，这里只补 TabBar 实际占用的高度。
+    /// 键盘弹出时 TabBar 会被移除，占位同时归零，否则输入框会被多顶高一截。
     func tabBarClearance(_ extra: CGFloat = 12) -> some View {
-        safeAreaInset(edge: .bottom, spacing: 0) {
-            Color.clear.frame(height: TabBar.reservedHeight + extra)
-        }
+        modifier(TabBarClearance(extra: extra))
     }
 
     /// 悬浮按钮（FAB、输入条）用的底部内边距：直接让控件本身越过 TabBar
     func floatingTabBarPadding(_ extra: CGFloat = 8) -> some View {
-        padding(.bottom, TabBar.reservedHeight + extra)
+        modifier(FloatingTabBarPadding(extra: extra))
+    }
+}
+
+private struct TabBarClearance: ViewModifier {
+    let extra: CGFloat
+    @ObservedObject private var kb = KeyboardObserver.shared
+
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear
+                .frame(height: kb.isVisible ? 0 : TabBar.reservedHeight + extra)
+                .animation(.easeOut(duration: 0.18), value: kb.isVisible)
+        }
+    }
+}
+
+private struct FloatingTabBarPadding: ViewModifier {
+    let extra: CGFloat
+    @ObservedObject private var kb = KeyboardObserver.shared
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.bottom, kb.isVisible ? 8 : TabBar.reservedHeight + extra)
+            .animation(.easeOut(duration: 0.18), value: kb.isVisible)
     }
 }

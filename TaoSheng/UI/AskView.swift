@@ -6,8 +6,6 @@ struct AskView: View {
     @EnvironmentObject var settings: Settings
 
     @State private var input = ""
-    @State private var sending = false
-    @State private var errorText: String?
     @State private var showHistory = false
     @FocusState private var focused: Bool
     @StateObject private var kb = KeyboardObserver.shared
@@ -24,16 +22,16 @@ struct AskView: View {
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 12) {
-                        if app.askMessages.isEmpty && !sending {
+                        if app.askMessages.isEmpty && !app.askSending {
                             intro
                         }
                         ForEach(app.askMessages) { m in
                             bubble(m).id(m.id)
                         }
-                        if sending {
+                        if app.askSending {
                             thinking.id("thinking")
                         }
-                        if let e = errorText {
+                        if let e = app.askError {
                             Text(e)
                                 .font(.system(size: 12))
                                 .foregroundStyle(Theme.bad)
@@ -55,7 +53,7 @@ struct AskView: View {
                         proxy.scrollTo("bottom", anchor: .bottom)
                     }
                 }
-                .onChange(of: sending) { _ in
+                .onChange(of: app.askSending) { _ in
                     withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
                 .onChange(of: kb.isVisible) { vis in
@@ -80,8 +78,13 @@ struct AskView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .taoshengAskPrefill)) { note in
             if let q = note.userInfo?["q"] as? String, !q.isEmpty {
+                app.askPending = q
+            }
+        }
+        .onAppear {
+            if let q = app.askPending {
+                app.askPending = nil
                 input = q
-                focused = true
             }
         }
     }
@@ -233,7 +236,15 @@ struct AskView: View {
                     RoundedRectangle(cornerRadius: Theme.radiusLarge, style: .continuous)
                         .stroke(Theme.line, lineWidth: 1)
                 )
-                .onSubmit { send() }
+                .onChange(of: input) { v in
+                    // axis: .vertical 的 TextField 里回车是换行，onSubmit 不会触发，
+                    // 所以在这里拦掉末尾换行，做「回车即发送」。
+                    if v.hasSuffix("
+") {
+                        input = String(v.dropLast())
+                        send()
+                    }
+                }
                 .submitLabel(.send)
 
             if kb.isVisible {
@@ -251,7 +262,7 @@ struct AskView: View {
             }
 
             Button(action: send) {
-                Image(systemName: sending ? "ellipsis" : "arrow.up")
+                Image(systemName: app.askSending ? "ellipsis" : "arrow.up")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
@@ -268,31 +279,15 @@ struct AskView: View {
     }
 
     private var canSend: Bool {
-        !sending && !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !app.askSending && !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func send() {
         let q = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty, !sending else { return }
+        guard !q.isEmpty, !app.askSending else { return }
         input = ""
-        errorText = nil
-        sending = true
-        app.recordAsk(question: q)
-
-        Task {
-            do {
-                let ans = try await AskEngine.shared.ask(q)
-                await MainActor.run {
-                    app.recordAnswer(text: ans.text, citations: ans.citations.map { "\($0.timeText) \($0.speaker.isEmpty ? "" : "· \($0.speaker) ")\($0.transcript.prefix(40))" })
-                    sending = false
-                }
-            } catch {
-                await MainActor.run {
-                    errorText = "问不出来：\(error.localizedDescription)"
-                    sending = false
-                }
-            }
-        }
+        focused = false
+        app.ask(q)
     }
 }
 
@@ -649,7 +644,7 @@ struct AskThreadDetail: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
                         .background(Theme.heroGradient)
-                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .padding(.top, 4)

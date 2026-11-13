@@ -171,9 +171,16 @@ extension Store {
             var keepSummary = e.summary
             if let en = e.entityId, !en.isEmpty {
                 var q: OpaquePointer?
-                if sqlite3_prepare_v2(db, "SELECT id,starred,starred_at,edited,title,summary FROM memory_event WHERE entity_id=? AND deleted=0 LIMIT 1;", -1, &q, nil) == SQLITE_OK {
+                // 故意不加 deleted=0：被用户删掉的事件如果还藏着，重新整理时
+                // 会以同一个 entity_id 复活成一条新事件（用户会以为「删了又回来了」）。
+                if sqlite3_prepare_v2(db, "SELECT id,starred,starred_at,edited,title,summary,deleted FROM memory_event WHERE entity_id=? LIMIT 1;", -1, &q, nil) == SQLITE_OK {
                     bind(q, 1, en)
                     if sqlite3_step(q) == SQLITE_ROW {
+                        if sqlite3_column_int(q, 6) == 1 {
+                            // 已删除：这一条不再写库，免得复活
+                            sqlite3_finalize(q)
+                            return
+                        }
                         eventID = col(q, 0)
                         keepStarred = sqlite3_column_int(q, 1) == 1
                         keepStarredAt = sqlite3_column_type(q, 2) == SQLITE_NULL
@@ -662,7 +669,7 @@ extension Store {
     func undigestedSegments(day: String, limit: Int = 400) -> [Segment] {
         queue.sync { () -> [Segment] in
             var st: OpaquePointer?
-            let sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode FROM segment WHERE day=? AND digested=0 AND state='transcribed' AND transcript<>'' ORDER BY started_at ASC LIMIT \(limit);"
+            let sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred FROM segment WHERE day=? AND digested=0 AND state='transcribed' AND transcript<>'' ORDER BY started_at ASC LIMIT \(limit);"
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
             bind(st, 1, day)
             var out: [Segment] = []
@@ -691,7 +698,7 @@ extension Store {
     func transcriptRows(day: String, limit: Int = 600) -> [Segment] {
         queue.sync { () -> [Segment] in
             var st: OpaquePointer?
-            let sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode FROM segment WHERE day=? AND state='transcribed' AND transcript<>'' ORDER BY started_at ASC LIMIT \(limit);"
+            let sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred FROM segment WHERE day=? AND state='transcribed' AND transcript<>'' ORDER BY started_at ASC LIMIT \(limit);"
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
             bind(st, 1, day)
             var out: [Segment] = []

@@ -58,7 +58,7 @@ struct TodayView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(Theme.dim)
                 Text(dateText)
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .font(.system(size: Theme.fsHero, weight: .bold, design: .rounded))
                     .foregroundColor(Theme.text)
             }
             Spacer()
@@ -223,9 +223,13 @@ struct TodayView: View {
         // 立刻重启时 audio session 还没释放，start() 会静默失败；
         // 等 0.4 秒再开；仍失败时隔 1 秒再试一次，避免切完模式就再也不录了。
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            if !capture.isRunning { capture.start() }
+            // 用户可能在这 0.4 秒里自己点了停止，captureWanted 为假就不能再拉起
+            guard UserDefaults.standard.bool(forKey: "captureWanted"), !capture.isRunning else { return }
+            capture.start()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                if !capture.isRunning, settings.captureMode == m { capture.start() }
+                guard UserDefaults.standard.bool(forKey: "captureWanted"),
+                      !capture.isRunning, settings.captureMode == m else { return }
+                capture.start()
             }
         }
     }
@@ -328,7 +332,7 @@ struct TodayView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(Theme.text)
                 Spacer()
-                if app.todayEvents.count > 5 {
+                if app.todayEvents.count > 6 {
                     Button { showTimeline = true } label: {
                         Text("全部 >").font(.system(size: 12.5)).foregroundColor(Theme.accent)
                     }
@@ -503,7 +507,7 @@ struct TimelineFullView: View {
                             VStack(spacing: 0) {
                                 ForEach(Array(g.1.enumerated()), id: \.element.id) { idx, e in
                                     TimelineLine(event: e, onStar: {
-                                        Store.shared.setEventStar(id: e.id, starred: !e.starred)
+                                        app.starEvent(e.id, starred: !e.starred)
                                         reloadTick &+= 1
                                     }, onTap: { detailEvent = e })
                                     if idx < g.1.count - 1 {
@@ -519,7 +523,6 @@ struct TimelineFullView: View {
                         }
                     }
                 }
-                Color.clear.frame(height: 40)
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
@@ -545,10 +548,10 @@ struct TimelineFullView: View {
             ForEach(0..<3, id: \.self) { i in
                 Button { scope = i } label: {
                     Text(i == 0 ? "今天" : (i == 1 ? "昨天" : "前天"))
-                        .font(.system(size: 12.5, weight: scope == i ? .semibold : .regular))
-                        .foregroundColor(scope == i ? Theme.text : Theme.dim)
+                        .font(.system(size: Theme.fsSmall, weight: scope == i ? .semibold : .regular))
+                        .foregroundColor(scope == i ? Theme.accent : Theme.dim)
                         .padding(.horizontal, 14).padding(.vertical, 6)
-                        .background(scope == i ? Theme.card : Color.clear)
+                        .background(scope == i ? Theme.accentSoft : Color.clear)
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)

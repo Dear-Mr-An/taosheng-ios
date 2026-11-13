@@ -91,9 +91,9 @@ struct SkillDef: Identifiable, Codable, Hashable {
     }
 
     static func weekName(_ w: Int) -> String {
-        let names = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
-        let i = min(max(w, 0), 6)
-        return names[i]
+        // weekday 用 Calendar 的 1=周日…7=周六；names 从周日开始排，
+        // 直接把 1 当 0 用会让「每周日」显示成「每周一」
+        PushRules.weekName(w)
     }
 }
 
@@ -194,6 +194,9 @@ struct Channel: Identifiable, Codable, Hashable {
     var lastPushAt: Date?
     var lastStatus: String
     var createdAt: Date
+    // 只有坚果云通道用得到：走它自己的 WebDAV 账号，不借用备份设置里的凭据
+    var user: String? = nil
+    var pass: String? = nil
 }
 
 // MARK: - 足迹

@@ -51,8 +51,10 @@ final class SkillEngine: ObservableObject {
         }
     }
 
+    /// 「今天没有相关内容」的空卡不算跑过：否则上午一句闲聊就生成一张空卡，
+    /// 下午开会再整理也不会重跑，用户整天都看不到这张技能卡。
     private func hasRun(_ skillId: String, day: String) -> Bool {
-        !store.cards(day: day, skillId: skillId, limit: 1).isEmpty
+        store.cards(day: day, skillId: skillId, limit: 10).contains { !$0.isNothing }
     }
 
     private func fire(_ skill: SkillDef, day: String) {
@@ -143,8 +145,10 @@ final class SkillEngine: ObservableObject {
             throw LLMError.badReply("技能结果没有有效字段，请重试")
         }
 
+        // 同一天同一个技能只留一张卡：重跑时复用旧 id 覆盖，不再堆一串
+        let existingID = store.cards(day: day, skillId: skill.id, limit: 1).first?.id ?? shortID()
         let card = SkillCard(
-            id: shortID(),
+            id: existingID,
             skillId: skill.id,
             skillName: skill.name,
             day: day,
