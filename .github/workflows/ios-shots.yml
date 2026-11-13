@@ -97,38 +97,49 @@ jobs:
             xcrun simctl create "$NAME" "$TYPE" "$RT"
           }
 
+          # macOS runner 上没有 GNU timeout，先装 coreutils 用 gtimeout；没有就直跑
+          brew install coreutils >/dev/null 2>&1 || true
+          TMO=""
+          if command -v gtimeout >/dev/null 2>&1; then TMO="gtimeout"; fi
+          echo "超时命令: $TMO"
+
+          tmo() {
+            SECS="$1"; shift
+            if [ -n "$TMO" ]; then "$TMO" "$SECS" "$@"; else "$@"; fi
+          }
+
           # 全程带超时，避免 simctl 在 CI 上卡死把整个 job 拖到 timeout
           boot_dev() {
             DEV="$1"
             echo "[$(date +%T)] boot $DEV"
-            timeout 120 xcrun simctl boot "$DEV" 2>/dev/null || true
-            for i in $(seq 1 40); do
-              if xcrun simctl list devices | grep -F "$DEV" | grep -q "Booted"; then
-                echo "[$(date +%T)] booted after ${i}s"
-                break
-              fi
-              sleep 1
-            done
+            tmo 120 xcrun simctl boot "$DEV" 2>/dev/null || true
+            tmo 300 xcrun simctl bootstatus "$DEV" -b || true
+            if xcrun simctl list devices | grep -F "$DEV" | grep -q "Booted"; then
+              echo "[$(date +%T)] booted"
+            else
+              echo "[$(date +%T)] 启动超时，设备未就绪"
+              xcrun simctl list devices | grep -F "$DEV" || true
+            fi
             sleep 3
           }
 
           shoot_dev() {
             DEV="$1"; NAME="$2"; SCREEN="$3"; WAIT="${4:-5}"
             echo "[$(date +%T)] == $NAME / $SCREEN"
-            if timeout 90 xcrun simctl install "$DEV" "$APP"; then
+            if tmo 90 xcrun simctl install "$DEV" "$APP"; then
               echo "  安装成功"
             else
               echo "  安装失败，跳过 $SCREEN"
               return 0
             fi
-            timeout 60 xcrun simctl launch "$DEV" "$BID" -TSShot "$SCREEN" || echo "  启动超时"
+            tmo 60 xcrun simctl launch "$DEV" "$BID" -TSShot "$SCREEN" || echo "  启动超时"
             sleep "$WAIT"
-            if timeout 60 xcrun simctl io "$DEV" screenshot "$OUT/$NAME-$SCREEN.png"; then
+            if tmo 60 xcrun simctl io "$DEV" screenshot "$OUT/$NAME-$SCREEN.png"; then
               echo "  截图 $NAME-$SCREEN.png"
             else
               echo "  截图失败 $NAME/$SCREEN"
             fi
-            timeout 30 xcrun simctl terminate "$DEV" "$BID" 2>/dev/null || true
+            tmo 30 xcrun simctl terminate "$DEV" "$BID" 2>/dev/null || true
           }
 
           if [ -n "$BIG" ]; then
@@ -142,14 +153,14 @@ jobs:
             shoot_dev "$DEV" "iphone16" "recording-bottom" 6
             shoot_dev "$DEV" "iphone16" "person-add" 6
             shoot_dev "$DEV" "iphone16" "event-edit" 6
-            timeout 60 xcrun simctl shutdown "$DEV" 2>/dev/null || true
+            tmo 60 xcrun simctl shutdown "$DEV" 2>/dev/null || true
           fi
           if [ -n "$SMALL" ]; then
             DEVS=$(mk TS-Small "$SMALL")
             echo "小屏设备: $DEVS"
             boot_dev "$DEVS"
             shoot_dev "$DEVS" "iphonese" "todo"
-            timeout 60 xcrun simctl shutdown "$DEVS" 2>/dev/null || true
+            tmo 60 xcrun simctl shutdown "$DEVS" 2>/dev/null || true
           fi
 
           ls -la "$OUT"
