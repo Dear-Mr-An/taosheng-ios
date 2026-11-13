@@ -3,7 +3,77 @@
 Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 SwiftUI 重写，iOS 16+，无第三方运行依赖。
 全天收音 → 人声切片 → 转写 → DeepSeek 整理事件、待办和记忆。数据使用本机 SQLite。
 
-当前源码调整（2026-11-13）
+0.5.0 全量质量提升（2026-11-13）
+
+本版做了一轮完整审查 + 修复 + UI 统一，目标是把「能用」推到「不崩、不卡、不歪、不像半成品」。版本号 0.5.0 (22)。
+
+修复清单（已修复，file:line 为改动前定位）
+
+崩溃与数据丢失
+
+- `Core/AudioExport.swift`：导出录音包会把最多 200 段 wav 全部 `Data(contentsOf:)` 读进内存（峰值接近 2 GB），必然被系统杀进程。改为边读边写 zip（FileHandle + 256 KB 分块 CRC32 + 流式拷贝），内存占用与段数无关。
+- `Audio/CaptureEngine.swift:handle()`：每个音频 buffer 都无条件 `queue.async` 一份拷贝，写盘跟不上时任务无限堆积。加了 16 个槽位的背压（`reserveSlot`/`releaseSlot`），超额直接丢块而不是涨内存；同时把断句/上限/灵敏度改成实时读，录音中改模式立即生效（原来要重开录音）。
+- `Core/Store+Memory.swift:upsertEvent`：`INSERT OR REPLACE` 的列清单不含 `edited`，重新整理会把手改过的标题、摘要和 edited 标记一起重置。改为先查旧行，`edited=1` 时保留原标题/摘要并把标记写回。
+- `Core/Store+Memory.swift:thing(named:)`：`name` 为空时 `name.contains($0.name)` 恒真，会返回第一条寻物记录。加了空串守卫，模糊匹配改为小写比较。
+
+网络与并发
+
+- `Core/NetWatcher.swift`：三个状态量由 `NWPathMonitor` 的后台队列写、主线程读，属真实数据竞争。改为 NSLock 保护的私有字段 + 只读计算属性。
+- `Core/PushEngine.swift:104`：Bark 用 `.urlPathAllowed` 编码标题和正文，该字符集包含 `/`，正文带斜杠会把 URL 拆成多段路径直接 404。改为剔除 `/ ? # %` 的字符集。
+- `Core/PushEngine.swift:broadcast`：每发一个通道就 post 一次 `.taoshengDataChanged`，多通道时触发 N 次全量刷新。改为一个 Task + TaskGroup 并发发送，结束后只通知一次。
+- `LLM/SkillEngine.swift:84`：`fire()` 里的 `Task {}` 继承 MainActor，1200 行原话查询跑在主线程。改为 `Task.detached`。
+
+主线程 IO（滚动掉帧的直接原因）
+
+- `UI/TodayView.swift:377`：`digestAgo` 在 body 里同步查 `reviews(limit:1)`；`:427` `TimelineFullView.raw` 每次重绘同步查 800 行事件。都改成 `.task` + 后台查询 + 本地缓存。
+- `UI/MemoryView.swift:255`：分类列表在计算属性里同步查 200 行；`:440` 原话列表点星标后不刷新。改为缓存 + 异步加载 + 写库后 reload。
+- `UI/AskView.swift:399`：历史问答每敲一个字就重查 600 行（关键词本来只在本地过滤）。删除该 onChange。
+- `UI/EventDetailView.swift:290`：详情页 onAppear 在主线程查 3000 行原话。改为异步。
+- `UI/SettingsSub.swift:773`：模型页每 5 秒在主线程跑 6 次查询。改为一次性后台快照 + 回主线程赋值。
+- `ASR/TranscribeQueue.swift:refreshPending()`：在调用线程查 999 行待转写。改为 utility 队列。
+
+正确性与逻辑
+
+- `UI/EventDetailView.swift:211`：`speakerNo` 只认数字说话人，实名说话人（「老王」）会全部显示成 ①。改为首字头像 + 稳定配色。
+- `UI/EventDetailView.swift:329`：导出文件名直接用标题前 12 字，标题含 `/` 时写盘失败却仍弹分享面板。改为文件名清洗 + 失败提示。
+- `UI/SettingsSub.swift:384`：`Toggle` 放在 `NavigationLink` 的 label 里，点开关会同时跳页。拆成并排两行。
+- `UI/SettingsSub.swift:1277`：关于页版本号写死「0.2.0 · iOS」，与工程版本无关。改为读 `CFBundleShortVersionString`/`CFBundleVersion`。
+- `Core/Settings.swift:134/136/146/147`：`silenceGap`、`maxSegment`、`modeSilenceGap`、`modeMaxSegment` 全项目无人读取（断句和上限由 `CaptureMode` 固定），属改了不生效的假开关，删除。
+- `ASR/TranscribeQueue.swift:identifySpeaker`：簇匹配初值 `bestScore = 0.0`，相似度全负时永远开新簇，编号会一路涨。改为 -1.0。
+- `Audio/MicRouter.swift:39`：设备排序比较器不是严格弱序（`a.id == current` 直接 return true），排序结果不稳定。改为标准三段比较。
+- `Core/LocationEngine.swift:39`：`Timer.scheduledTimer` 之后又 `RunLoop.main.add`，定时器被重复投递。改为只 add 一次。
+- `UI/Components.swift:62`：`SpeakerDot` 用 `name.hashValue` 取色，`hashValue` 每次启动都变，同一个人换一次 App 换一次颜色。改为 FNV-1a 稳定索引。
+- `Core/Models.swift:27` / `Core/Models3.swift:26`：`timeText` 每次调用新建 `DateFormatter`，时间线每行每帧都在建。新增 `Core/Formatters.swift` 统一缓存格式化器。
+- `Core/Store+Ext.swift:662`：`queue.sync { exec(...) }` 的返回值未使用，是本版唯一一条编译警告，改为显式丢弃。
+
+布局
+
+- 六处底部留白与 `RootView` 的 `safeAreaInset` 叠加：今天页 78、记忆页 78、问问页 76、待办页 92、设置页 100、模型页 100，实际底部空白最多到 158pt。统一收到 16～24，改由 `TabBar.reservedHeight` 一处负责。
+- `UI/RootView.swift:22`：给 TabBar 预留的 `Color.clear.frame(height: 58)` 与 TabBar 真实高度（62）不一致，末行会被压住。改为引用 `TabBar.reservedHeight`。
+- 外观设置在两个地方用同一个 `appearance` 键但语义不同（设置页写 `auto`、`TodayView` 默认 `system`），首次进入时段选器没有任何高亮。统一为 `light`/`dark`/`auto`。
+
+UI 改动清单
+
+- 设计令牌：新增间距 `sp1…sp6`（4/8/12/16/20/28）、字号 6 档（11/12.5/14/17/20/26）、圆角三档（12/16/22，原来是 12/14/18/20/24 混用）。问问页、事件详情页、设置页的硬编码字号与圆角全部换成令牌。
+- 暗色模式：TabBar 选中态从「只变色」改为 `accentSoft` 胶囊底 + 选中色文字 + 未选中项 `line` 描边，暗色下不再糊成一片；图标 18→19pt、文字 10→10.5pt，加了无障碍标签。
+- 空状态：记忆页（时间线/重点/分类/寻物/回顾/原话）、待办页（待确认/进行中/已完成）、时间线全屏页，全部从「一句话」改成「图标 + 标题 + 一句怎么产生内容」的说明。
+- 加载状态：新增 `LoadingHint` 骨架屏（3 行占位 + 呼吸动画 + 可选文案），用于记忆分类列表与时间线首屏，避免切日期时白屏。
+- 交互一致性：待办页顶部三个胶囊改成与 TabBar 同一套选中样式（淡橙底 + 橙字 + 细描边），未选中的计数不再用白字。
+- 说话人颜色：同一个名字跨启动、跨设备颜色固定（「我」固定橙色），声纹聚类的人不再是每人一个随机色。
+- 关于页版本号与外观选择器反映真实状态（见上）。
+
+本轮未修与理由
+
+- `Core/BackupEngine.swift`：备份快照仍只覆盖旧 `item`/`digest`/`segment`，不写 `memory_event`/`memory_item`/`skill_card`/`thing`；S3 分支的 key 未做百分号编码且不按份数清理。原因是改备份格式涉及恢复路径的数据迁移，没有真机与真实 WebDAV/S3 账号可回归，贸然改会让老备份不可恢复。
+- `LLM/ReviewEngine.swift:34`：每日回顾要求 `hour >= reviewHour`，App 那天 22 点前后没运行就不补，第二天也不会补前一天。这属于产品语义（要不要补跑历史回顾），需要产品确认后再动。
+- `Core/Store+Speaker.swift:renameSpeaker`：改说话人名只更新 `segment`，不回写事件里的 `people`。事件里的人是整理当时的快照，回写会让历史记录与当时不一致。
+- `UI/SettingsSub.swift:288`：技能详情页里放了全局开关「生成后推送」。位置不合理，但移动它会改变现有交互路径，本轮不动。
+- `UI/EventDetailView.swift` 编辑仍用 alert 里的两个 TextField，长摘要体验一般。改成 sheet 牵扯到草稿状态与键盘处理，属于交互改版而非修 bug，本轮不动。
+- `LLM/PromptsAsk.swift` 仍是带 tool calling / DSML 说明的提示词，而当前 `AskEngine` 并没有工具调用。属遗留文本，删改有回归风险。
+- 8 处 `.onChange(of:)` 仍是单参数闭包：双参数版本要求 iOS 17，而本工程 deployment target 是 16.0；本版编译 0 警告，保留兼容写法。
+- 真机行为（按住说话手势、后台收音、通知投递时机、豆包/DeepSeek 真实密钥联调）没有设备可验，仍未验证。
+
+0.5.0 源码调整（时间线、说话人、详情页）
 
 - 时间线按原版重做：标题行「时间线 · N 件事」+ 右上白胶囊分段（今天 / 昨天 / 前天）；第二行橙色「全部」胶囊与「● 媒体 N」；按凌晨 / 上午 / 下午 / 晚上分组，白色大卡内每行左侧橙色时刻、右侧标题与两行摘要，行间细线。
 - 点进一件事改为「抽纸式」详情页：从底部抽出，下滑即收起。内容为状态行（今天 13:20 – 13:22 · 闲聊 · 1 分钟 · 地点）、大标题、摘要、要点、原话（可逐句播放 / 导出 / 复制），底部固定「重点 / 复制 / 问问 / 删除」；「存待办」把首条要点存成待办，「编辑」可改标题与摘要（手改后标记 edited，自动整理不再覆盖）。
@@ -86,10 +156,10 @@ DeepSeek 固定使用 `https://api.deepseek.com`，余额为 `GET /user/balance`
 
 本次验证
 
-- 0.4.13 源码由 GitHub Actions（`macos-15`）构建通过：run 43261927464 success（commit 8825130，第 2 次 attempt）。
-- 产物：`../dist/TaoSheng-v0.4.13.ipa`（1169110 B，iOS 16+ arm64，版本 0.4.13 (20)，Info.plist 已转 XML，无签名文件与描述文件）。
+- 0.5.0 源码由 GitHub Actions（`macos-15`）构建通过：run 43414690508 success（commit ae48d73），编译 **0 error / 0 warning**（工作流新增「编译警告清单」步骤，`grep -c "warning:"` 输出 0；上一版遗留的 `Store+Ext.swift:662` 未使用返回值警告已修）。
+- 产物：`../dist/TaoSheng-v0.5.0.ipa`（1274207 B，iOS 16+ arm64，版本 0.5.0 (22)，`CFBundleIdentifier` 为 `app.taosheng.TaoSheng`，无签名文件与描述文件）。
 - `node --test Tests/segment-sql.test.mjs`：8 项通过，使用内存 SQLite 执行应用 SQL，覆盖迁移、积压查询、事件标星、清空表以及最近原话截取。SQL 检查不验证设备录音和云服务行为。
-- `swift test`：本机 Windows 未安装 Swift，8 项纯逻辑测试未执行；编译正确性由 CI 的 xcodebuild 保证，不等于运行期行为正确。
+- `swift test`：本版起由 CI 的「策略单元测试」步骤真正执行（本机 Windows 无 Swift），8 项纯逻辑测试全部通过：`CaptureMode.restored`、`DeepSeekConfiguration.migrated` ×3、`DeepSeekBalance.parse` ×2、`VoiceSessionState`、`DigestSchedule.shouldRun` 全分支。
 - 尚未在 iPhone 上验证手势、后台收音、真实密钥余额联调与通知投递时机。
 
 构建与测试
@@ -122,7 +192,7 @@ xcodebuild -project TaoSheng.xcodeproj -scheme TaoSheng \
   CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
 ```
 
-工程配置在 `project.yml`，Bundle ID 为 `app.taosheng.TaoSheng`，版本仍为 0.4.1 (8)。签名安装需自行配置匹配的证书。
+工程配置在 `project.yml`，Bundle ID 为 `app.taosheng.TaoSheng`，版本 `0.5.0`（build 22）。签名安装需自行配置匹配的证书。
 仓库已有 `.github/workflows/ios-ipa.yml`；推送默认分支或手动运行会构建并发布 GitHub Release，必须经授权再操作。
 
-本次变更和验证边界见 `docs/2026-11-12-交互与DeepSeek调整.md`。
+本次变更和验证边界见上面「0.5.0 全量质量提升」章节与 `docs/2026-11-12-交互与DeepSeek调整.md`。

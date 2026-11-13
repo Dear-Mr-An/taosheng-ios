@@ -91,16 +91,19 @@ jobs:
           fi
           mkdir -p "$RUNNER_TEMP/Payload"
           cp -R "$APP" "$RUNNER_TEMP/Payload/"
-          # 转成 XML plist：部分国产签名工具读二进制 plist 会静默失败（签名成功但装不上）
-          /usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms array" "$APP/Info.plist" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms:0 string iPhoneOS" "$APP/Info.plist" 2>/dev/null || true
-          plutil -convert xml1 "$APP/Info.plist"
-          head -c 120 "$APP/Info.plist"; echo
+          # 注意：必须改 Payload 里的那份 plist。以前改的是 archive 里的原文件，
+          # 而 cp 已经先跑完了，产出的 IPA 里一直是二进制 plist
+          #（部分国产签名工具读二进制 plist 会静默失败：签名成功但装不上）。
+          PLIST="$RUNNER_TEMP/Payload/TaoSheng.app/Info.plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms array" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms:0 string iPhoneOS" "$PLIST" 2>/dev/null || true
+          plutil -convert xml1 "$PLIST"
+          head -c 120 "$PLIST"; echo
           cd "$RUNNER_TEMP"
           zip -qr "TaoSheng-unsigned.ipa" Payload
           ls -lh "TaoSheng-unsigned.ipa"
-          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist" || true
-          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$PLIST" || true
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST" || true
           lipo -info "$APP/TaoSheng" || true
 
       - name: 上传 IPA
