@@ -1,0 +1,137 @@
+name: shots
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'TaoSheng/**'
+      - 'project.yml'
+      - '.github/workflows/ios-shots.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shots:
+    name: 模拟器截图
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - name: 取出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成 Xcode 工程
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          if [ -f project.yml ]; then ROOT="."; else ROOT="ios"; fi
+          cd "$ROOT"
+          xcodegen generate
+
+      - name: 关掉模拟器硬件键盘（截图要看到软键盘）
+        run: defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false || true
+
+      - name: 准备模拟器
+        run: |
+          set -x
+          xcrun simctl list runtimes || true
+          xcrun simctl list devicetypes | head -n 40 || true
+          echo "== 已装运行时"
+          xcrun simctl list runtimes | grep -E '^iOS' | tail -n 3 || true
+
+      - name: 编译模拟器包
+        run: |
+          set -o pipefail
+          cd "$GITHUB_WORKSPACE"
+          if [ -f project.yml ]; then ROOT="."; else ROOT="ios"; fi
+          cd "$ROOT"
+          xcodebuild \
+            -project TaoSheng.xcodeproj \
+            -scheme TaoSheng \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            -quiet 2>&1 | tail -n 60
+
+      - name: 启动模拟器并截图
+        run: |
+          set -x
+          APP="$RUNNER_TEMP/dd/Build/Products/Debug-iphonesimulator/TaoSheng.app"
+          if [ ! -d "$APP" ]; then
+            echo "找不到模拟器包，列出产物："
+            find "$RUNNER_TEMP/dd/Build/Products" -maxdepth 3 -name "*.app" || true
+            exit 1
+          fi
+          BID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist")
+          OUT="$GITHUB_WORKSPACE/shots"
+          mkdir -p "$OUT"
+
+          # 运行时与设备类型按 runner 上真实可用的做兜底，避免 "Unable to find a device"
+          RT=$(xcrun simctl list runtimes | grep -E '^iOS [0-9]+(\.[0-9]+)* ' | tail -n 1 | sed -E 's/.*(com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9-]+).*/\1/')
+          if [ -z "$RT" ]; then echo "没有可用的 iOS 运行时"; xcrun simctl list runtimes; exit 1; fi
+          echo "运行时: $RT"
+
+          pick_type() {
+            for t in "$@"; do
+              if xcrun simctl list devicetypes | grep -q "$t"; then
+                echo "$(xcrun simctl list devicetypes | grep "$t" | head -n 1 | sed -E 's/^(.*) \(([^)]*)\)$/\2/')"
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          BIG=$(pick_type "iPhone 16 Pro" "iPhone 16" "iPhone 15 Pro" "iPhone 15") || BIG=""
+          SMALL=$(pick_type "iPhone SE (3rd generation)" "iPhone SE (2nd generation)") || SMALL=""
+          echo "大屏: $BIG  小屏: $SMALL"
+
+          mk() {
+            NAME="$1"; TYPE="$2"
+            xcrun simctl delete "$NAME" 2>/dev/null || true
+            xcrun simctl create "$NAME" "$TYPE" "$RT"
+          }
+
+          shoot_dev() {
+            DEV="$1"; NAME="$2"; SCREEN="$3"; WAIT="${4:-5}"
+            echo "== $NAME / $SCREEN"
+            xcrun simctl boot "$DEV" 2>/dev/null || true
+            xcrun simctl bootstatus "$DEV" -b || true
+            xcrun simctl install "$DEV" "$APP"
+            xcrun simctl launch "$DEV" "$BID" -TSShot "$SCREEN" || true
+            sleep "$WAIT"
+            xcrun simctl io "$DEV" screenshot "$OUT/$NAME-$SCREEN.png" || echo "截图失败 $NAME/$SCREEN"
+            xcrun simctl terminate "$DEV" "$BID" 2>/dev/null || true
+            xcrun simctl shutdown "$DEV" 2>/dev/null || true
+          }
+
+          if [ -n "$BIG" ]; then
+            DEV=$(mk TS-Big "$BIG")
+            shoot_dev "$DEV" "iphone16" "todo"
+            shoot_dev "$DEV" "iphone16" "today"
+            shoot_dev "$DEV" "iphone16" "ask"
+            shoot_dev "$DEV" "iphone16" "memory"
+            shoot_dev "$DEV" "iphone16" "recording-bottom" 6
+            shoot_dev "$DEV" "iphone16" "person-add" 6
+            shoot_dev "$DEV" "iphone16" "event-edit" 6
+          fi
+          if [ -n "$SMALL" ]; then
+            DEVS=$(mk TS-Small "$SMALL")
+            shoot_dev "$DEVS" "iphonese" "todo"
+          fi
+
+          ls -la "$OUT"
+
+      - name: 上传截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shots-052
+          path: ${{ github.workspace }}/shots
+          retention-days: 30
+          if-no-files-found: warn
