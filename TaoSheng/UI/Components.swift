@@ -400,4 +400,18 @@ struct ShareSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
+
+    /// 在 sheet 里不方便挂 .sheet 时，直接从最上层控制器弹分享面板
+    static func present(items: [Any]) {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              var top = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else { return }
+        while let p = top.presentedViewController { top = p }
+        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        if let pop = vc.popoverPresentationController {
+            pop.sourceView = top.view
+            pop.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 0, height: 0)
+            pop.permittedArrowDirections = []
+        }
+        top.present(vc, animated: true)
+    }
 }

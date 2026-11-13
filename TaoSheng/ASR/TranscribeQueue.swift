@@ -116,16 +116,32 @@ final class TranscribeQueue: ObservableObject {
         }
     }
 
-    /// 声纹比对：命中就写 speaker，没命中留空（用户可长按指定）
+    /// 声纹比对：先认熟人；认不出就按当天的未知说话人簇给「说话人 1 / 2 / 3 …」，
+    /// 新声音自动开一个新簇，这样多人会议里每个人都能拿到稳定的编号。
     static func identifySpeaker(segmentId: String, url: URL) async {
-        let samples = Store.shared.allVoiceSamples()
-        guard !samples.isEmpty else { return }
         guard let v = Voiceprint.vector(from: url) else { return }
-        if let m = Voiceprint.match(v, samples: samples) {
-            let persons = Store.shared.persons()
-            if let p = persons.first(where: { $0.id == m.personId }) {
-                Store.shared.setSpeaker(id: segmentId, speaker: p.name)
-            }
+        let day = Store.shared.segment(id: segmentId)?.day ?? DayKey.of(Date())
+
+        let samples = Store.shared.allVoiceSamples()
+        if !samples.isEmpty, let m = Voiceprint.match(v, samples: samples),
+           let p = Store.shared.persons().first(where: { $0.id == m.personId }) {
+            Store.shared.setSpeaker(id: segmentId, speaker: p.name)
+            return
+        }
+
+        var bestNo = 0
+        var bestScore = 0.0
+        for c in Store.shared.clusters(day: day) where c.vector.count == v.count {
+            let score = Voiceprint.cosine(v, c.vector)
+            if score > bestScore { bestScore = score; bestNo = c.no }
+        }
+        if bestNo > 0 && bestScore >= 0.80 {
+            Store.shared.setSpeaker(id: segmentId, speaker: "说话人\(bestNo)")
+            Store.shared.updateCluster(day: day, no: bestNo, vector: v)
+        } else {
+            let no = Store.shared.nextClusterNo(day: day)
+            Store.shared.insertCluster(day: day, no: no, vector: v)
+            Store.shared.setSpeaker(id: segmentId, speaker: "说话人\(no)")
         }
     }
 

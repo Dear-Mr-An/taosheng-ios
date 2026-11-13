@@ -29,6 +29,9 @@ struct RootView: View {
             }
         }
         .animation(.easeOut(duration: 0.18), value: kb.isVisible)
+        .onReceive(NotificationCenter.default.publisher(for: .taoshengAskPrefill)) { _ in
+            withAnimation(.easeOut(duration: 0.16)) { tab = 1 }
+        }
     }
 }
 

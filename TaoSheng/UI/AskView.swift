@@ -78,6 +78,12 @@ struct AskView: View {
             }
             .environmentObject(app)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .taoshengAskPrefill)) { note in
+            if let q = note.userInfo?["q"] as? String, !q.isEmpty {
+                input = q
+                focused = true
+            }
+        }
     }
 
     // MARK: - 头部

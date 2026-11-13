@@ -7,6 +7,7 @@ struct MemoryView: View {
     @State private var showReview = false
     @State private var toast: String?
     @State private var cat = "重点"
+    @State private var detailEvent: MemoryEvent?
 
     private let cats = ["重点", "寻物", "灵感", "关键信息", "决定"]
 
@@ -189,10 +190,17 @@ struct MemoryView: View {
             if app.dayEvents.isEmpty {
                 EmptyHint(text: "这一天还没有整理出内容")
             } else {
-                ForEach(app.dayEvents) { e in
-                    EventRow(event: e, onStar: {
-                        app.starEvent(e.id, starred: !e.starred)
-                    })
+                VStack(spacing: 0) {
+                    ForEach(Array(app.dayEvents.enumerated()), id: \.element.id) { idx, e in
+                        TimelineLine(event: e,
+                                     onStar: { app.starEvent(e.id, starred: !e.starred) },
+                                     onTap: { detailEvent = e })
+                        if idx < app.dayEvents.count - 1 {
+                            Rectangle().fill(Theme.line)
+                                .frame(height: 0.6)
+                                .padding(.leading, 58)
+                        }
+                    }
                 }
             }
             if !app.dayCards.isEmpty {
@@ -204,9 +212,13 @@ struct MemoryView: View {
         .padding(14)
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+        .sheet(item: $detailEvent) { e in
+            EventDetailView(event: e)
+                .environmentObject(app)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
     }
-
-    // MARK: 按类
 
     private var catChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {

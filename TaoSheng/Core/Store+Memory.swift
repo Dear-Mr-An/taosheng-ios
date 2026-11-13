@@ -109,6 +109,7 @@ extension Store {
             ensureColumn(table: "segment", column: "capture_mode", ddl: "ALTER TABLE segment ADD COLUMN capture_mode TEXT NOT NULL DEFAULT 'daily';")
             ensureColumn(table: "segment", column: "digested", ddl: "ALTER TABLE segment ADD COLUMN digested INTEGER NOT NULL DEFAULT 0;")
             ensureColumn(table: "segment", column: "bigram", ddl: "ALTER TABLE segment ADD COLUMN bigram TEXT NOT NULL DEFAULT '';")
+        ensureColumn(table: "memory_event", column: "edited", ddl: "ALTER TABLE memory_event ADD COLUMN edited INTEGER NOT NULL DEFAULT 0;")
         }
     }
 
@@ -248,6 +249,30 @@ extension Store {
             bind(st, 3, id)
             sqlite3_step(st)
             sqlite3_finalize(st)
+        }
+    }
+
+    /// 用户在详情页手改了标题/摘要，标记成人工编辑，自动整理时不再覆盖
+    func updateEventTitle(id: String, title: String, summary: String) {
+        queue.sync { () -> Void in
+            let sql = "UPDATE memory_event SET title=?, summary=?, edited=1 WHERE id=?;"
+            var st: OpaquePointer?
+            if sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK {
+                bind(st, 1, title)
+                bind(st, 2, summary)
+                bind(st, 3, id)
+                sqlite3_step(st)
+                sqlite3_finalize(st)
+            } else {
+                let fallback = "UPDATE memory_event SET title=?, summary=? WHERE id=?;"
+                var s2: OpaquePointer?
+                guard sqlite3_prepare_v2(db, fallback, -1, &s2, nil) == SQLITE_OK else { return }
+                bind(s2, 1, title)
+                bind(s2, 2, summary)
+                bind(s2, 3, id)
+                sqlite3_step(s2)
+                sqlite3_finalize(s2)
+            }
         }
     }
 

@@ -385,19 +385,28 @@ final class AppState: ObservableObject {
     var eventCount: Int { todayEvents.count }
 
     var peopleCount: Int {
-        Set(todayEvents.flatMap { $0.people }).count
+        let names = Set(todaySegments.map { $0.speaker }.filter { !$0.isEmpty })
+        guard !names.isEmpty else { return 0 }
+        // 没建过「我」的声纹时，第一簇（说话人1）通常是机主自己
+        let meKey = names.contains("我") ? "我" : "说话人1"
+        return max(0, names.subtracting([meKey]).count)
     }
 
     var meetingCount: Int {
         todayEvents.filter { $0.scene == "会议" }.count
     }
 
+    /// 声纹认人后，「我」可能是真名或默认簇名，这里统一判一次
+    private var meKey: String {
+        todaySegments.contains { $0.speaker == "我" } ? "我" : "说话人1"
+    }
+
     var mySeconds: Double {
-        todaySegments.filter { $0.speaker == "我" }.reduce(0) { $0 + $1.duration }
+        todaySegments.filter { $0.speaker == meKey }.reduce(0) { $0 + $1.duration }
     }
 
     var otherSeconds: Double {
-        todaySegments.filter { $0.speaker != "我" && !$0.speaker.isEmpty }.reduce(0) { $0 + $1.duration }
+        todaySegments.filter { !$0.speaker.isEmpty && $0.speaker != meKey }.reduce(0) { $0 + $1.duration }
     }
 
     /// 所有跨天未完成的待办 + 约定（待办页）

@@ -22,6 +22,7 @@ final class Store {
         migrate()
         migrateExtra()
         migrateMemory()
+        migrateVoiceCluster()
     }
 
     static var supportDir: URL {

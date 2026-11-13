@@ -35,6 +35,8 @@ final class SegmentPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
         playingID = nil
     }
 
+    func isPlaying(_ id: String) -> Bool { playingID == id }
+
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         DispatchQueue.main.async {
             self.playingID = nil

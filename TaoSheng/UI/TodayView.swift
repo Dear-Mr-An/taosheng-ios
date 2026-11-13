@@ -11,6 +11,7 @@ struct TodayView: View {
     @State private var heroCollapsed = false
     @State private var toast: String?
     @State private var showTimeline = false
+    @State private var detailEvent: MemoryEvent?
 
     private var today: String { DayKey.of(Date()) }
 
@@ -28,6 +29,12 @@ struct TodayView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationBarHidden(true)
+        .sheet(item: $detailEvent) { e in
+            EventDetailView(event: e)
+                .environmentObject(app)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
         .alert("提示", isPresented: Binding(get: { toast != nil }, set: { if !$0 { toast = nil } })) {
             Button("好") { toast = nil }
         } message: {
@@ -280,15 +287,15 @@ struct TodayView: View {
     // MARK: 时间线
 
     private var timelineCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
                 Text("时间线 · \(app.todayEvents.count) 件事")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(Theme.text)
                 Spacer()
-                if app.todayEvents.count > 6 {
+                if app.todayEvents.count > 5 {
                     Button { showTimeline = true } label: {
-                        Text("全部").font(.system(size: 12.5)).foregroundColor(Theme.accent)
+                        Text("全部 >").font(.system(size: 12.5)).foregroundColor(Theme.accent)
                     }
                     .buttonStyle(.plain)
                 }
@@ -297,18 +304,27 @@ struct TodayView: View {
             if app.todayEvents.isEmpty {
                 EmptyHint(text: "这一天还没有整理出事件")
             } else {
-                ForEach(app.todayEvents.prefix(6)) { e in
-                    EventRow(event: e, onStar: {
-                        app.starEvent(e.id, starred: !e.starred)
-                    }, onTap: { showTimeline = true })
+                let shown = Array(app.todayEvents.prefix(6))
+                VStack(spacing: 0) {
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { idx, e in
+                        TimelineLine(event: e,
+                                     onStar: { app.starEvent(e.id, starred: !e.starred) },
+                                     onTap: { detailEvent = e })
+                        if idx < shown.count - 1 {
+                            Rectangle().fill(Theme.line)
+                                .frame(height: 0.6)
+                                .padding(.leading, 58)
+                        }
+                    }
                 }
+                .padding(.vertical, 2)
+                .background(Theme.card)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
             }
         }
-        .padding(14)
-        .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
         .sheet(isPresented: $showTimeline) {
             NavigationStack { TimelineFullView(day: today) }
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -368,47 +384,207 @@ struct TodayView: View {
 
 struct TimelineFullView: View {
     let day: String
-    @ObservedObject private var app = AppState.shared
+    @Environment(\.dismiss) private var dismiss
+    @State private var scope = 0
+    @State private var onlyMedia = false
     @State private var earlyFirst = true
+    @State private var detailEvent: MemoryEvent?
+    @State private var reloadTick = 0
+
+    private var dayList: [String] {
+        (0..<3).map { DayKey.of(Date().addingTimeInterval(-Double($0) * 86_400)) }
+    }
+
+    private var currentDay: String {
+        dayList.indices.contains(scope) ? dayList[scope] : day
+    }
+
+    private var raw: [MemoryEvent] {
+        _ = reloadTick
+        return Store.shared.events(day: currentDay, limit: 800)
+    }
 
     private var events: [MemoryEvent] {
-        // Store 返回的是 start_at DESC（晚的在上），earlyFirst 要反过来才真的是「早的在上」
-        let list = Store.shared.events(day: day, limit: 500)
-        return earlyFirst ? list.reversed() : list
+        var list = raw.sorted { $0.startAt < $1.startAt }
+        if !earlyFirst { list.reverse() }
+        return onlyMedia ? list.filter { $0.scene == "媒体" } : list
+    }
+
+    private var mediaCount: Int { raw.filter { $0.scene == "媒体" }.count }
+
+    private var groups: [(String, [MemoryEvent])] {
+        var out: [(String, [MemoryEvent])] = []
+        for e in events {
+            let t = partTitle(e.startAt)
+            if let i = out.firstIndex(where: { $0.0 == t }) {
+                out[i].1.append(e)
+            } else {
+                out.append((t, [e]))
+            }
+        }
+        return out
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("\(events.count) 件事")
-                        .font(.system(size: 12.5))
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center) {
+                    Text("时间线 · \(events.count) 件事")
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundColor(Theme.dim)
-                    Spacer()
-                    Button {
-                        earlyFirst.toggle()
-                    } label: {
-                        Text(earlyFirst ? "↓ 早的在上" : "↑ 晚的在上")
+                    Spacer(minLength: 8)
+                    segControl
+                }
+
+                HStack(spacing: 8) {
+                    chip("全部", active: !onlyMedia) { onlyMedia = false }
+                    chip("● 媒体 \(mediaCount)", active: onlyMedia) { onlyMedia = true }
+                    Spacer(minLength: 0)
+                    Button { earlyFirst.toggle() } label: {
+                        Text(earlyFirst ? "早的在上" : "晚的在上")
                             .font(.system(size: 12))
-                            .foregroundColor(Theme.accent)
+                            .foregroundColor(Theme.dim)
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
 
-                ForEach(events) { e in
-                    EventRow(event: e, onStar: {
-                        app.starEvent(e.id, starred: !e.starred)
-                    })
-                    .padding(.horizontal, 16)
+                if events.isEmpty {
+                    EmptyHint(text: "这一天还没有整理出事件")
+                } else {
+                    ForEach(Array(groups.enumerated()), id: \.offset) { _, g in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("\(g.0) · \(g.1.count) 件")
+                                .font(.system(size: 12.5))
+                                .foregroundColor(Theme.dim2)
+                                .padding(.top, 4)
+                            VStack(spacing: 0) {
+                                ForEach(Array(g.1.enumerated()), id: \.element.id) { idx, e in
+                                    TimelineLine(event: e, onStar: {
+                                        Store.shared.setEventStar(id: e.id, starred: !e.starred)
+                                        reloadTick &+= 1
+                                    }, onTap: { detailEvent = e })
+                                    if idx < g.1.count - 1 {
+                                        Rectangle().fill(Theme.line)
+                                            .frame(height: 0.6)
+                                            .padding(.leading, 58)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 2)
+                            .background(Theme.card)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+                        }
+                    }
                 }
-                if events.isEmpty { EmptyHint(text: "这一天还没有整理出事件") }
                 Color.clear.frame(height: 40)
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
         }
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle(day)
+        .navigationTitle("时间线")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("关闭") { dismiss() }
+            }
+        }
+        .sheet(item: $detailEvent) { e in
+            EventDetailView(event: e)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    private var segControl: some View {
+        HStack(spacing: 0) {
+            ForEach(0..<3, id: \.self) { i in
+                Button { scope = i } label: {
+                    Text(i == 0 ? "今天" : (i == 1 ? "昨天" : "前天"))
+                        .font(.system(size: 12.5, weight: scope == i ? .semibold : .regular))
+                        .foregroundColor(scope == i ? Theme.text : Theme.dim)
+                        .padding(.horizontal, 14).padding(.vertical, 6)
+                        .background(scope == i ? Theme.card : Color.clear)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(Theme.bgDeep)
+        .clipShape(Capsule())
+    }
+
+    private func chip(_ text: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: 12.5, weight: active ? .medium : .regular))
+                .foregroundColor(active ? .white : Theme.text2)
+                .padding(.horizontal, 14).padding(.vertical, 7)
+                .background(active ? Theme.accent : Theme.card)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func partTitle(_ d: Date) -> String {
+        let h = Calendar.current.component(.hour, from: d)
+        if h < 6 { return "凌晨" }
+        if h < 12 { return "上午" }
+        if h < 18 { return "下午" }
+        return "晚上"
+    }
+}
+
+/// 时间线的一行：左侧橙色时刻，右侧标题 + 两行摘要
+struct TimelineLine: View {
+    let event: MemoryEvent
+    var onStar: () -> Void = {}
+    var onTap: () -> Void = {}
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(alignment: .top, spacing: 12) {
+                Text(event.timeText)
+                    .font(.system(size: 13.5, weight: .semibold, design: .rounded))
+                    .foregroundColor(Theme.accent)
+                    .frame(width: 46, alignment: .leading)
+                    .padding(.top, 2)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(event.title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(Theme.text)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !event.summary.isEmpty {
+                        Text(event.summary)
+                            .font(.system(size: 13))
+                            .foregroundColor(Theme.dim)
+                            .lineSpacing(3)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                if event.starred {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(Theme.warn)
+                        .padding(.top, 4)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button { onStar() } label: {
+                Label(event.starred ? "取消重点" : "标为重点", systemImage: "star")
+            }
+        }
     }
 }
