@@ -15,7 +15,16 @@ struct RootView: View {
                 case 1: NavigationStack { AskView() }
                 case 2: NavigationStack { MemoryView() }
                 case 3: NavigationStack { TodosView() }
-                default: SettingsView()
+                default:
+                    if ShotMode.screen == "recording-bottom" {
+                        // 截图时把设置里的「录音与后台」直接当这一屏渲染（走 sheet 在模拟器上不稳）
+                        NavigationStack { RecordingSettingsView() }
+                            .environmentObject(Settings.shared)
+                            .environmentObject(AppState.shared)
+                            .environmentObject(CaptureEngine.shared)
+                    } else {
+                        SettingsView()
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -37,7 +46,6 @@ struct RootView: View {
             guard let s = ShotMode.screen else { return }
             if let t = ShotMode.tab(for: s) { tab = t }
             switch s {
-            case "recording-bottom": shotSheet = "recording"
             case "person-add": shotSheet = "persons"
             case "event-edit": shotSheet = "event"
             default: break
@@ -47,11 +55,6 @@ struct RootView: View {
 
     @ViewBuilder private var shotContent: some View {
         switch shotSheet {
-        case "recording":
-            NavigationStack { RecordingSettingsView() }
-                .environmentObject(Settings.shared)
-                .environmentObject(AppState.shared)
-                .environmentObject(CaptureEngine.shared)
         case "persons":
             NavigationStack { PersonsView() }
                 .environmentObject(Settings.shared)
