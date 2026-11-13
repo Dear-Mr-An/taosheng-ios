@@ -659,7 +659,7 @@ extension Store {
     }
 
     func clearAsk() {
-        queue.sync { exec("DELETE FROM ask;") }
+        queue.sync { _ = exec("DELETE FROM ask;") }
     }
 
     /// 搜历史问答：问题或答案里含关键词

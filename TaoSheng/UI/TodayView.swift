@@ -6,7 +6,7 @@ struct TodayView: View {
     @ObservedObject private var digest = DigestEngine.shared
     @ObservedObject private var settings = Settings.shared
     @Environment(\.colorScheme) private var scheme
-    @AppStorage("appearance") private var appearance = "system"
+    @AppStorage("appearance") private var appearance = "auto"
 
     @State private var heroCollapsed = false
     @State private var toast: String?
@@ -336,7 +336,7 @@ struct TodayView: View {
             }
 
             if app.todayEvents.isEmpty {
-                EmptyHint(text: "这一天还没有整理出事件")
+                EmptyHint(symbol: "clock.badge.questionmark", title: "这一天还没有整理出事件", detail: "有录音后等自动整理，或到设置里手动整理")
             } else {
                 let shown = Array(app.todayEvents.prefix(6))
                 VStack(spacing: 0) {
@@ -423,6 +423,7 @@ struct TimelineFullView: View {
     @State private var reloadTick = 0
     /// 800 行查询从 body 里搬出来：以前每次重绘都同步查库，滚动时明显掉帧
     @State private var loaded: [MemoryEvent] = []
+    @State private var timelineLoading = false
 
     private var dayList: [String] {
         (0..<3).map { DayKey.of(Date().addingTimeInterval(-Double($0) * 86_400)) }
@@ -435,11 +436,12 @@ struct TimelineFullView: View {
     private var raw: [MemoryEvent] { loaded }
 
     private func loadTimeline() async {
+        if loaded.isEmpty { timelineLoading = true }
         let day = currentDay
         let list = await Task.detached(priority: .userInitiated) {
             Store.shared.events(day: day, limit: 800)
         }.value
-        if day == currentDay { loaded = list }
+        if day == currentDay { loaded = list; timelineLoading = false }
     }
 
     private var events: [MemoryEvent] {
@@ -486,8 +488,10 @@ struct TimelineFullView: View {
                     .buttonStyle(.plain)
                 }
 
-                if events.isEmpty {
-                    EmptyHint(text: "这一天还没有整理出事件")
+                if timelineLoading && events.isEmpty {
+                    LoadingHint(rows: 3, text: "正在读取…")
+                } else if events.isEmpty {
+                    EmptyHint(symbol: "clock.badge.questionmark", title: "这一天还没有整理出事件", detail: "有录音后等自动整理，或到设置里手动整理")
                 } else {
                     ForEach(Array(groups.enumerated()), id: \.offset) { _, g in
                         VStack(alignment: .leading, spacing: 8) {

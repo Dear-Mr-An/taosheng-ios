@@ -27,7 +27,7 @@ struct EventDetailView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     metaRow
                     Text(current.title)
-                        .font(.system(size: 25, weight: .bold))
+                        .font(.system(size: Theme.fsHero, weight: .bold))
                         .foregroundColor(Theme.text)
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -80,7 +80,7 @@ struct EventDetailView: View {
                         }
                         .padding(16)
                         .background(Theme.card)
-                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusLarge, style: .continuous))
                     }
 
                     Color.clear.frame(height: 8)

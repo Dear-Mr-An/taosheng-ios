@@ -10,6 +10,7 @@ struct MemoryView: View {
     @State private var detailEvent: MemoryEvent?
     /// 分类页的 200 行查询从 body 里搬出来（每次重绘同步查库会卡滚动）
     @State private var catItems: [MemoryItem] = []
+    @State private var catLoading = false
 
     private let cats = ["重点", "寻物", "灵感", "关键信息", "决定"]
 
@@ -194,7 +195,7 @@ struct MemoryView: View {
                 Spacer()
             }
             if app.dayEvents.isEmpty {
-                EmptyHint(text: "这一天还没有整理出内容")
+                EmptyHint(symbol: "sparkles", title: "这一天还没有整理出内容", detail: "先录一段，整理后会自动生成时间线")
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(app.dayEvents.enumerated()), id: \.element.id) { idx, e in
@@ -245,7 +246,7 @@ struct MemoryView: View {
                     .font(.system(size: 11.5)).foregroundColor(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)
                 if app.starredList.isEmpty {
-                    EmptyHint(text: "还没有标过重点")
+                    EmptyHint(symbol: "star", title: "还没有标过重点", detail: "在时间线里长按一条可以标重点")
                 } else {
                     ForEach(app.starredList) { e in
                         EventRow(event: e, onStar: { app.starEvent(e.id, starred: false) })
@@ -259,34 +260,37 @@ struct MemoryView: View {
             thingsList
         } else {
             let list = catItems
-            VStack(alignment: .leading, spacing: 10) {
-                if list.isEmpty {
-                    EmptyHint(text: "还没有这一类的内容")
+            VStack(alignment: .leading, spacing: Theme.sp3) {
+                if catLoading && list.isEmpty {
+                    LoadingHint(rows: 3, text: "正在读取…")
+                } else if list.isEmpty {
+                    EmptyHint(symbol: "tray", title: "还没有这一类的内容", detail: "整理出来的提取项会按类别归到这里")
                 } else {
                     ForEach(list) { it in
                         ItemRow(item: it) { st in app.setItemStatus(it.id, status: st) }
                     }
                 }
             }
-            .padding(14)
+            .padding(Theme.sp3)
             .background(Theme.card)
             .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
         }
     }
 
     private func loadCat() async {
-        guard !byDay, cat != "重点", cat != "寻物" else { return }
+        guard !byDay, cat != "重点", cat != "寻物" else { catLoading = false; return }
         let key = cat
+        if catItems.isEmpty { catLoading = true }
         let list = await Task.detached(priority: .userInitiated) {
             Store.shared.items(day: nil, status: nil, category: key, limit: 200)
         }.value
-        if cat == key { catItems = list }
+        if cat == key { catItems = list; catLoading = false }
     }
 
     private var thingsList: some View {
         VStack(alignment: .leading, spacing: 10) {
             if app.things.isEmpty {
-                EmptyHint(text: "还没有记录过东西放哪了")
+                EmptyHint(symbol: "shippingbox", title: "还没有记录过东西放哪了", detail: "说一句「钥匙放抽屉了」就会记下来")
             } else {
                 ForEach(app.things) { t in
                     VStack(alignment: .leading, spacing: 4) {
@@ -416,7 +420,7 @@ struct ReviewSheet: View {
                         .foregroundColor(Theme.text2)
                         .lineSpacing(4)
                 } else {
-                    EmptyHint(text: "还没有生成回顾")
+                    EmptyHint(symbol: "doc.text.magnifyingglass", title: "还没有生成回顾", detail: "到设定时间后会自动写一份回顾")
                 }
             }
             .padding(16)
@@ -447,7 +451,7 @@ struct RawLinesView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if rows.isEmpty {
-                    EmptyHint(text: "这一天还没有转写好的原话")
+                    EmptyHint(symbol: "waveform", title: "这一天还没有转写好的原话", detail: "录音转写完成后会出现在这里")
                 }
                 ForEach(rows) { s in
                     SegmentRow(seg: s,

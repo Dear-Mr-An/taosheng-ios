@@ -9,7 +9,7 @@ struct TaoShengApp: App {
     @StateObject private var queue = TranscribeQueue.shared
     @StateObject private var digest = DigestEngine.shared
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage("appearance") private var appearance = "system"
+    @AppStorage("appearance") private var appearance = "auto"
 
     init() {
         // 和 CaptureEngine 保持一致：不要 .defaultToSpeaker / .allowBluetoothA2DP，

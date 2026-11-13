@@ -79,13 +79,14 @@ struct TodosView: View {
                 Text(t).font(.system(size: 13.5, weight: .medium))
                 if n > 0 {
                     Text("\(n)").font(.system(size: 11))
-                        .foregroundColor(tab == idx ? Color.white.opacity(0.85) : Theme.dim2)
+                        .foregroundColor(tab == idx ? Theme.accent.opacity(0.75) : Theme.dim2)
                 }
             }
-            .foregroundColor(tab == idx ? .white : Theme.text2)
-            .padding(.horizontal, 14).padding(.vertical, 8)
-            .background(tab == idx ? Theme.accent : Theme.card)
+            .foregroundColor(tab == idx ? Theme.accent : Theme.text2)
+            .padding(.horizontal, Theme.sp3).padding(.vertical, Theme.sp2)
+            .background(tab == idx ? Theme.accentSoft : Theme.card)
             .clipShape(Capsule())
+            .overlay(Capsule().stroke(tab == idx ? Color.clear : Theme.line, lineWidth: 0.6))
         }
         .buttonStyle(.plain)
     }
@@ -93,7 +94,7 @@ struct TodosView: View {
     @ViewBuilder
     private var content: some View {
         if list.isEmpty {
-            EmptyHint(text: emptyText)
+            EmptyHint(symbol: emptySymbol, title: emptyText, detail: emptyDetail)
                 .padding(.top, 40)
         } else {
             VStack(spacing: 10) {
@@ -104,6 +105,17 @@ struct TodosView: View {
         }
     }
 
+    private var emptySymbol: String {
+        switch tab { case 0: return "checklist"; case 1: return "hourglass"; default: return "checkmark.circle" }
+    }
+
+    private var emptyDetail: String {
+        switch tab {
+        case 0: return "录音整理出待办后会出现在这里"
+        case 1: return "确认过的待办会进入进行中"
+        default: return "勾掉的待办会归档到这里"
+        }
+    }
     private func tint(_ c: String) -> Color { Color(hex: MemoryItem.categoryColor(c)) }
 
     private func metaRow(_ it: MemoryItem) -> some View {

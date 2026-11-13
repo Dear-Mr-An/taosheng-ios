@@ -5,7 +5,7 @@ struct SettingsView: View {
     @EnvironmentObject var app: AppState
     @EnvironmentObject var capture: CaptureEngine
 
-    @AppStorage("appearance") private var appearance = "system"
+    @AppStorage("appearance") private var appearance = "auto"
 
     var body: some View {
         NavigationStack {
@@ -67,7 +67,7 @@ struct SettingsView: View {
                                     .foregroundColor(Theme.dim)
                                     .frame(width: 22)
                                 Text("日间 / 夜间")
-                                    .font(.system(size: 14.5))
+                                    .font(.system(size: Theme.fsBody))
                                     .foregroundColor(Theme.text)
                                 Spacer()
                             }
@@ -95,7 +95,7 @@ struct SettingsView: View {
                     }
 
                     Text("所有录音、转写和整理结果都只存在这台手机上。没有账号，没有我们的服务器。")
-                        .font(.system(size: 11))
+                        .font(.system(size: Theme.fsCaption))
                         .foregroundColor(Theme.dim2)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
@@ -125,7 +125,7 @@ struct SettingsView: View {
     private func group<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: Theme.fsSmall, weight: .medium))
                 .foregroundColor(Theme.dim)
                 .padding(.leading, 4)
             VStack(spacing: 0) { content() }
@@ -143,16 +143,16 @@ struct SettingsView: View {
                     .foregroundColor(Theme.dim)
                     .frame(width: 22)
                 Text(title)
-                    .font(.system(size: 14.5))
+                    .font(.system(size: Theme.fsBody))
                     .foregroundColor(Theme.text)
                 Spacer()
                 Circle().fill(dot).frame(width: 6, height: 6)
                 Text(detail)
-                    .font(.system(size: 12))
+                    .font(.system(size: Theme.fsSmall))
                     .foregroundColor(Theme.dim2)
                     .lineLimit(1)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: Theme.fsCaption, weight: .semibold))
                     .foregroundColor(Theme.dim2)
             }
             .padding(.horizontal, 12)
@@ -197,14 +197,14 @@ struct EnvironmentSoundView: View {
                             .font(.system(size: 14))
                         Spacer()
                         Text(summary)
-                            .font(.system(size: 12))
+                            .font(.system(size: Theme.fsSmall))
                             .foregroundColor(Theme.dim)
                     }
                 }
             }
             Section {
                 Text("能分辨的：人声、音乐、键盘、家电、环境噪音、安静。用的是本地轻量特征，不联网；结果会附在整理时的原话行后面。")
-                    .font(.system(size: 12.5))
+                    .font(.system(size: Theme.fsSmall))
                     .foregroundColor(Theme.dim)
             }
         }
@@ -237,7 +237,7 @@ struct FootprintView: View {
                         HStack {
                             Text(p.name).font(.system(size: 14))
                             Spacer()
-                            Text(p.durationText).font(.system(size: 12)).foregroundColor(Theme.dim)
+                            Text(p.durationText).font(.system(size: Theme.fsSmall)).foregroundColor(Theme.dim)
                         }
                     }
                 }

@@ -91,7 +91,7 @@ struct AskView: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text("问问")
-                    .font(.system(size: 26, weight: .bold))
+                    .font(.system(size: Theme.fsHero, weight: .bold))
                     .foregroundStyle(Theme.text)
                 Text(settings.effectiveLLM.key.isEmpty
                      ? "还没配大模型，去设置 → 转写与大模型"
@@ -145,7 +145,7 @@ struct AskView: View {
                     }
                     .padding(12)
                     .background(Theme.cardSoft)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -165,7 +165,7 @@ struct AskView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .background(Theme.accent)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
             }
         } else {
             VStack(alignment: .leading, spacing: 8) {
@@ -204,7 +204,7 @@ struct AskView: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.card)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
         }
     }
 
@@ -228,9 +228,9 @@ struct AskView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 11)
                 .background(Theme.card)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusLarge, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    RoundedRectangle(cornerRadius: Theme.radiusLarge, style: .continuous)
                         .stroke(Theme.line, lineWidth: 1)
                 )
                 .onSubmit { send() }
@@ -411,7 +411,7 @@ struct AskHistoryView: View {
         .padding(.horizontal, 12)
         .frame(height: 40)
         .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
         .padding(.horizontal, 16)
         .padding(.top, 10)
     }
