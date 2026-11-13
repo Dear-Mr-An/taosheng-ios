@@ -10,6 +10,7 @@ struct RecordingSettingsView: View {
     @State private var tick = 0
 
     var body: some View {
+        ScrollViewReader { proxy in
         Form {
             Section {
                 HStack(spacing: 12) {
@@ -111,6 +112,11 @@ struct RecordingSettingsView: View {
                     }
                 }
             }
+            if ShotMode.active {
+                Section {
+                    Color.clear.frame(height: 1).id("shot-end")
+                }
+            }
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
@@ -122,6 +128,14 @@ struct RecordingSettingsView: View {
         .onReceive(Timer.publish(every: 3, on: .main, in: .common).autoconnect()) { _ in
             tick += 1
             if tick % 5 == 0 { inputs = MicRouter.shared.inputs() }
+        }
+        .onAppear {
+            // 截图模式：滚到最后一行，验证「停录时段」不会被悬浮 TabBar 挡住
+            guard ShotMode.active else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                withAnimation(nil) { proxy.scrollTo("shot-end", anchor: .bottom) }
+            }
+        }
         }
     }
 
