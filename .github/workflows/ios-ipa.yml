@@ -107,10 +107,16 @@ jobs:
           # 而 cp 已经先跑完了，产出的 IPA 里一直是二进制 plist
           #（部分国产签名工具读二进制 plist 会静默失败：签名成功但装不上）。
           PLIST="$RUNNER_TEMP/Payload/TaoSheng.app/Info.plist"
-          /usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms array" "$PLIST" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms:0 string iPhoneOS" "$PLIST" 2>/dev/null || true
+          # 先删再加：archive 里的 plist 通常已经带一条 iPhoneOS，
+          # 直接 Add :0 会插成两条（0.5.1 的 IPA 就是这个症状）。
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleSupportedPlatforms" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms array" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms:0 string iPhoneOS" "$PLIST"
           plutil -convert xml1 "$PLIST"
           head -c 120 "$PLIST"; echo
+          PF_COUNT=$(/usr/libexec/PlistBuddy -c "Print :CFBundleSupportedPlatforms" "$PLIST" | grep -c "iPhoneOS" || true)
+          echo "CFBundleSupportedPlatforms 条数：$PF_COUNT"
+          if [ "$PF_COUNT" != "1" ]; then echo "Info.plist 的 CFBundleSupportedPlatforms 必须恰好一条"; exit 1; fi
           cd "$RUNNER_TEMP"
           zip -qr "TaoSheng-unsigned.ipa" Payload
           ls -lh "TaoSheng-unsigned.ipa"
