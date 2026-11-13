@@ -43,16 +43,23 @@ final class PushEngine {
     func broadcast(title: String, body: String) {
         let list = store.channels().filter { $0.enabled }
         guard !list.isEmpty else { return }
-        for c in list {
-            Task {
-                do {
-                    try await send(c, title: title, body: body)
-                    store.markChannelPushed(id: c.id, status: "已送达")
-                } catch {
-                    store.markChannelPushed(id: c.id, status: "失败：\(error.localizedDescription.prefix(40))")
+        // 多通道时只发一次全局刷新，避免 N 个通道触发 N 次全量 AppState.refresh()
+        Task {
+            await withTaskGroup(of: Void.self) { group in
+                for c in list {
+                    group.addTask { [weak self] in
+                        guard let self else { return }
+                        do {
+                            try await self.send(c, title: title, body: body)
+                            self.store.markChannelPushed(id: c.id, status: "已送达")
+                        } catch {
+                            self.store.markChannelPushed(id: c.id, status: "失败：\(error.localizedDescription.prefix(40))")
+                        }
+                    }
                 }
-                NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
+                await group.waitForAll()
             }
+            NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
         }
     }
 
@@ -104,8 +111,11 @@ final class PushEngine {
         case .bark:
             var url = c.url
             if url.hasSuffix("/") { url.removeLast() }
-            let encTitle = title.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? ""
-            let encBody = String(body.prefix(600)).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? ""
+            // .urlPathAllowed 允许 "/"，正文里出现斜杠会把 URL 拆成多段路径，Bark 端直接 404
+            var allowed = CharacterSet.urlPathAllowed
+            allowed.remove(charactersIn: "/?#%")
+            let encTitle = title.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+            let encBody = String(body.prefix(600)).addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
             try await get("\(url)/\(encTitle)/\(encBody)")
         case .serverchan:
             try await postForm(c.url, fields: ["title": title, "desp": body])

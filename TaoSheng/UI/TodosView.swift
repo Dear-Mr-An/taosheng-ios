@@ -292,7 +292,7 @@ struct TodosView: View {
                 .shadow(color: Theme.accent.opacity(0.35), radius: 10, x: 0, y: 5)
         }
         .padding(.trailing, 16)
-        .padding(.bottom, 92)
+        .padding(.bottom, 20)
     }
 
     // MARK: 添加待办

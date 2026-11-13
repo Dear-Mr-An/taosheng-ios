@@ -24,10 +24,7 @@ struct MemoryEvent: Identifiable, Hashable {
     var createdAt: Date
 
     var timeText: String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_CN")
-        f.dateFormat = "HH:mm"
-        return f.string(from: startAt)
+        Fmt.hm.string(from: startAt)
     }
 
     var durationText: String {

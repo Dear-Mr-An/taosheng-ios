@@ -263,7 +263,7 @@ struct AskView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
-        .padding(.bottom, kb.isVisible ? 8 : 76)
+        .padding(.bottom, kb.isVisible ? 8 : 12)
         .background(Theme.bg)
     }
 
@@ -396,11 +396,10 @@ struct AskHistoryView: View {
                 .foregroundStyle(Theme.text)
                 .focused($searchFocused)
                 .submitLabel(.search)
-                .onChange(of: keyword) { _ in reload() }
+                // 关键字只在本地过滤 threads，不需要每敲一个字就查 600 行历史
             if !keyword.isEmpty {
                 Button {
                     keyword = ""
-                    reload()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 14))
@@ -552,20 +551,12 @@ struct AskHistoryView: View {
         let cal = Calendar.current
         if let d = DayKey.date(from: day) {
             if cal.isDateInYesterday(d) { return "昨天" }
-            let f = DateFormatter()
-            f.locale = Locale(identifier: "zh_CN")
-            f.dateFormat = "M月d日"
-            return f.string(from: d)
+            return Fmt.monthDay.string(from: d)
         }
         return day
     }
 
-    private func clock(_ d: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_CN")
-        f.dateFormat = "HH:mm"
-        return f.string(from: d)
-    }
+    private func clock(_ d: Date) -> String { Fmt.hm.string(from: d) }
 }
 
 // MARK: - 一轮对话详情

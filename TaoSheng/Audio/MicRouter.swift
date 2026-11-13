@@ -34,12 +34,12 @@ final class MicRouter {
         if out.isEmpty {
             out.append(Input(id: "builtin", name: "手机麦克风", kind: "内置"))
         }
-        // 把正在用的排前面
+        // 把正在用的排前面（比较器必须是严格弱序，否则 sort 结果不稳定）
         if !current.isEmpty {
             out.sort { a, b in
-                if a.id == current { return true }
-                if b.id == current { return false }
-                return a.name < b.name
+                if (a.id == current) != (b.id == current) { return a.id == current }
+                if a.name != b.name { return a.name < b.name }
+                return a.id < b.id
             }
         }
         return out

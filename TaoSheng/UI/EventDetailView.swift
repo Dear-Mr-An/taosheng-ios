@@ -95,8 +95,8 @@ struct EventDetailView: View {
         .onAppear {
             draftTitle = event.title
             draftSummary = event.summary
-            loadLines()
         }
+        .task { await loadLines() }
         .alert("编辑这件事", isPresented: $showEdit) {
             TextField("标题", text: $draftTitle)
             TextField("摘要", text: $draftSummary)
@@ -174,19 +174,21 @@ struct EventDetailView: View {
 
     private func lineRow(_ seg: Segment) -> some View {
         let no = speakerNo(seg.speaker)
+        let name = seg.speaker.isEmpty ? "说话人\(no)" : seg.speaker
+        let tint = Theme.personColor(name)
         return HStack(alignment: .top, spacing: 10) {
-            Text("\(no)")
+            Text(avatarText(name))
                 .font(.system(size: 12.5, weight: .semibold, design: .rounded))
-                .foregroundColor(Theme.accent)
+                .foregroundColor(tint)
                 .frame(width: 26, height: 26)
-                .background(Theme.accentSoft)
+                .background(tint.opacity(0.14))
                 .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
-                    Text(seg.speaker.isEmpty ? "说话人\(no)" : seg.speaker)
+                    Text(name)
                         .font(.system(size: 12.5, weight: .medium))
-                        .foregroundColor(speakerTint(no))
+                        .foregroundColor(tint)
                     Text(seg.timeText)
                         .font(.system(size: 11.5, design: .rounded))
                         .foregroundColor(Theme.dim2)
@@ -212,6 +214,12 @@ struct EventDetailView: View {
         let digits = speaker.filter { $0.isNumber }
         if let n = Int(digits), n > 0 { return n }
         return 1
+    }
+
+    /// 头像文字：实名说话人取首字（以前不论叫什么都显示 ①）
+    private func avatarText(_ name: String) -> String {
+        if let n = Int(name.filter { $0.isNumber }), n > 0 { return "\(n)" }
+        return name.isEmpty ? "·" : String(name.prefix(1))
     }
 
     private func speakerTint(_ no: Int) -> Color {
@@ -287,17 +295,21 @@ struct EventDetailView: View {
 
     // MARK: 动作实现
 
-    private func loadLines() {
-        let rows = Store.shared.transcriptRows(day: event.day, limit: 3000)
-        let from = max(1, event.lineFrom) - 1
-        let to = min(rows.count, max(event.lineTo, event.lineFrom))
-        if from < to {
-            lines = Array(rows[from..<to])
-        } else {
+    private func loadLines() async {
+        // 3000 行查询以前在 onAppear 里同步跑，进详情页必顿一下
+        let ev = event
+        let result = await Task.detached(priority: .userInitiated) { () -> [Segment] in
+            let rows = Store.shared.transcriptRows(day: ev.day, limit: 3000)
+            let from = max(1, ev.lineFrom) - 1
+            let to = min(rows.count, max(ev.lineTo, ev.lineFrom))
+            if from < to {
+                return Array(rows[from..<to])
+            }
             // 行号对不上（重新整理过）时按时间重叠兜底
-            let end = event.endAt ?? event.startAt.addingTimeInterval(60)
-            lines = rows.filter { $0.startedAt >= event.startAt.addingTimeInterval(-1) && $0.startedAt <= end.addingTimeInterval(1) }
-        }
+            let end = ev.endAt ?? ev.startAt.addingTimeInterval(60)
+            return rows.filter { $0.startedAt >= ev.startAt.addingTimeInterval(-1) && $0.startedAt <= end.addingTimeInterval(1) }
+        }.value
+        lines = result
     }
 
     private func playAll() {
@@ -326,10 +338,16 @@ struct EventDetailView: View {
     }
 
     private func exportText() {
-        let name = "\(current.day)-\(current.timeText.replacingOccurrences(of: ":", with: ""))-\(current.title.prefix(12)).txt"
+        // 标题里的「/」「:」等字符会让路径非法，写入静默失败却照样弹分享面板
+        let raw = "\(current.day)-\(current.timeText.replacingOccurrences(of: ":", with: ""))-\(current.title)"
+        let name = Fmt.safeFileName(raw, fallback: "涛声-\(current.day)") + ".txt"
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-        try? plainText.write(to: url, atomically: true, encoding: .utf8)
-        ShareSheet.present(items: [url])
+        do {
+            try plainText.write(to: url, atomically: true, encoding: .utf8)
+            ShareSheet.present(items: [url])
+        } catch {
+            flash("导出失败，请重试")
+        }
     }
 
     private func toTodo() {

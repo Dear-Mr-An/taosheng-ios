@@ -36,6 +36,10 @@ final class CaptureEngine: ObservableObject {
     private var zeroFrames = 0
     private var yieldedBySilence = false
 
+    /// 待写盘块数（背压用）：音频线程自增、queue 上自减
+    private let backlogLock = NSLock()
+    private var pending = 0
+
     /// 落盘参数：16kHz / 16bit / 单声道 PCM WAV —— 云转写（豆包、Whisper）都认这个。
     /// 硬件原始格式是 48kHz float32，直接按它写 WAV 会变成 IEEE float，很多服务拒收。
     private let fileSettings: [String: Any] = [
@@ -319,13 +323,20 @@ final class CaptureEngine: ObservableObject {
             memcpy(dst, src, Int(source[i].mDataByteSize))
         }
         let now = Date()
+        // 背压：写盘跟不上时丢最旧的块，绝不无限堆积（长会议 10 分钟约 700 块，堆积会吃掉几十 MB）
+        if !reserveSlot() { return }
         let work: () -> Void = { [weak self] in
-            guard let self, self.acceptingBuffers, self.bufferGeneration == token else { return }
-            let speaking = rms > threshold
+            guard let self else { return }
+            defer { self.releaseSlot() }
+            guard self.acceptingBuffers, self.bufferGeneration == token else { return }
+            // 灵敏度 / 静音断句 / 单段上限都按「当前设置」实时取，录音中改设置立即生效
+            let live = Settings.shared.captureMode
+            let liveThreshold = Settings.shared.modeSensitivity
+            let speaking = rms > liveThreshold
             if speaking {
                 self.lastVoiceAt = now
             }
-            let isSpeaking = self.lastVoiceAt.map { now.timeIntervalSince($0) <= mode.silenceGap } ?? false
+            let isSpeaking = self.lastVoiceAt.map { now.timeIntervalSince($0) <= live.silenceGap } ?? false
             DispatchQueue.main.async {
                 guard self.isRunning, self.bufferGeneration == token else { return }
                 self.level = min(1.0, Double(rms) * 12)
@@ -355,8 +366,8 @@ final class CaptureEngine: ObservableObject {
             // 结束条件
             if self.file != nil {
                 let started = self.segmentStart ?? now
-                let long = now.timeIntervalSince(started) >= mode.maxSegment
-                let quiet = (self.lastVoiceAt.map { now.timeIntervalSince($0) > mode.silenceGap } ?? false)
+                let long = now.timeIntervalSince(started) >= live.maxSegment
+                let quiet = (self.lastVoiceAt.map { now.timeIntervalSince($0) > live.silenceGap } ?? false)
                 let tooShort = now.timeIntervalSince(started) < self.minimumDuration
                 if long || (quiet && !tooShort) {
                     self.closeSegment(force: false)
@@ -364,6 +375,25 @@ final class CaptureEngine: ObservableObject {
             }
         }
         queue.async(execute: work)
+    }
+
+    // MARK: - 背压
+
+    private static let maxPending = 16
+
+    /// 音频线程调用：占一个待处理名额，满了直接丢这块。
+    private func reserveSlot() -> Bool {
+        backlogLock.lock()
+        defer { backlogLock.unlock() }
+        if pending >= CaptureEngine.maxPending { return false }
+        pending += 1
+        return true
+    }
+
+    private func releaseSlot() {
+        backlogLock.lock()
+        if pending > 0 { pending -= 1 }
+        backlogLock.unlock()
     }
 
     // MARK: - 段落文件

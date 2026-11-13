@@ -57,11 +57,7 @@ struct SpeakerDot: View {
     var size: CGFloat = 6
 
     private var color: Color {
-        if name.isEmpty { return Theme.dim2 }
-        if name == "我" { return Theme.accent }
-        let idx = abs(name.hashValue) % personPalette.count
-        let rgb = hexToRGB(personPalette[idx])
-        return Color(red: rgb.0, green: rgb.1, blue: rgb.2)
+        Theme.personColor(name)
     }
 
     var body: some View {

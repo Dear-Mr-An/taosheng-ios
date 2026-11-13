@@ -131,9 +131,7 @@ final class Settings: ObservableObject {
 
     // 收音
     @Published var sensitivity: Double { didSet { d.set(sensitivity, forKey: "sensitivity") } }
-    @Published var silenceGap: Double { didSet { d.set(silenceGap, forKey: "silenceGap") } }
     @Published var minSegment: Double { didSet { d.set(minSegment, forKey: "minSegment") } }
-    @Published var maxSegment: Double { didSet { d.set(maxSegment, forKey: "maxSegment") } }
     @Published var captureModeRaw: String { didSet { d.set(captureModeRaw, forKey: "captureModeRaw") } }
 
     var captureMode: CaptureMode {
@@ -141,10 +139,9 @@ final class Settings: ObservableObject {
         set { captureModeRaw = newValue.rawValue }
     }
 
-    /// 当前模式下的收音参数（会议模式更敏感、少断句、允许更长的段）
+    /// 当前模式下的收音灵敏度（会议模式更敏感）
+    /// 静音断句 / 单段上限由 CaptureMode 决定，界面上不暴露可调项，避免出现「改了不生效」的假开关
     var modeSensitivity: Double { captureMode.sensitivity(sensitivity) }
-    var modeSilenceGap: Double { captureMode.silenceGap }
-    var modeMaxSegment: Double { captureMode.maxSegment }
     @Published var preferredInputUID: String { didSet { d.set(preferredInputUID, forKey: "preferredInputUID") } }
     @Published var skipWhenOutput: Bool { didSet { d.set(skipWhenOutput, forKey: "skipWhenOutput") } }
     /// 只在 WiFi 下转写：关掉后蜂窝网络也会上传录音
@@ -230,9 +227,7 @@ final class Settings: ObservableObject {
 
         sensitivity = d.object(forKey: "sensitivity") as? Double ?? 0.020
         captureModeRaw = CaptureMode.restored(d.string(forKey: "captureModeRaw") ?? "").rawValue
-        silenceGap = d.object(forKey: "silenceGap") as? Double ?? 1.5
         minSegment = d.object(forKey: "minSegment") as? Double ?? 2.0
-        maxSegment = d.object(forKey: "maxSegment") as? Double ?? 180.0
         preferredInputUID = d.string(forKey: "preferredInputUID") ?? ""
         skipWhenOutput = d.object(forKey: "skipWhenOutput") as? Bool ?? true
         wifiOnlyTranscribe = d.object(forKey: "wifiOnlyTranscribe") as? Bool ?? true

@@ -25,6 +25,14 @@ jobs:
       - name: 安装 XcodeGen
         run: brew install xcodegen
 
+      - name: 策略单元测试（swift test）
+        run: |
+          set -o pipefail
+          cd "$GITHUB_WORKSPACE"
+          if [ -f project.yml ]; then ROOT="."; else ROOT="ios"; fi
+          cd "$ROOT"
+          swift test 2>&1 | tail -n 40
+
       - name: 生成 Xcode 工程
         run: |
           cd "$GITHUB_WORKSPACE"
@@ -40,6 +48,7 @@ jobs:
 
       - name: 编译（不签名）
         run: |
+          set -o pipefail
           cd "$GITHUB_WORKSPACE"
           if [ -f project.yml ]; then ROOT="."; else ROOT="ios"; fi
           cd "$ROOT"
@@ -56,7 +65,20 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             DEVELOPMENT_TEAM="" \
             ONLY_ACTIVE_ARCH=NO \
-            -quiet
+            -quiet 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: 编译警告清单
+        if: always()
+        run: |
+          LOG="$RUNNER_TEMP/build.log"
+          if [ -f "$LOG" ]; then
+            echo "== warning count =="
+            grep -c "warning:" "$LOG" || true
+            echo "== unique warnings =="
+            grep "warning:" "$LOG" | sed 's|.*/TaoSheng/|TaoSheng/|' | sort -u | head -80 || true
+            echo "== errors =="
+            grep -E "error:" "$LOG" | head -40 || true
+          fi
 
       - name: 打包成 IPA
         run: |

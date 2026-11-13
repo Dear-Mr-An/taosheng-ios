@@ -12,6 +12,8 @@ struct TodayView: View {
     @State private var toast: String?
     @State private var showTimeline = false
     @State private var detailEvent: MemoryEvent?
+    /// 上一次回顾生成时间：以前写在 body 里的计算属性里查库，每次重绘都要跑一次 SQL
+    @State private var lastReviewAt: Date?
 
     private var today: String { DayKey.of(Date()) }
 
@@ -22,13 +24,17 @@ struct TodayView: View {
                 heroCard
                 rhythmCard
                 timelineCard
-                Color.clear.frame(height: 78)
+                Color.clear.frame(height: 16)
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationBarHidden(true)
+        .task { await loadLastReview() }
+        .onReceive(NotificationCenter.default.publisher(for: .taoshengDataChanged)) { _ in
+            Task { await loadLastReview() }
+        }
         .sheet(item: $detailEvent) { e in
             EventDetailView(event: e)
                 .environmentObject(app)
@@ -214,9 +220,12 @@ struct TodayView: View {
         guard wasRunning else { return }
         capture.stop()
         // 立刻重启时 audio session 还没释放，start() 会静默失败；
-        // 等 0.4 秒再开，中间用户自己点了停止就不抢回来。
+        // 等 0.4 秒再开；仍失败时隔 1 秒再试一次，避免切完模式就再也不录了。
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             if !capture.isRunning { capture.start() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                if !capture.isRunning, settings.captureMode == m { capture.start() }
+            }
         }
     }
 
@@ -375,7 +384,7 @@ struct TodayView: View {
     }
 
     private var digestAgo: String {
-        let t = digest.lastRunAt ?? Store.shared.reviews(limit: 1).first?.createdAt
+        let t = digest.lastRunAt ?? lastReviewAt
         guard let t = t else { return "还没整理过" }
         let m = Int(Date().timeIntervalSince(t) / 60)
         if m < 1 { return "刚刚整理过" }
@@ -383,19 +392,16 @@ struct TodayView: View {
         return "\(m / 60) 小时前整理过"
     }
 
-    private var weekdayText: String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_CN")
-        f.dateFormat = "EEEE"
-        return f.string(from: Date())
+    private func loadLastReview() async {
+        let t = await Task.detached(priority: .utility) { () -> Date? in
+            Store.shared.reviews(limit: 1).first?.createdAt
+        }.value
+        if lastReviewAt != t { lastReviewAt = t }
     }
 
-    private var dateText: String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_CN")
-        f.dateFormat = "M月d日"
-        return f.string(from: Date())
-    }
+    private var weekdayText: String { Fmt.weekday.string(from: Date()) }
+
+    private var dateText: String { Fmt.monthDay.string(from: Date()) }
 
     private func durationText(_ s: Double) -> String {
         let v = Int(s.rounded())
@@ -415,6 +421,8 @@ struct TimelineFullView: View {
     @State private var earlyFirst = true
     @State private var detailEvent: MemoryEvent?
     @State private var reloadTick = 0
+    /// 800 行查询从 body 里搬出来：以前每次重绘都同步查库，滚动时明显掉帧
+    @State private var loaded: [MemoryEvent] = []
 
     private var dayList: [String] {
         (0..<3).map { DayKey.of(Date().addingTimeInterval(-Double($0) * 86_400)) }
@@ -424,9 +432,14 @@ struct TimelineFullView: View {
         dayList.indices.contains(scope) ? dayList[scope] : day
     }
 
-    private var raw: [MemoryEvent] {
-        _ = reloadTick
-        return Store.shared.events(day: currentDay, limit: 800)
+    private var raw: [MemoryEvent] { loaded }
+
+    private func loadTimeline() async {
+        let day = currentDay
+        let list = await Task.detached(priority: .userInitiated) {
+            Store.shared.events(day: day, limit: 800)
+        }.value
+        if day == currentDay { loaded = list }
     }
 
     private var events: [MemoryEvent] {
@@ -507,6 +520,7 @@ struct TimelineFullView: View {
             .padding(.top, 12)
         }
         .background(Theme.bg.ignoresSafeArea())
+        .task(id: "\(currentDay)|\(reloadTick)") { await loadTimeline() }
         .navigationTitle("时间线")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

@@ -81,7 +81,12 @@ final class SkillEngine: ObservableObject {
         await MainActor.run { self.running = true }
         defer { Task { await MainActor.run { self.running = false } } }
 
-        let lines = store.transcriptRows(day: day, limit: 1200)
+        // 1200 行查询放到后台：fire() 从主线程 Timer 调用，Task{} 会继承 MainActor，
+        // 直接在这儿查库会卡住界面
+        let rows = await Task.detached(priority: .userInitiated) {
+            Store.shared.transcriptRows(day: day, limit: 1200)
+        }.value
+        let lines = rows
         guard !lines.isEmpty else { throw TranscribeError.empty }
 
         var context = ""
@@ -172,7 +177,10 @@ final class SkillEngine: ObservableObject {
 
     /// 「+ 智能生成」：让模型读今天原话，建议一个新技能（含字段）
     func suggestSkill(day: String) async throws -> SkillDef {
-        let lines = store.transcriptRows(day: day, limit: 200)
+        let rows = await Task.detached(priority: .userInitiated) {
+            Store.shared.transcriptRows(day: day, limit: 200)
+        }.value
+        let lines = rows
         var context = ""
         for r in lines {
             let who = r.speaker.isEmpty ? "" : "\(r.speaker)："

@@ -130,7 +130,8 @@ final class TranscribeQueue: ObservableObject {
         }
 
         var bestNo = 0
-        var bestScore = 0.0
+        // 初值 -1：相似度全为负时也要能选出「最像的那个已有人」，否则每段都新开簇、编号爆炸
+        var bestScore = -1.0
         for c in Store.shared.clusters(day: day) where c.vector.count == v.count {
             let score = Voiceprint.cosine(v, c.vector)
             if score > bestScore { bestScore = score; bestNo = c.no }
@@ -145,13 +146,14 @@ final class TranscribeQueue: ObservableObject {
         }
     }
 
-    private func pendingCountImmediate() -> Bool {
-        !Store.shared.pendingSegments(limit: 1).isEmpty
-    }
-
     func refreshPending() {
-        let n = Store.shared.pendingSegments(limit: 999).count
-        DispatchQueue.main.async { self.pendingCount = n }
+        // 999 行查询放到后台：调用方多是主线程（设置页每 5 秒刷一次）
+        DispatchQueue.global(qos: .utility).async {
+            let n = Store.shared.pendingSegments(limit: 999).count
+            DispatchQueue.main.async {
+                if self.pendingCount != n { self.pendingCount = n }
+            }
+        }
     }
 
     /// 用户手动触发一次：清掉失败计数，之前 3 次失败被判死的段也重试

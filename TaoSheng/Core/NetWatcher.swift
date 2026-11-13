@@ -2,25 +2,46 @@ import Foundation
 import Network
 
 /// 网络状态：判断当前是不是「贵的网」（蜂窝、个人热点），用来实现「只在 WiFi 下转写」。
+///
+/// NWPathMonitor 的回调在私有队列 q 上跑，而 `canUpload` / `label` 在 UI 线程读，
+/// 所以状态用锁保护，避免数据竞争（Swift 5 不报，但真机上可能读到半个值）。
 final class NetWatcher {
     static let shared = NetWatcher()
 
     private let monitor = NWPathMonitor()
     private let q = DispatchQueue(label: "app.taosheng.net")
+    private let lock = NSLock()
 
-    /// 当前链路按流量计费（蜂窝 / 热点）
-    private(set) var expensive = false
-    private(set) var online = true
-    private(set) var isWiFi = false
+    private var _expensive = false
+    private var _online = true
+    private var _isWiFi = false
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self = self else { return }
-            self.online = (path.status == .satisfied)
-            self.expensive = path.isExpensive
-            self.isWiFi = path.usesInterfaceType(.wifi)
+            self.lock.lock()
+            self._online = (path.status == .satisfied)
+            self._expensive = path.isExpensive
+            self._isWiFi = path.usesInterfaceType(.wifi)
+            self.lock.unlock()
         }
         monitor.start(queue: q)
+    }
+
+    /// 当前链路按流量计费（蜂窝 / 热点）
+    var expensive: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return _expensive
+    }
+
+    var online: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return _online
+    }
+
+    var isWiFi: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return _isWiFi
     }
 
     /// 现在能不能上传录音

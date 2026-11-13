@@ -156,23 +156,33 @@ extension Store {
         queue.sync { () -> Void in
             let sql = """
             INSERT OR REPLACE INTO memory_event
-            (id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,deleted,created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+            (id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,deleted,created_at,edited)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
             """
             // 同一段原话被重新整理时，entity_id 不变 —— 复用旧行的 id，
             // 否则「重新整理」会把同一件事再插一遍，时间线翻倍。
             var eventID = e.id
             var keepStarred = e.starred
             var keepStarredAt = e.starredAt
+            // INSERT OR REPLACE 是「删掉整行再插入」，edited 不在列清单里就会被重置成 0，
+            // 于是用户手改过的标题/摘要下一次自动整理又被覆盖 —— 这里连 title/summary 一起保住。
+            var keepEdited = false
+            var keepTitle = e.title
+            var keepSummary = e.summary
             if let en = e.entityId, !en.isEmpty {
                 var q: OpaquePointer?
-                if sqlite3_prepare_v2(db, "SELECT id,starred,starred_at FROM memory_event WHERE entity_id=? AND deleted=0 LIMIT 1;", -1, &q, nil) == SQLITE_OK {
+                if sqlite3_prepare_v2(db, "SELECT id,starred,starred_at,edited,title,summary FROM memory_event WHERE entity_id=? AND deleted=0 LIMIT 1;", -1, &q, nil) == SQLITE_OK {
                     bind(q, 1, en)
                     if sqlite3_step(q) == SQLITE_ROW {
                         eventID = col(q, 0)
                         keepStarred = sqlite3_column_int(q, 1) == 1
                         keepStarredAt = sqlite3_column_type(q, 2) == SQLITE_NULL
                             ? nil : Date(timeIntervalSince1970: sqlite3_column_double(q, 2))
+                        keepEdited = sqlite3_column_int(q, 3) == 1
+                        if keepEdited {
+                            keepTitle = col(q, 4)
+                            keepSummary = col(q, 5)
+                        }
                     }
                 }
                 sqlite3_finalize(q)
@@ -184,8 +194,8 @@ extension Store {
             sqlite3_bind_double(st, 3, e.startAt.timeIntervalSince1970)
             if let end = e.endAt { sqlite3_bind_double(st, 4, end.timeIntervalSince1970) } else { sqlite3_bind_null(st, 4) }
             bind(st, 5, e.scene)
-            bind(st, 6, e.title)
-            bind(st, 7, e.summary)
+            bind(st, 6, keepTitle)
+            bind(st, 7, keepSummary)
             bind(st, 8, JSONList.encode(e.points))
             bind(st, 9, JSONList.encode(e.people))
             if let p = e.place, !p.isEmpty { bind(st, 10, p) } else { sqlite3_bind_null(st, 10) }
@@ -199,6 +209,7 @@ extension Store {
             sqlite3_bind_int(st, 18, Int32(e.lineTo))
             sqlite3_bind_int(st, 19, 0)
             sqlite3_bind_double(st, 20, e.createdAt.timeIntervalSince1970)
+            sqlite3_bind_int(st, 21, keepEdited ? 1 : 0)
             sqlite3_step(st)
             sqlite3_finalize(st)
         }
@@ -583,11 +594,13 @@ extension Store {
     func thing(named name: String) -> Thing? {
         let all = things()
         let key = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // 空名字曾导致 name.contains("") 恒真、直接命中第一件物品；这里直接返回 nil
+        guard !key.isEmpty else { return nil }
         for t in all {
             if t.name.lowercased() == key { return t }
             for a in t.aliases where a.lowercased() == key { return t }
         }
-        return all.first { $0.name.contains(name) || name.contains($0.name) }
+        return all.first { $0.name.lowercased().contains(key) || key.contains($0.name.lowercased()) }
     }
 
     func insertFact(_ f: ThingFact) {

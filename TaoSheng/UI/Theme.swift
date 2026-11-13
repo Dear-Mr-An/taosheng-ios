@@ -30,14 +30,52 @@ enum Theme {
     static let blue = Color(red: 0.271, green: 0.478, blue: 0.878)      // #457ACF
     static let purple = Color(red: 0.545, green: 0.435, blue: 0.816)
 
-    static let radius: CGFloat = 18
-    static let radiusSmall: CGFloat = 14
+    // MARK: 间距令牌（4 的倍数，全局统一，避免各页 10/12/14/16 混用）
+    static let sp1: CGFloat = 4
+    static let sp2: CGFloat = 8
+    static let sp3: CGFloat = 12
+    static let sp4: CGFloat = 16
+    static let sp5: CGFloat = 20
+    static let sp6: CGFloat = 28
+
+    // MARK: 字号令牌（收敛为 6 档）
+    static let fsCaption: CGFloat = 11
+    static let fsSmall: CGFloat = 12.5
+    static let fsBody: CGFloat = 14
+    static let fsTitle: CGFloat = 17
+    static let fsCardTitle: CGFloat = 20
+    static let fsHero: CGFloat = 26
+
+    // MARK: 圆角令牌
+    static let radiusSmall: CGFloat = 12
+    static let radius: CGFloat = 16
+    static let radiusLarge: CGFloat = 22
 
     static let heroGradient = LinearGradient(
         colors: [accent, accentHi],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
+
+    /// 稳定取模：String.hashValue 每次启动都会变，说话人颜色会因此跳变。
+    /// 用 FNV-1a 自己算，跨启动、跨设备一致。
+    static func stableIndex(_ text: String, modulo m: Int) -> Int {
+        guard m > 0 else { return 0 }
+        var h: UInt64 = 0xcbf2_9ce4_8422_2325
+        for b in text.utf8 {
+            h = (h ^ UInt64(b)) &* 0x0000_0100_0000_01b3
+        }
+        return Int(h % UInt64(m))
+    }
+
+    /// 人物/说话人统一取色（与 store 里的人名无关，纯展示）
+    static func personColor(_ name: String) -> Color {
+        if name.isEmpty { return dim2 }
+        if name == "我" { return accent }
+        let idx = stableIndex(name, modulo: personPalette.count)
+        let rgb = hexToRGB(personPalette[idx])
+        return Color(red: rgb.0, green: rgb.1, blue: rgb.2)
+    }
 }
 
 struct CardBG: ViewModifier {
@@ -122,6 +160,50 @@ struct EmptyHint: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 30)
         .padding(.horizontal, 8)
+    }
+}
+
+/// 加载态：骨架屏（列表首屏、整理中都用它，避免白屏）
+struct LoadingHint: View {
+    var rows: Int = 3
+    var text: String? = nil
+
+    @State private var animate = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.sp3) {
+            if let text {
+                HStack(spacing: Theme.sp2) {
+                    ProgressView().controlSize(.small).tint(Theme.accent)
+                    Text(text)
+                        .font(.system(size: Theme.fsSmall))
+                        .foregroundStyle(Theme.dim)
+                }
+            }
+            ForEach(0..<max(1, rows), id: \.self) { i in
+                VStack(alignment: .leading, spacing: Theme.sp2) {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Theme.lineSoft)
+                        .frame(height: 12)
+                        .frame(maxWidth: i % 2 == 0 ? .infinity : 190, alignment: .leading)
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Theme.lineSoft)
+                        .frame(height: 10)
+                        .frame(maxWidth: 140, alignment: .leading)
+                }
+                .padding(Theme.sp3)
+                .background(Theme.card)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+            }
+        }
+        .opacity(animate ? 0.55 : 1)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                animate = true
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityLabel("正在载入")
     }
 }
 

@@ -8,6 +8,8 @@ struct MemoryView: View {
     @State private var toast: String?
     @State private var cat = "重点"
     @State private var detailEvent: MemoryEvent?
+    /// 分类页的 200 行查询从 body 里搬出来（每次重绘同步查库会卡滚动）
+    @State private var catItems: [MemoryItem] = []
 
     private let cats = ["重点", "寻物", "灵感", "关键信息", "决定"]
 
@@ -25,13 +27,17 @@ struct MemoryView: View {
                     catChips
                     catList
                 }
-                Color.clear.frame(height: 78)
+                Color.clear.frame(height: 16)
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationBarHidden(true)
+        .task(id: "\(cat)|\(byDay)") { await loadCat() }
+        .onReceive(NotificationCenter.default.publisher(for: .taoshengDataChanged)) { _ in
+            Task { await loadCat() }
+        }
         .sheet(isPresented: $showShare) {
             ShareSheet(items: [app.exportMarkdown(day: day)])
         }
@@ -252,7 +258,7 @@ struct MemoryView: View {
         } else if cat == "寻物" {
             thingsList
         } else {
-            let list = Store.shared.items(day: nil, status: nil, category: cat, limit: 200)
+            let list = catItems
             VStack(alignment: .leading, spacing: 10) {
                 if list.isEmpty {
                     EmptyHint(text: "还没有这一类的内容")
@@ -266,6 +272,15 @@ struct MemoryView: View {
             .background(Theme.card)
             .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
         }
+    }
+
+    private func loadCat() async {
+        guard !byDay, cat != "重点", cat != "寻物" else { return }
+        let key = cat
+        let list = await Task.detached(priority: .userInitiated) {
+            Store.shared.items(day: nil, status: nil, category: key, limit: 200)
+        }.value
+        if cat == key { catItems = list }
     }
 
     private var thingsList: some View {
@@ -437,11 +452,15 @@ struct RawLinesView: View {
                 ForEach(rows) { s in
                     SegmentRow(seg: s,
                                onPlay: { SegmentPlayer.shared.toggle(segment: s) },
-                               onStar: { Store.shared.setStar(id: s.id, starred: !Store.shared.isStarred(id: s.id)) },
+                               onStar: {
+                                   Store.shared.setStar(id: s.id, starred: !Store.shared.isStarred(id: s.id))
+                                   // 以前只写库不刷新，星标看着没反应
+                                   Task { await reload() }
+                               },
                                onAssign: { selected = s },
                                onDelete: {
                                    Store.shared.deleteSegment(id: s.id, removeFile: true)
-                                   rows = Store.shared.segments(day: day, limit: 600)
+                                   Task { await reload() }
                                })
                     .padding(.horizontal, 16)
                 }
@@ -454,12 +473,20 @@ struct RawLinesView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { dismiss() } }
         }
-        .onAppear { rows = Store.shared.segments(day: day, limit: 600) }
+        .task { await reload() }
         .sheet(item: $selected) { s in
             SpeakerAssignSheet(segment: s) {
-                rows = Store.shared.segments(day: day, limit: 600)
+                Task { await reload() }
             }
         }
+    }
+
+    private func reload() async {
+        let key = day
+        let list = await Task.detached(priority: .userInitiated) {
+            Store.shared.segments(day: key, limit: 600)
+        }.value
+        rows = list
     }
 }
 

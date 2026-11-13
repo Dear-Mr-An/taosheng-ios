@@ -381,28 +381,31 @@ struct SkillsView: View {
         Form {
             Section {
                 ForEach(app.skills) { s in
-                    NavigationLink {
-                        SkillDetailView(skill: s)
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: s.symbol)
-                                .foregroundStyle(Theme.accent)
-                                .frame(width: 24)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(s.name).foregroundStyle(Theme.text)
-                                Text("\(s.desc) · \(s.scheduleText)")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(Theme.dim)
-                                    .lineLimit(2)
+                    HStack(spacing: 10) {
+                        // 开关必须放在 NavigationLink 外面：塞进 label 里时点开关会同时触发跳转
+                        NavigationLink {
+                            SkillDetailView(skill: s)
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: s.symbol)
+                                    .foregroundStyle(Theme.accent)
+                                    .frame(width: 24)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(s.name).foregroundStyle(Theme.text)
+                                    Text("\(s.desc) · \(s.scheduleText)")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(Theme.dim)
+                                        .lineLimit(2)
+                                }
+                                Spacer(minLength: 0)
                             }
-                            Spacer()
-                            Toggle("", isOn: Binding(
-                                get: { s.enabled },
-                                set: { _ in app.toggleSkill(s.id) }
-                            ))
-                            .labelsHidden()
-                            .tint(Theme.accent)
                         }
+                        Toggle("", isOn: Binding(
+                            get: { s.enabled },
+                            set: { _ in app.toggleSkill(s.id) }
+                        ))
+                        .labelsHidden()
+                        .tint(Theme.accent)
                     }
                 }
             } header: {
@@ -614,11 +617,7 @@ struct ChannelsView: View {
         }
     }
 
-    private func timeText(_ d: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "M月d日 HH:mm"
-        return f.string(from: d)
-    }
+    private func timeText(_ d: Date) -> String { Fmt.monthDayTime.string(from: d) }
 }
 
 // MARK: - 数据备份
@@ -760,7 +759,7 @@ struct ModelSettingsView: View {
                 }
             }
             .padding(16)
-            .padding(.bottom, 100)
+            .padding(.bottom, 24)
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(part == .llm ? "整理模型" : "原话与转写")
@@ -1043,12 +1042,23 @@ struct ModelSettingsView: View {
     // MARK: 工具
 
     private func reload() {
-        let today = Store.shared.transcribedMinutes(days: 0)
-        let month = Store.shared.transcribedMinutes(days: 30)
-        let bytes = Store.shared.audioBytes()
-        let p = Store.shared.todayTranscribeProgress()
-        stats = Stats(todayMinutes: today, monthMinutes: month, bytes: bytes, total: p.total, done: p.done)
-        todaySegments = Store.shared.segments(day: DayKey.of(Date()), limit: 200)
+        Task { await reloadAsync() }
+    }
+
+    /// 6 次查询全部放到后台：以前每 5 秒在主线程同步跑一遍，停留在这页会持续掉帧
+    private func reloadAsync() async {
+        struct Snap { let today: Double; let month: Double; let bytes: Int64; let total: Int; let done: Int; let segs: [Segment] }
+        let snap = await Task.detached(priority: .utility) { () -> Snap in
+            let p = Store.shared.todayTranscribeProgress()
+            return Snap(today: Store.shared.transcribedMinutes(days: 0),
+                        month: Store.shared.transcribedMinutes(days: 30),
+                        bytes: Store.shared.audioBytes(),
+                        total: p.total,
+                        done: p.done,
+                        segs: Store.shared.segments(day: DayKey.of(Date()), limit: 200))
+        }.value
+        stats = Stats(todayMinutes: snap.today, monthMinutes: snap.month, bytes: snap.bytes, total: snap.total, done: snap.done)
+        todaySegments = snap.segs
         queue.refreshPending()
     }
 
@@ -1265,6 +1275,14 @@ struct DocumentPicker: UIViewControllerRepresentable {
 
 // MARK: - 关于
 struct AboutView: View {
+    /// 版本号从 Bundle 读，别再手写（之前写死 0.2.0，和实际包版本对不上）
+    private var versionText: String {
+        let info = Bundle.main.infoDictionary
+        let v = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let b = info?["CFBundleVersion"] as? String ?? "—"
+        return "\(v) (\(b)) · iOS"
+    }
+
     var body: some View {
         Form {
             Section {
@@ -1274,7 +1292,7 @@ struct AboutView: View {
                         .foregroundStyle(Theme.accent)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("涛声").font(.system(size: 18, weight: .bold))
-                        Text("0.2.0 · iOS").font(.system(size: 12)).foregroundStyle(Theme.dim)
+                        Text(versionText).font(.system(size: 12)).foregroundStyle(Theme.dim)
                     }
                 }
                 .padding(.vertical, 4)

@@ -25,9 +25,7 @@ struct Segment: Identifiable, Codable, Hashable {
     var captureMode: CaptureMode { CaptureMode.restored(captureModeRaw ?? "") }
 
     var timeText: String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm"
-        return f.string(from: startedAt)
+        Fmt.hm.string(from: startedAt)
     }
 
     var durationText: String {

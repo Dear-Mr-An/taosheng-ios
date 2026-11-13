@@ -40,10 +40,12 @@ final class LocationEngine: NSObject, ObservableObject, CLLocationManagerDelegat
         manager.requestWhenInUseAuthorization()
         manager.startUpdatingLocation()
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+        // scheduledTimer 已经自动进当前 RunLoop 的 default 模式；再 add 一次会重复投递
+        let t = Timer(timeInterval: 300, repeats: true) { [weak self] _ in
             self?.flushStay()
         }
-        if let t = timer { RunLoop.main.add(t, forMode: .common) }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
     }
 
     func stop() {
