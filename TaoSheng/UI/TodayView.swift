@@ -451,7 +451,7 @@ struct TodayView: View {
     /// 截图专用：气泡停在高亮的小时上，图里「顶部那条」和「气泡」说的是同一个时刻
     private var shotBubbleIndex: Int? {
         guard ShotMode.screen == "timeline-rail", !railSlots.isEmpty else { return nil }
-        if let k = activeRailKey, let i = railSlots.firstIndex(where: { $0.key == k }) { return i }
+        if let k = activeRailKey, let i = railSlots.firstIndex(where: { $0.firstKey == k }) { return i }
         return railSlots.count / 2
     }
 
@@ -673,6 +673,13 @@ struct TimelineFullView: View {
     /// 「全部」页右侧的小时轴：和今天页同一套规则（正序 7→21）
     private var railSlots: [RailSlot] {
         RailRules.slots(events.map { (key: $0.id, hour: Calendar.current.component(.hour, from: $0.startAt)) })
+    }
+
+    /// 截图专用：气泡停在当前高亮的小时上
+    private var shotBubbleIndex: Int? {
+        guard ShotMode.screen == "timeline-rail", !railSlots.isEmpty else { return nil }
+        if let k = activeRailKey, let i = railSlots.firstIndex(where: { $0.firstKey == k }) { return i }
+        return railSlots.count / 2
     }
 
     private var groups: [(String, [MemoryEvent])] {

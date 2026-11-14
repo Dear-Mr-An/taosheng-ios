@@ -588,7 +588,7 @@ struct MemoryView: View {
     /// 截图专用：气泡停在高亮的小时上，和列表顶部那条对应
     private func shotBubbleIndex(_ slots: [RailSlot]) -> Int? {
         guard ShotMode.screen == "memory-timeline-rail", !slots.isEmpty else { return nil }
-        if let k = activeRailKey, let i = slots.firstIndex(where: { $0.key == k }) { return i }
+        if let k = activeRailKey, let i = slots.firstIndex(where: { $0.firstKey == k }) { return i }
         return slots.count / 2
     }
 
