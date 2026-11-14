@@ -3,6 +3,84 @@
 Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 SwiftUI 重写，iOS 16+，无第三方运行依赖。
 全天收音 → 人声切片 → 转写 → DeepSeek 整理事件、待办和记忆。数据使用本机 SQLite。
 
+0.5.3 第四轮修复（验收打回，2026-11-14）
+
+版本号 0.5.3 (25)。上一轮交付被逐张截图打回 9 条，本轮全部处理；其中第 2 条（小屏截到桌面）先查清原因再修，截图流程本身也加了自检。
+
+一、事件编辑弹层初始值丢了（第 1 条）
+
+- 现象：`iphone16-event-edit.png` 里标题和摘要都是空的，保存按钮因此一直是灰的；事件本身有标题和摘要。
+- 原因：`.sheet(isPresented:)` 的 content 闭包在同一次状态更新里被求值，`draftTitle/draftSummary` 还是旧值（空串），弹层拿到的是改动前的草稿。
+- 修法：两处弹层全部改成 `.sheet(item:)`，初始值放进 item 传进去：
+  - `EventDetailView` 用 `@State private var editItem: EditPayload?`，`EditPayload { title, summary }`；截图模式与「编辑」按钮都改为 `editItem = EditPayload(title: current.title, summary: current.summary)`。
+  - `PersonsView` 用 `@State private var addItem: AddPerson?`，新建人物没有初始值，但同样走 item，避免以后再加默认值时重复踩坑。
+- 对应截图：`iphone16-event-edit.png`（标题「和周工确认交付时间」、摘要都在，保存按钮高亮）、`iphone16-person-add.png`。
+
+二、小屏截到的其实是模拟器桌面（第 2 条）
+
+- 先查日志：`logs/iphone16-todo-fail1-app.log` 里是 `installcoordinationd` 的 `IXSCoordinatedAppInstall` 停在 `IXCoordinationPlaceholderPromiseNotSet`，`installd` 还在装占位包（`type Placeholder`）；同一时刻 `simctl launch` 报 App not found，截图就拍到了 SpringBoard。`DiagnosticReports` 里没有崩溃报告，`launchctl list` 也没有该进程——**不是 App 崩了，是安装还没落地就去启动**。
+- 修法（截图脚本）：
+  - `wait_installed()`：install 之后用 `xcrun simctl get_app_container "$DEV" "$BID" app` 轮询（30 × 2s）确认 bundle 真装好，再 `sleep 2`。
+  - `launch_and_wait()`：`simctl launch` 最多三试，成功后还轮询 `launchctl list` 确认进程在（15 × 1s）。
+  - 截图后再验一次：`app_running` 为假就删掉这张、重新启动重拍。
+  - 函数内变量全部加 `local`（上一版 `dump_diag` 的 `NAME="$2"` 覆写过调用方变量，产出过 `iphone16-todo-fail1-todo-fail2-todo.png` 这种文件名）。
+- 小屏从 1 张扩到 4 张：`todo / today / recording-bottom / person-add`，每张都过了「安装完成 + App 在运行 + 截图后仍在前台」三道检查。
+- 对应截图：`iphonese-todo.png`、`iphonese-today.png`、`iphonese-recording-bottom.png`、`iphonese-person-add.png`。
+
+三、键盘引导页盖住输入框（第 3 条）
+
+- 修法：每次启动设备后先关掉系统引导页——`simctl spawn <dev> defaults write com.apple.Preferences DidShowContinuousPathIntroduction / DidShowGestureKeyboardIntroduction / DidShowContinuousPathIntroductionV2 -bool true`（同时对 `com.apple.keyboard.preferences` 写一遍），并把语言/区域固定成 `zh-Hans` / `zh_CN`，避免首次启动的引导层。
+- 对应截图：`iphone16-person-add.png`、`iphonese-person-add.png`（输入框与软键盘同时可见，没有「滑动输入」引导）。
+
+四、事件详情「问问」的预填还是丢（第 4 条）
+
+- 原因：`RootView` 收到 `taoshengAskPrefill` 只切 tab；`app.askPending` 只在 `AskView` 自己的监听里赋值，而发通知时 `AskView` 还没被创建，问题就整条丢了。
+- 修法：`RootView` 的监听里直接 `AppState.shared.askPending = q` 再切 tab；`AskView` 删掉通知监听，改成 `.onAppear` 消费一次 + `.onChange(of: app.askPending)` 消费后到的值（已经停在问问页时也能落进输入框）。
+
+五、`wipeAll` 仍然漏表（第 5 条）
+
+- `Store+Ext.swift` 的清空清单补上 `voice_cluster`；现在共 20 张表全部清掉（含 memory_* / skill_* / thing* / env_tag / voice_cluster），随后删除 `Documents/Audio` 下的音频文件。
+
+六、旧入口名残留（第 6 条）
+
+- `AskView.swift`：「去设置 → 转写与大模型」→「去设置 → 模型与整理」。
+- `LLMAuto.swift`：「去 设置 → 整理模型 → 编辑」→「去 设置 → 模型与整理 → 编辑」。
+- `SettingsSub.swift`：「模型和转写设置」（sheet 标题、导航标题、`// MARK`）→「模型与整理」。
+- 全仓再搜一遍「整理模型 / 转写与大模型 / 模型和转写」，只剩一处代码注释与一处描述性文案（"模型和转写服务都用你自己填的密钥"），语义正确，保留。
+
+七、今天页英雄卡（第 7 条）
+
+- 三列统计之间的竖线原来紧贴数字，看起来像「|1」「|2」：给 `heroDivider` 加 `.padding(.horizontal, 12)`。
+- 模式按钮原来用自适应网格（`GridItem(.adaptive(minimum: 88))`），窄屏折成 3+1：改成 `HStack(spacing: 6)` + 每个按钮 `.frame(maxWidth: .infinity)`，一行四个等宽；文字加了 `minimumScaleFactor(0.8)`，小屏也不会挤成两行。
+- 对应截图：`iphone16-today.png`、`iphonese-today.png`。
+
+八、点击区（第 8 条）
+
+- 新增 `View.tapTarget(_ pad:)`：`padding(pad).contentShape(Rectangle()).padding(-pad)`——点击区外扩、布局尺寸不变。逐处套上：
+  - 待办勾选圈（`TodosView`）、时间线事件行星标（`EventRow`，顺带把星标做成可点：未标时是淡色空心星，点了就标重点）、原话行播放键（`SegmentRow`）、今天页「收起/展开」、「全部 >」、记忆页「查看完整回顾」、热词删除（`HotwordView`）、详情页播放键（32pt 再外扩 6pt）。
+- 星标从「只能长按菜单」变成「直接点图标」，这条也顺手把 `EventRow` 的交互补全了。
+
+九、主键长度（第 9 条）
+
+- `Models.swift` 的 `shortID()` 从「UUID 前 8 位」改成「完整 UUID（小写）」。所有拿它当主键的表（待办、人物、提醒、问答、热词、通道、技能卡、技能运行）都不会再因为 8 位前缀撞车被 `INSERT OR REPLACE` 静默覆盖。老数据不迁移。
+
+十、截图里自己修掉的一个回归（顺带）
+
+- 上一轮为了在小屏上把表单滚到底，在「录音与后台」末尾加了一个 `if ShotMode.active { Section { Color.clear.frame(height: 1) } }` 当滚动锚点；`Form` 会给每个 Section 画一张卡片，于是截图底部多出一张空白卡片（真机不受影响，只在截图模式出现）。
+- 修法：删掉这个空 Section，把 `.id("row-window")` 挂到「夜里自动停录」开关、`.id("row-end")` 挂到「到 X:00 结束」那一行，按 `silenceWindowOn` 选锚点再 `scrollTo`。
+- 对应截图：`iphone16-recording-bottom.png`、`iphonese-recording-bottom.png`（「停录时段 / 夜里自动停录」完整露在悬浮 TabBar 之上，底部没有空白卡片）。
+
+十一、验证
+
+- CI `build-ipa` #67（9968b59）：success，`.swift` 层 0 error 0 warning。
+- CI `shots` #11（9968b59）：success，11 张（7 张大屏 + 4 张小屏），文件名干净、无 `logs/`（首启即成功，说明「等安装落地」生效），逐张确认都是 App 画面。
+- 产物 `../dist/TaoSheng-v0.5.3.ipa`：1352637 B，`CFBundleShortVersionString = 0.5.3`、`CFBundleVersion = 25`、`CFBundleIdentifier = app.taosheng.TaoSheng`、Info.plist 为 XML。
+- 截图目录 `../.tmp/shots-0.5.3/`：`iphone16-todo / today / ask / memory / recording-bottom / person-add / event-edit`、`iphonese-todo / today / recording-bottom / person-add`。
+
+十二、本轮仍未做
+
+- 声纹算法、备份结构、S3 key 编码：与上一轮结论相同，属于要单独一轮的改动。
+- 44×44 的完整点击区规整：本轮只覆盖验收点名的 8 类控件，其余按钮已随 `tapTarget` 一起处理或本身够大。
 0.5.2 第三轮修复（审查清单驱动，2026-11-14）
 
 版本号 0.5.2 (24)。按 `.tmp/plan-0.5.2.md` 的 P0 → P1 → P2 顺序逐条修，每条都对着源码核过。功能不变，只修错、修一致、修数据安全。
