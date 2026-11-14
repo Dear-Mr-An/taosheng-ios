@@ -28,7 +28,7 @@ enum ShotMode {
              "card-sheet-top", "card-sheet-bottom", "review-meetings":
             return 2
         case "todo", "todo-pending": return 3
-        case "recording-bottom", "person-add", "transcribe", "llm", "llm-interval": return 4
+        case "recording-bottom", "person-add", "transcribe", "llm", "llm-interval", "about": return 4
         default: return nil
         }
     }

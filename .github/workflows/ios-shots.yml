@@ -259,6 +259,7 @@ jobs:
             shoot_dev "$DEV" "iphone16" "review-meetings" 8
             shoot_dev "$DEV" "iphone16" "todo-pending" 7
             shoot_dev "$DEV" "iphone16" "llm-interval" 7
+          shoot_dev "$DEV" "iphone16" "about" 7
             tmo 60 xcrun simctl shutdown "$DEV" 2>/dev/null || true
           fi
           if [ -n "$SMALL" ]; then
@@ -289,7 +290,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shots-062
+          name: shots-063
           path: ${{ github.workspace }}/shots
           retention-days: 30
           if-no-files-found: warn

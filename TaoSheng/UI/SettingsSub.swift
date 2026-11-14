@@ -1071,6 +1071,16 @@ struct AboutView: View {
                     .foregroundStyle(Theme.text2)
             }
 
+            Section("致谢") {
+                Text("界面与文案参考 Android 原版 0xCoach/TaoSheng（MIT License）。")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Theme.text2)
+                    .lineSpacing(3)
+                Link("github.com/0xCoach/TaoSheng",
+                     destination: URL(string: "https://github.com/0xCoach/TaoSheng")!)
+                    .font(.system(size: 12.5))
+            }
+
             Section("说明") {
                 Text("· 后台持续录音靠系统音频后台模式维持，被系统回收后回到 App 会自动续上。\n· 声纹认人是本机比对，样本只存在手机上。\n· 模型和转写服务都用你自己填的密钥，我们不收任何数据。")
                     .font(.system(size: 12.5))

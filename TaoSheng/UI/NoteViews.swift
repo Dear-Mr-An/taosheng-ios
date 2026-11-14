@@ -96,6 +96,7 @@ struct HourRail: View {
         if let i = bubbleIndex, slots.indices.contains(i) {
             Text("\(slots[i].hour):00")
                 .font(.system(size: 11.5, weight: .semibold))
+                .fixedSize()
                 .foregroundColor(.white)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 4)
@@ -241,8 +242,7 @@ struct JustEndedCard: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                 HStack(spacing: 10) {
-                    Text(event.durationText)
-                    if speakerCount > 0 { Text("· \(speakerCount) 位说话人") }
+                    Text(speakerCount > 0 ? "\(event.durationText) · \(speakerCount) 位说话人" : event.durationText)
                     Spacer(minLength: 0)
                     Text("看速记 ›").foregroundColor(Theme.accent)
                 }

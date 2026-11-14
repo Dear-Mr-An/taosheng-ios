@@ -31,6 +31,9 @@ struct RootView: View {
                         NavigationStack { LLMSettingsView() }
                             .environmentObject(Settings.shared)
                             .environmentObject(AppState.shared)
+                    case "about":
+                        NavigationStack { AboutView() }
+                            .environmentObject(AppState.shared)
                     default:
                         SettingsView()
                     }

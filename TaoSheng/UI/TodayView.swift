@@ -633,6 +633,7 @@ struct TimelineFullView: View {
     /// 800 行查询从 body 里搬出来：以前每次重绘都同步查库，滚动时明显掉帧
     @State private var loaded: [MemoryEvent] = []
     @State private var timelineLoading = false
+    @State private var activeRailKey: String?
     @EnvironmentObject private var app: AppState
 
     private var dayList: [String] {
@@ -662,6 +663,11 @@ struct TimelineFullView: View {
 
     private var mediaCount: Int { raw.filter { $0.scene == "媒体" }.count }
 
+    /// 「全部」页右侧的小时轴：和今天页同一套规则（正序 7→21）
+    private var railSlots: [RailSlot] {
+        RailRules.slots(events.map { (key: $0.id, hour: Calendar.current.component(.hour, from: $0.startAt)) })
+    }
+
     private var groups: [(String, [MemoryEvent])] {
         var out: [(String, [MemoryEvent])] = []
         for e in events {
@@ -685,6 +691,28 @@ struct TimelineFullView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
+                // 给右侧小时轴让出位置，长标题不会钻到轴底下
+                .padding(.trailing, events.count > 6 ? 26 : 0)
+            }
+            .coordinateSpace(name: "railScroll")
+            .onPreferenceChange(RailOffsetKey.self) { prefs in
+                guard let key = prefs.max(by: { $0.value < $1.value })?.key else { return }
+                if key != activeRailKey { activeRailKey = key }
+            }
+            // 小时轴用 overlay 盖在 ScrollView 上：固定在屏幕右边，不跟列表一起滚走
+            .overlay(alignment: .trailing) {
+                if events.count > 6, !railSlots.isEmpty {
+                    HourRail(slots: railSlots,
+                             autoHeight: CGFloat(RailRules.railHeight(slotCount: railSlots.count,
+                                                                      entryCount: events.count,
+                                                                      available: 460)),
+                             activeKey: activeRailKey,
+                             forcedBubbleAt: ShotMode.screen == "timeline-rail" ? min(1, max(0, railSlots.count - 1)) : nil) { key in
+                        withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo("tl-\(key)", anchor: .top) }
+                    }
+                    .frame(width: 30)
+                    .padding(.trailing, 6)
+                }
             }
             .background(Theme.bg.ignoresSafeArea())
             .task(id: "\(currentDay)|\(reloadTick)") {
@@ -693,7 +721,7 @@ struct TimelineFullView: View {
                 guard ShotMode.screen == "timeline-rail", !events.isEmpty else { return }
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 let mid = events[events.count / 2]
-                withAnimation(nil) { proxy.scrollTo(mid.id, anchor: .center) }
+                withAnimation(nil) { proxy.scrollTo("tl-\(mid.id)", anchor: .center) }
             }
             .navigationTitle("时间线")
             .navigationBarTitleDisplayMode(.inline)
@@ -781,8 +809,10 @@ struct TimelineFullView: View {
                     .padding(.leading, 58)
             }
         }
-        .id(e.id)
+        .id("tl-\(e.id)")
+        .railTrack(e.id)
     }
+
     private var segControl: some View {
         HStack(spacing: 0) {
             ForEach(0..<3, id: \.self) { i in

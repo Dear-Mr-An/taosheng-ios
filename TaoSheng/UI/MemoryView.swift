@@ -565,15 +565,17 @@ struct MemoryView: View {
         var id: String { title }
     }
 
+    /// 分组固定按一天的时间正序：上午 → 下午 → 晚上，和今天页、「全部」页一致。
+    /// 以前组顺序跟着输入顺序走，输入是倒序，于是出现「晚上在前、组内却是正序」的错位。
     private func partGroups(_ list: [MemoryEvent]) -> [PartGroup] {
-        var order: [String] = []
         var map: [String: [MemoryEvent]] = [:]
-        for e in list {
-            let p = partOf(e.startAt)
-            if map[p] == nil { order.append(p) }
-            map[p, default: []].append(e)
+        for e in list.sorted(by: { $0.startAt < $1.startAt }) {
+            map[partOf(e.startAt), default: []].append(e)
         }
-        return order.map { PartGroup(title: $0, items: (map[$0] ?? []).sorted { $0.startAt < $1.startAt }) }
+        return ["凌晨", "上午", "下午", "晚上"].compactMap { key in
+            guard let items = map[key], !items.isEmpty else { return nil }
+            return PartGroup(title: key, items: items)
+        }
     }
 
     private func partOf(_ date: Date) -> String {
@@ -585,7 +587,8 @@ struct MemoryView: View {
     }
 
     private func railSlots(_ list: [MemoryEvent]) -> [RailSlot] {
-        RailRules.slots(list.map { (key: $0.id, hour: Calendar.current.component(.hour, from: $0.startAt)) })
+        RailRules.slots(list.sorted(by: { $0.startAt < $1.startAt })
+            .map { (key: $0.id, hour: Calendar.current.component(.hour, from: $0.startAt)) })
     }
 
     private func noteItemCount(_ e: MemoryEvent) -> Int {
