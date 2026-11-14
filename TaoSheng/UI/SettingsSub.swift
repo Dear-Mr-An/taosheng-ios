@@ -97,7 +97,9 @@ struct RecordingSettingsView: View {
             }
 
             Section("停录时段") {
-                Toggle("夜里自动停录", isOn: $settings.silenceWindowOn).tint(Theme.accent)
+                Toggle("夜里自动停录", isOn: $settings.silenceWindowOn)
+                    .tint(Theme.accent)
+                    .id("row-window")
                 if settings.silenceWindowOn {
                     Stepper(value: $settings.silenceStartHour, in: 0...23) {
                         Text("从 \(settings.silenceStartHour):00 开始")
@@ -105,16 +107,12 @@ struct RecordingSettingsView: View {
                     Stepper(value: $settings.silenceEndHour, in: 0...23) {
                         Text("到 \(settings.silenceEndHour):00 结束")
                     }
+                    .id("row-end")
                     // 起止相同等于「时长 0」，代码里直接判为不在时段内，开关看起来开着但永不生效
                     if settings.silenceStartHour == settings.silenceEndHour {
                         Text("开始和结束不能是同一个小时，否则这段停录不会生效。")
                             .font(.system(size: 12)).foregroundStyle(Theme.warn)
                     }
-                }
-            }
-            if ShotMode.active {
-                Section {
-                    Color.clear.frame(height: 1).id("shot-end")
                 }
             }
         }
@@ -130,10 +128,11 @@ struct RecordingSettingsView: View {
             if tick % 5 == 0 { inputs = MicRouter.shared.inputs() }
         }
         .onAppear {
-            // 截图模式：滚到最后一行，验证「停录时段」不会被悬浮 TabBar 挡住
+            // 截图模式：滚到「停录时段」的最后一行，验证整段不会被悬浮 TabBar 挡住
             guard ShotMode.active else { return }
+            let anchor = settings.silenceWindowOn ? "row-end" : "row-window"
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-                withAnimation(nil) { proxy.scrollTo("shot-end", anchor: .bottom) }
+                withAnimation(nil) { proxy.scrollTo(anchor, anchor: .bottom) }
             }
         }
         }
