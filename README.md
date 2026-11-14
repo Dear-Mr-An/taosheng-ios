@@ -3,6 +3,40 @@
 Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 SwiftUI 重写，iOS 16+，无第三方运行依赖。
 全天收音 → 人声切片 → 转写 → DeepSeek 整理事件、待办和记忆。数据使用本机 SQLite。
 
+0.6.3 第九轮（全部页时间轴、气泡单行、记忆页正序、关于页致谢，2026-11-15）
+
+第八轮 9 条里 8 条通过，剩下 5 处在这一轮补齐。都是小改，但每一条都能在截图里指出来。
+
+1. 「全部」时间线页补上固定的小时时间轴
+   上一轮报告说「全部页滚到中段」，但那张图里其实没有时间轴——全仓只有今天页的卡片和记忆页调了 `HourRail`，`TimelineFullView` 根本没接。
+   现在 `TimelineFullView` 的 `ScrollView` 加了 `.coordinateSpace(name: "railScroll")` 与 `.onPreferenceChange(RailOffsetKey.self)`，每行 `.railTrack(e.id)` 上报自己的位置；`HourRail` 通过 `.overlay(alignment: .trailing)` 盖在 `ScrollView` 外面（不是塞进滚动内容），所以它固定在屏幕右边不跟着滚。点一下或拖动都能跳到对应小时（`proxy.scrollTo("tl-<id>", anchor: .top)`）。事件超过 6 条才出现，右侧同时给内容让出 26pt，长标题不会钻到轴底下。
+
+2. 小时轴的气泡不再折成「20 / :0 / 0」
+   气泡是 `overlay(alignment: .topLeading)` 里的 `Text`，父容器只有 30pt 宽，文字被压缩就换行了——真机拖动时同样会这样，不只是截图问题。给气泡的 `Text` 加 `.fixedSize()`，保持单行「20:00」。
+
+3. 记忆页时间线改成整段正序
+   以前分组顺序跟着输入顺序走（输入是倒序），于是出现「晚上→下午→上午」分组、组内条目却是正序的错位，右侧时间轴从上到下是 21→7。
+   现在 `partGroups(_:)` 先按 `startAt` 正序排，再按固定顺序 `["凌晨","上午","下午","晚上"]` 输出；`railSlots(_:)` 也先排序再算，时间轴从上到下是 7→21，和今天页、「全部」页完全一致。
+
+4. 关于页补 MIT 署名
+   原版是 MIT 协议，必须注明。`AboutView` 新增一段「致谢」：
+
+   > 界面与文案参考 Android 原版 0xCoach/TaoSheng（MIT License）。
+   > github.com/0xCoach/TaoSheng
+
+   链接用 `Link` 打开 `https://github.com/0xCoach/TaoSheng`。截图入口加 `about`（`ShotMode.tab(for:)` 走设置 Tab，`RootView` 直接渲染 `NavigationStack { AboutView() }`）。
+
+5. 「刚结束」卡的空格
+   原来时长和说话人数是两个 `Text`，`HStack(spacing: 10)` 中间还带一个「· 」，肉眼看是两个空格。改成一个 `Text`：`"\(durationText) · \(speakerCount) 位说话人"`。
+
+版本与验证
+- 版本 0.6.3（build 30），`CFBundleShortVersionString = 0.6.3`、`CFBundleVersion = 30`。
+- CI：`build-ipa` 0 error 0 warning，`swift test` 25 项通过，`node --test Tests/segment-sql.test.mjs` 8 项通过；产物 `../dist/TaoSheng-v0.6.3.ipa`（未签名）。
+- 截图：`../.tmp/shots-0.6.3/`，必拍四张 `iphone16-timeline-rail`、`iphone16-memory-timeline-rail`、`iphone16-about`、`iphone16-today-justended`，以及其余常规画面（iPhone 16 与 iPhone SE 各一遍）。
+
+没验证
+- 真机与真实密钥仍未验证；说话人分离的真实返回字段与延迟只能按官方 schema 推断。
+- 小时轴的点击/拖动跳转只在模拟器里点过，没有在真机上用手指拖过。
 0.6.2 第八轮（按验收打回的 9 条改，2026-11-15）
 
 这一轮不动架构，只修 0.6.1 里被逐张截图挑出来的问题。每条都配了截图，截图里的画面就是改完之后的实际样子。
