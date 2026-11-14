@@ -17,20 +17,31 @@ struct TodayView: View {
     @State private var detailEvent: MemoryEvent?
     /// 上一次回顾生成时间：以前写在 body 里的计算属性里查库，每次重绘都要跑一次 SQL
     @State private var lastReviewAt: Date?
+    /// 时间轴高亮到哪个小时（由滚动位置推出来）
+    @State private var activeRailKey: String?
 
     private var today: String { DayKey.of(Date()) }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                header
-                heroCard
-                rhythmCard
-                timelineCard
-                Color.clear.frame(height: 16)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.sp3 + 2) {
+                    header
+                    heroCard
+                    justEnded
+                    timelineCard(proxy: proxy)
+                    Color.clear.frame(height: 16)
+                }
+                .padding(.horizontal, Theme.sp4)
+                .padding(.top, 8)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .coordinateSpace(name: "railScroll")
+            .onPreferenceChange(RailOffsetKey.self) { map in
+                // 顶部那一行决定时间轴的高亮小时：取「已经越过顶部、离顶部最近」的那条
+                let visible = map.filter { $0.value <= 4 && $0.value > -240 }
+                let key = visible.max(by: { $0.value < $1.value })?.key
+                if let key, key != activeRailKey { activeRailKey = key }
+            }
         }
         .tabBarClearance()
         .background(Theme.bg.ignoresSafeArea())
@@ -340,156 +351,123 @@ struct TodayView: View {
             .padding(.horizontal, 12)
     }
 
-    // MARK: 今日节律
+    // MARK: 刚结束
 
-    /// 四格全部按「会话」统计：场数、时长、产出的待办、说话人数。
-    /// 原来靠段级说话人标签 + 模型给的 scene 字符串，「工作会议」这种写法就把会议数算成 0。
-    private var rhythmCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("今日节律")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(Theme.text)
-                Spacer()
-                Text(app.todaySessions.isEmpty ? "还没有会话" : "今天 \(app.todaySessions.count) 场")
-                    .font(.system(size: 11.5))
-                    .foregroundColor(Theme.dim)
-            }
+    /// 当天最近一场已经整理完的会/培训：让董事长滑到顶部就能看到刚才这一场的结论。
+    /// 下一场开始或跨天之后自然消失（只取今天的、且不是正在录的那一场）。
+    private var justEndedEvent: MemoryEvent? {
+        guard !flow.isRecording else { return nil }
+        return app.todayEvents.first { $0.isNote }
+    }
 
-            HStack(spacing: 0) {
-                rhythmCell("\(app.meetingCount)", "场会议", Theme.accent)
-                rhythmCell(sessionMinutesText, "开会时长", Theme.blue)
-                rhythmCell("\(app.sessionTodoCount)", "条待办", Theme.purple)
-                rhythmCell("\(app.peopleCount)", "位说话人", Theme.ok)
-            }
-
-            sessionStrip
-
-            HStack(spacing: 12) {
-                ForEach(CaptureMode.allCases) { m in
-                    HStack(spacing: 4) {
-                        Circle().fill(modeColor(m)).frame(width: 7, height: 7)
-                        Text(m.title)
-                            .font(.system(size: 10.5))
-                            .foregroundColor(Theme.dim)
-                    }
-                }
+    @ViewBuilder
+    private var justEnded: some View {
+        if let e = justEndedEvent {
+            JustEndedCard(event: e, speakerCount: e.people.count) {
+                detailEvent = e
             }
         }
-        .padding(14)
-        .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
     }
 
-    private var sessionMinutesText: String {
-        let minutes = Int((app.sessionSeconds / 60).rounded())
-        if minutes < 60 { return "\(minutes) 分" }
-        let h = minutes / 60
-        let m = minutes % 60
-        return m == 0 ? "\(h) 小时" : "\(h) 时 \(m) 分"
+    /// 时段：凌晨/上午/下午/晚上（原版时间线就是这么分的）
+    private func partOfDay(_ date: Date) -> String {
+        let h = Calendar.current.component(.hour, from: date)
+        if h < 6 { return "凌晨" }
+        if h < 12 { return "上午" }
+        if h < 18 { return "下午" }
+        return "晚上"
     }
 
-    private func modeColor(_ m: CaptureMode) -> Color {
-        switch m {
-        case .meeting: return Theme.accent
-        case .training: return Theme.purple
-        case .call: return Theme.blue
-        }
-    }
-
-    /// 当天 0–24 点的时间条：一场会话一段色块，一眼看出会开在什么时段。
-    private var sessionStrip: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Theme.bgDeep)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .strokeBorder(Theme.line, lineWidth: 0.6)
-                    )
-                ForEach(app.todaySessions) { s in
-                    let r = dayFractions(s)
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(modeColor(s.mode).opacity(0.85))
-                        .frame(width: max(4, (r.1 - r.0) * w))
-                        .offset(x: r.0 * w)
-                }
-                // 4 个整点刻度，方便对上时间
-                ForEach([6, 12, 18], id: \.self) { h in
-                    Rectangle().fill(Theme.line.opacity(0.9))
-                        .frame(width: 0.6)
-                        .offset(x: w * CGFloat(h) / 24)
-                }
-            }
-        }
-        .frame(height: 22)
-        .accessibilityLabel("今天 \(app.todaySessions.count) 场会话的时间分布")
-    }
-
-    /// 会话在 0–24 小时里的起止比例；录音中的算到此刻。
-    private func dayFractions(_ s: ListenSession) -> (CGFloat, CGFloat) {
-        let cal = Calendar.current
-        let dayStart = cal.startOfDay(for: s.startedAt)
-        let start = max(0, s.startedAt.timeIntervalSince(dayStart))
-        let end = max(start + 60, (s.endedAt ?? Date()).timeIntervalSince(dayStart))
-        let a = min(max(start / 86400, 0), 1)
-        let b = min(max(end / 86400, a + 0.002), 1)
-        return (CGFloat(a), CGFloat(b))
-    }
-
-    private func rhythmCell(_ v: String, _ l: String, _ c: Color) -> some View {
-        VStack(spacing: 3) {
-            Text(v)
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
-                .foregroundColor(c)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Text(l)
-                .font(.system(size: 10.5))
-                .foregroundColor(Theme.dim)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity)
-    }
     // MARK: 时间线
 
-    private var timelineCard: some View {
+    /// 正序：最早的在上面，往下是越来越近的事——董事长是从上往下读当天经过的。
+    private var timelineEvents: [MemoryEvent] { Array(app.todayEvents.reversed()) }
+
+    private var timelineGroups: [(title: String, events: [MemoryEvent])] {
+        var out: [(String, [MemoryEvent])] = []
+        for e in timelineEvents {
+            let part = partOfDay(e.startAt)
+            if let last = out.last, last.0 == part {
+                out[out.count - 1].1.append(e)
+            } else {
+                out.append((part, [e]))
+            }
+        }
+        return out
+    }
+
+    private var railSlots: [RailSlot] {
+        let entries = timelineEvents.map { (key: $0.id, hour: Calendar.current.component(.hour, from: $0.startAt)) }
+        return RailRules.slots(entries)
+    }
+
+    private func timelineCard(proxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text("时间线 · \(app.todayEvents.count) 件事")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: Theme.fsTitle, weight: .semibold))
                     .foregroundColor(Theme.text)
                 Spacer()
-                if app.todayEvents.count > 6 {
-                    Button { showTimeline = true } label: {
-                        Text("全部 >").font(.system(size: 12.5)).foregroundColor(Theme.accent)
-                            .tapTarget(10)
-                    }
-                    .buttonStyle(.plain)
+                Button { showTimeline = true } label: {
+                    Text("全部 >").font(.system(size: 12.5)).foregroundColor(Theme.accent)
+                        .tapTarget(10)
                 }
+                .buttonStyle(.plain)
             }
 
-            if app.todayEvents.isEmpty {
-                EmptyHint(symbol: "clock.badge.questionmark", title: "这一天还没有整理出事件", detail: "有录音后等自动整理，或到设置里手动整理")
+            if timelineEvents.isEmpty {
+                EmptyHint(symbol: "clock.badge.questionmark", title: "这一天还没有整理出事件",
+                          detail: "点上面的「开始聆听」，结束就出速记")
             } else {
-                let shown = Array(app.todayEvents.prefix(6))
-                VStack(spacing: 0) {
-                    ForEach(Array(shown.enumerated()), id: \.element.id) { idx, e in
-                        TimelineLine(event: e,
-                                     onStar: { app.starEvent(e.id, starred: !e.starred) },
-                                     onTap: { detailEvent = e })
-                        if idx < shown.count - 1 {
-                            Rectangle().fill(Theme.line)
-                                .frame(height: 0.6)
-                                .padding(.leading, 58)
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(Array(timelineGroups.enumerated()), id: \.offset) { _, group in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("\(group.title) · \(group.events.count) 件")
+                                    .font(.system(size: Theme.fsCaption, weight: .medium))
+                                    .foregroundColor(Theme.dim)
+                                    .padding(.leading, 4)
+                                VStack(spacing: 0) {
+                                    ForEach(Array(group.events.enumerated()), id: \.element.id) { idx, e in
+                                        Group {
+                                            if e.isNote {
+                                                NoteTimelineLine(event: e,
+                                                                 itemCount: app.todayItems.filter { $0.eventId == (e.entityId ?? e.id) }.count,
+                                                                 onTap: { detailEvent = e })
+                                            } else {
+                                                TimelineLine(event: e,
+                                                             onStar: { app.starEvent(e.id, starred: !e.starred) },
+                                                             onTap: { detailEvent = e })
+                                            }
+                                        }
+                                        .id("tl-\(e.id)")
+                                        .railTrack(e.id)
+                                        if idx < group.events.count - 1 {
+                                            Rectangle().fill(Theme.line)
+                                                .frame(height: 0.6)
+                                                .padding(.leading, 58)
+                                        }
+                                    }
+                                }
+                                .padding(.vertical, 2)
+                                .background(Theme.card)
+                                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+                            }
                         }
                     }
+                    if timelineEvents.count > 8, !railSlots.isEmpty {
+                        HourRail(slots: railSlots,
+                                 autoHeight: CGFloat(RailRules.railHeight(slotCount: railSlots.count,
+                                                                          entryCount: timelineEvents.count,
+                                                                          available: 340)),
+                                 activeKey: activeRailKey) { key in
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                proxy.scrollTo("tl-\(key)", anchor: .top)
+                            }
+                        }
+                        .padding(.top, 26)
+                    }
                 }
-                .padding(.vertical, 2)
-                .background(Theme.card)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
             }
         }
         .sheet(isPresented: $showTimeline) {

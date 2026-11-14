@@ -78,3 +78,24 @@ struct SessionProgress: Equatable {
     var speakers: Int
     var pendingSegments: Int
 }
+
+/// 速记里的一条关键原话：「谁 · 几点：说了什么」。
+/// 单独存一列而不是混进 points，是因为详情页要把它做成带引号的卡片，还要能点回原话播放。
+struct EventQuote: Codable, Hashable {
+    var speaker: String
+    /// 「14:52」这种相对本场开始的分钟:秒
+    var time: String
+    var text: String
+
+    static func encodeAll(_ quotes: [EventQuote]) -> String {
+        guard !quotes.isEmpty else { return "" }
+        guard let data = try? JSONEncoder().encode(quotes),
+              let s = String(data: data, encoding: .utf8) else { return "" }
+        return s
+    }
+
+    static func decodeAll(_ raw: String) -> [EventQuote] {
+        guard let data = raw.data(using: .utf8), !raw.isEmpty else { return [] }
+        return (try? JSONDecoder().decode([EventQuote].self, from: data)) ?? []
+    }
+}

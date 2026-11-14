@@ -67,7 +67,6 @@ final class DigestEngine: ObservableObject {
         switch mode {
         case .meeting: return Prompts.digestSystem + Prompts.meetingModeExtra
         case .training: return Prompts.digestSystem + Prompts.trainingModeExtra
-        case .call: return Prompts.digestSystem + Prompts.callModeExtra
         }
     }
 

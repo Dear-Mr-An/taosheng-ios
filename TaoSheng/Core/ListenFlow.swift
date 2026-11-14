@@ -133,7 +133,11 @@ final class ListenFlow: ObservableObject {
 
                 let segs = Store.shared.sessionSegments(sessionId: s.id)
                 if segs.isEmpty { throw LLMError.badReply("这场没有录到内容") }
-                let out = try await SessionTranscriber.run(session: s, segments: segs)
+                let out = try await SessionTranscriber.run(session: s, segments: segs) { [weak self] done, total in
+                    guard total > 1 else { return }
+                    // 回调在后台线程：进度文字要回主线程改
+                    Task { @MainActor in self?.phaseText = "正在分辨说话人（\(done)/\(total)）…" }
+                }
                 utterances = out.utterances
                 Store.shared.replaceUtterances(sessionId: s.id, out.utterances)
                 writeSpeakersBack(utterances, segments: segs)
@@ -148,7 +152,7 @@ final class ListenFlow: ObservableObject {
             let digest = try await SessionDigest.run(session: s, utterances: utterances)
             Store.shared.updateSessionState(id: s.id, state: .done, eventId: digest.eventId)
             PushEngine.shared.pushSession(session: s, title: digest.title,
-                                          summary: digest.summary, points: digest.points,
+                                          conclusion: NoteRules.conclusion(digest.summary),
                                           items: digest.items)
 
             s.stateRaw = SessionState.done.rawValue

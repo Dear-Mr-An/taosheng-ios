@@ -164,7 +164,7 @@ struct LLMSettingsView: View {
                 .pickerStyle(.segmented)
                 if settings.digestByInterval {
                     Picker("多久整理一次", selection: $settings.digestIntervalMin) {
-                        ForEach([15, 30, 60, 120, 240, 720], id: \.self) { minutes in
+                        ForEach(Settings.digestIntervalOptions, id: \.self) { minutes in
                             Text(minutes < 60 ? "\(minutes) 分钟" : "\(minutes / 60) 小时").tag(minutes)
                         }
                     }

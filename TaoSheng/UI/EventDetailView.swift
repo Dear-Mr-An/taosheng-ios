@@ -22,6 +22,8 @@ struct EventDetailView: View {
     @State private var draftSummary = ""
     @State private var toast: String?
     @State private var confirmDelete = false
+    /// 速记的三段：0 速记 / 1 原话 / 2 发言（只有按场整理出来的事件才有）
+    @State private var detailTab = 0
 
     private var current: MemoryEvent {
         app.todayEvents.first(where: { $0.id == event.id })
@@ -39,72 +41,22 @@ struct EventDetailView: View {
                         .foregroundColor(Theme.text)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    if !current.summary.isEmpty {
-                        Text(current.summary)
-                            .font(.system(size: 15.5))
-                            .foregroundColor(Theme.text2)
-                            .lineSpacing(6)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    if !current.points.isEmpty {
-                        VStack(alignment: .leading, spacing: 9) {
-                            Text("要点")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(Theme.dim)
-                                .padding(.top, 2)
-                            ForEach(Array(current.points.enumerated()), id: \.offset) { _, p in
-                                HStack(alignment: .top, spacing: 9) {
-                                    Circle().fill(Theme.accent)
-                                        .frame(width: 5, height: 5)
-                                        .padding(.top, 7)
-                                    Text(p)
-                                        .font(.system(size: 15))
-                                        .foregroundColor(Theme.text)
-                                        .lineSpacing(4)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                            }
+                    if current.isNote {
+                        Picker("", selection: $detailTab) {
+                            Text("速记").tag(0)
+                            Text("原话").tag(1)
+                            Text("发言").tag(2)
                         }
-                    }
+                        .pickerStyle(.segmented)
+                        .padding(.top, 2)
 
-                    HStack(spacing: 8) {
-                        Text("原话")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(Theme.dim)
-                        Spacer(minLength: 0)
-                        pill("播放这件事", symbol: "play.fill", tint: Theme.accent) { playAll() }
-                        pill("导出", symbol: nil, tint: Theme.accent) { exportText() }
-                    }
-                    .padding(.top, 4)
-
-                    if !utterances.isEmpty {
-                        speakerChips
-                    }
-
-                    if loadingLines && lines.isEmpty && utterances.isEmpty {
-                        LoadingHint(rows: 2, text: "正在找这段原话…")
-                    } else if !utterances.isEmpty {
-                        VStack(alignment: .leading, spacing: 18) {
-                            ForEach(utterances) { u in
-                                utteranceRow(u)
-                            }
+                        switch detailTab {
+                        case 0: noteSection
+                        case 1: rawSection
+                        default: speakersSection
                         }
-                        .padding(16)
-                        .background(Theme.card)
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusLarge, style: .continuous))
-                    } else if lines.isEmpty {
-                        EmptyHint(symbol: "text.magnifyingglass", title: "没有对应的原话片段",
-                                  detail: "这件事可能是从别的内容里整理出来的")
                     } else {
-                        VStack(alignment: .leading, spacing: 18) {
-                            ForEach(lines) { seg in
-                                lineRow(seg)
-                            }
-                        }
-                        .padding(16)
-                        .background(Theme.card)
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusLarge, style: .continuous))
+                        legacyContent
                     }
 
                     Color.clear.frame(height: 8)
@@ -171,6 +123,192 @@ struct EventDetailView: View {
                     .padding(.top, 8)
                     .transition(.opacity)
             }
+        }
+    }
+
+    // MARK: 速记三段
+
+    /// 「速记」页：摘要 + 四段要点（议题/结论先行/要点/决定 或 主题/核心要点/知识点/行动）+ 关键原话
+    @ViewBuilder
+    private var noteSection: some View {
+        if !current.summary.isEmpty {
+            Text(NoteRules.tidy(current.summary))
+                .font(.system(size: 15.5))
+                .foregroundColor(Theme.text2)
+                .lineSpacing(6)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(Theme.sp3)
+                .background(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous).fill(Theme.cardSoft))
+        }
+
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(Array(current.noteSections.enumerated()), id: \.offset) { _, section in
+                if !section.isEmpty {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(section.title)
+                            .font(.system(size: Theme.fsSmall, weight: .semibold))
+                            .foregroundColor(Theme.text2)
+                        ForEach(Array(section.lines.enumerated()), id: \.offset) { _, line in
+                            HStack(alignment: .top, spacing: 8) {
+                                Circle().fill(noteTint.opacity(0.6)).frame(width: 5, height: 5).padding(.top, 7)
+                                Text(line)
+                                    .font(.system(size: 15))
+                                    .foregroundColor(Theme.text)
+                                    .lineSpacing(4)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if !current.quotes.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("关键原话")
+                    .font(.system(size: Theme.fsCaption, weight: .medium))
+                    .foregroundColor(Theme.dim)
+                ForEach(Array(current.quotes.enumerated()), id: \.offset) { _, q in
+                    Button { jumpToQuote(q) } label: {
+                        HStack(alignment: .top, spacing: 10) {
+                            RoundedRectangle(cornerRadius: 1.5).fill(noteTint.opacity(0.5)).frame(width: 3)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("\(q.speaker) · \(q.time)")
+                                    .font(.system(size: 10.5))
+                                    .foregroundColor(Theme.dim)
+                                Text("「\(q.text)」")
+                                    .font(.system(size: Theme.fsSmall))
+                                    .foregroundColor(Theme.text2)
+                                    .lineSpacing(3)
+                                    .multilineTextAlignment(.leading)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(10)
+                        .background(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous).fill(Theme.card))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var noteTint: Color { current.scene == "培训" ? Theme.purple : Theme.accent }
+
+    /// 「发言」页：每人一条时长条，点名字改名（作用在整场）
+    @ViewBuilder
+    private var speakersSection: some View {
+        if speakerRows.isEmpty {
+            EmptyHint(symbol: "person.2", title: "还没有分人结果", detail: "这场会没录到可以分辨的说话人")
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("这一场共 \(speakerRows.count) 位说话人")
+                    .font(.system(size: Theme.fsCaption))
+                    .foregroundColor(Theme.dim)
+                SpeakerBars(rows: speakerRows) { label, name in
+                    renameItem = RenamePayload(label: label, name: name)
+                }
+            }
+            .padding(Theme.sp3)
+            .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
+        }
+    }
+
+    private var speakerRows: [(label: String, name: String, seconds: Double)] {
+        var sums: [String: Double] = [:]
+        for u in utterances { sums[u.speaker, default: 0] += u.duration }
+        return sums
+            .map { (label: $0.key, name: session?.name($0.key) ?? $0.key, seconds: $0.value) }
+            .sorted { $0.seconds > $1.seconds }
+    }
+
+    /// 「原话」页：按人分行（有分人结果），否则退回按段
+    @ViewBuilder
+    private var rawSection: some View {
+        HStack(spacing: 8) {
+            Text(utterances.isEmpty ? "原话" : "原话 · 按说话人")
+                .font(.system(size: Theme.fsCaption, weight: .medium))
+                .foregroundColor(Theme.dim)
+            Spacer(minLength: 0)
+            pill("播放这件事", symbol: "play.fill", tint: Theme.accent) { playAll() }
+            pill("导出", symbol: nil, tint: Theme.accent) { exportText() }
+        }
+
+        if !utterances.isEmpty { speakerChips }
+
+        if loadingLines && lines.isEmpty && utterances.isEmpty {
+            LoadingHint(rows: 2, text: "正在找这段原话…")
+        } else if !utterances.isEmpty {
+            VStack(alignment: .leading, spacing: 18) {
+                ForEach(utterances) { u in utteranceRow(u) }
+            }
+            .padding(16)
+            .background(Theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+        } else if lines.isEmpty {
+            EmptyHint(symbol: "text.magnifyingglass", title: "没有对应的原话片段",
+                      detail: "这件事可能是从别的内容里整理出来的")
+        } else {
+            VStack(alignment: .leading, spacing: 18) {
+                ForEach(lines) { seg in lineRow(seg) }
+            }
+            .padding(16)
+            .background(Theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+        }
+    }
+
+    /// 普通事件的旧版内容：摘要、要点、原话（散段整理出来的没有分人结果）
+    @ViewBuilder
+    private var legacyContent: some View {
+        if !current.summary.isEmpty {
+            Text(current.summary)
+                .font(.system(size: 15.5))
+                .foregroundColor(Theme.text2)
+                .lineSpacing(6)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
+        if !current.points.isEmpty {
+            VStack(alignment: .leading, spacing: 9) {
+                Text("要点")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Theme.dim)
+                    .padding(.top, 2)
+                ForEach(Array(current.points.enumerated()), id: \.offset) { _, p in
+                    HStack(alignment: .top, spacing: 9) {
+                        Circle().fill(Theme.accent).frame(width: 5, height: 5).padding(.top, 7)
+                        Text(p)
+                            .font(.system(size: 15))
+                            .foregroundColor(Theme.text)
+                            .lineSpacing(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+
+        rawSection
+    }
+
+    /// 点关键原话：跳到「原话」页，并从头播放这一场（找不到精确那一段时至少先听到声音）
+    private func jumpToQuote(_ q: EventQuote) {
+        withAnimation(.easeInOut(duration: 0.18)) { detailTab = 1 }
+        guard let target = utterances.first(where: { $0.text.contains(String(q.text.prefix(8))) }) else {
+            playAll()
+            return
+        }
+        let segs = app.todaySegments
+        if let seg = segs.first(where: { seg in
+            let start = seg.startedAt.timeIntervalSince(current.startAt)
+            return start <= target.start + 1 && start + seg.duration >= target.start
+        }) {
+            player.playAll([seg])
+        } else {
+            playAll()
         }
     }
 

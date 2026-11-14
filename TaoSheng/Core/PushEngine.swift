@@ -25,17 +25,15 @@ final class PushEngine {
         broadcast(title: "涛声 · \(day) 整理完成", body: md)
     }
 
-    /// 一场会整理完立刻推。和按天整理的区别：标题里带会议名，正文是纪要 + 待办负责人。
-    /// 用户关掉「整理后推送」就只留界面上的状态，不打扰。
-    func pushSession(session: ListenSession, title: String, summary: String, points: [String], items: [MemoryItem]) {
+    /// 一场会整理完立刻推。董事长要的推送只有三样：这是什么会、结论一句话、要谁做什么。
+    /// 细节留在 App 里看，锁屏通知和通道消息都不适合塞长文。
+    func pushSession(session: ListenSession, title: String, conclusion: String, items: [MemoryItem]) {
         guard Settings.shared.pushOnDigest else { return }
-        var md = "# 涛声 · \(session.mode.title)纪要\n\n"
-        md += "**\(title)**\n\n\(summary)\n\n"
+        let kind = session.mode.noteTitle
+        var md = "# 涛声 · \(kind)\n\n"
+        md += "**\(title)**\n\n"
+        if !conclusion.isEmpty { md += "\(conclusion)\n\n" }
         md += "\(session.timeRangeText) · \(session.durationText)\n"
-        if !points.isEmpty {
-            md += "\n## 要点\n"
-            for p in points { md += "- \(p)\n" }
-        }
         if !items.isEmpty {
             md += "\n## 待办\n"
             for i in items {
@@ -46,8 +44,8 @@ final class PushEngine {
                 md += "\n"
             }
         }
-        notifyLocal(title: "涛声 · \(title)", body: summary.isEmpty ? session.durationText : summary)
-        broadcast(title: "涛声 · \(session.mode.title)纪要", body: md)
+        notifyLocal(title: "\(kind) · \(title)", body: conclusion.isEmpty ? session.durationText : conclusion)
+        broadcast(title: "涛声 · \(kind)", body: md)
     }
 
     /// 本机通知：不进通道也能在锁屏上看到「整理好了」。

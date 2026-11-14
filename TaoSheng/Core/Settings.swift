@@ -115,6 +115,9 @@ final class Settings: ObservableObject {
     @Published var autoDigest: Bool { didSet { d.set(autoDigest, forKey: "autoDigest") } }
     @Published var digestHour: Int { didSet { d.set(digestHour, forKey: "digestHour") } }
     /// 按间隔整理：多久整理一次（分钟）
+    /// 可选的整理间隔（分钟）。5 分钟给短会、720 给一整天只整理一次的人
+    static let digestIntervalOptions = [5, 10, 15, 30, 60, 120, 240, 720]
+
     @Published var digestIntervalMin: Int { didSet { d.set(digestIntervalMin, forKey: "digestIntervalMin") } }
     /// true=按间隔，false=按时间点（digestHour）
     @Published var digestByInterval: Bool { didSet { d.set(digestByInterval, forKey: "digestByInterval") } }
@@ -216,7 +219,7 @@ final class Settings: ObservableObject {
         autoDigest = d.object(forKey: "autoDigest") as? Bool ?? true
         digestHour = d.object(forKey: "digestHour") as? Int ?? 21
         let savedInterval = d.object(forKey: "digestIntervalMin") as? Int ?? 30
-        digestIntervalMin = [15, 30, 60, 120, 240, 720].contains(savedInterval) ? savedInterval : 30
+        digestIntervalMin = Settings.digestIntervalOptions.contains(savedInterval) ? savedInterval : 30
         digestByInterval = d.object(forKey: "digestByInterval") as? Bool ?? true
         reviewHour = d.object(forKey: "reviewHour") as? Int ?? 22
         weeklyReviewWeekday = d.object(forKey: "weeklyReviewWeekday") as? Int ?? 1

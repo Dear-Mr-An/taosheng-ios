@@ -89,17 +89,6 @@ final class AppState: ObservableObject {
         if store.skills().isEmpty {
             let now = Date()
             let builtins: [SkillDef] = [
-                SkillDef(id: "meeting", name: "会议速记", symbol: "person.2.wave.2",
-                         desc: "把有明确议题的多人讨论整理成会议卡",
-                         enabled: true, schedule: .afterDigest, hour: 0, minute: 0, weekday: 1,
-                         prompt: "把今天识别为会议的内容整理成会议卡：议题、结论、分点要点、决定。",
-                         builtin: true, createdAt: now,
-                         fields: [
-                            SkillField(key: "topic", label: "议题", type: "text", required: true),
-                            SkillField(key: "conclusion", label: "结论先行", type: "paragraph", required: true),
-                            SkillField(key: "points", label: "分点要点", type: "bullets", required: false),
-                            SkillField(key: "decisions", label: "决定", type: "bullets", required: false)
-                         ]),
                 SkillDef(id: "checkout", name: "收工打卡", symbol: "checkmark.seal",
                          desc: "用自己的记录回看今天做了什么",
                          enabled: true, schedule: .daily, hour: 18, minute: 0, weekday: 1,
@@ -132,6 +121,12 @@ final class AppState: ObservableObject {
                          ])
             ]
             builtins.forEach { store.upsertSkill($0) }
+            // 0.6.1 起「会议速记」不再是一个技能：每场会结束当场就出速记。
+            // 老用户手机里还留着这条内置技能的话把它停掉，已经生成的卡保留可查。
+            if var legacy = store.skills().first(where: { $0.id == "meeting" }), legacy.enabled {
+                legacy.enabled = false
+                store.upsertSkill(legacy)
+            }
         }
         Settings.shared.onboarded = true
     }

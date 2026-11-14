@@ -76,4 +76,43 @@ enum SessionMerger {
         }
         return Result(url: out, offsets: offsets, duration: cursor.seconds)
     }
+
+    /// 从一段音频里切出若干区间拼成一个临时文件（跨块对号时，按说话人取样算声纹用）。
+    static func export(from source: URL, ranges: [CMTimeRange]) async throws -> URL {
+        let asset = AVURLAsset(url: source)
+        let tracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
+        guard let src = tracks.first else { throw MergeError.empty }
+
+        let composition = AVMutableComposition()
+        guard let track = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw MergeError.exportFailed("无法创建音轨")
+        }
+        var cursor = CMTime.zero
+        for range in ranges {
+            do {
+                try track.insertTimeRange(range, of: src, at: cursor)
+                cursor = CMTimeAdd(cursor, range.duration)
+            } catch {
+                continue
+            }
+        }
+        guard cursor.seconds > 0.2 else { throw MergeError.empty }
+
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("slice-\(UUID().uuidString)")
+            .appendingPathExtension("m4a")
+        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
+            throw MergeError.exportFailed("导出器不可用")
+        }
+        export.outputURL = out
+        export.outputFileType = .m4a
+        export.timeRange = CMTimeRange(start: .zero, duration: cursor)
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            export.exportAsynchronously { cont.resume() }
+        }
+        if export.status != .completed {
+            throw MergeError.exportFailed(export.error?.localizedDescription ?? "未知原因")
+        }
+        return out
+    }
 }

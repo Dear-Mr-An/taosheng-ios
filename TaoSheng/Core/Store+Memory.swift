@@ -112,6 +112,7 @@ extension Store {
             ensureColumn(table: "segment", column: "bigram", ddl: "ALTER TABLE segment ADD COLUMN bigram TEXT NOT NULL DEFAULT '';")
         ensureColumn(table: "memory_event", column: "edited", ddl: "ALTER TABLE memory_event ADD COLUMN edited INTEGER NOT NULL DEFAULT 0;")
         ensureColumn(table: "memory_event", column: "session_id", ddl: "ALTER TABLE memory_event ADD COLUMN session_id TEXT;")
+        ensureColumn(table: "memory_event", column: "quotes_json", ddl: "ALTER TABLE memory_event ADD COLUMN quotes_json TEXT NOT NULL DEFAULT '';")
         }
     }
 
@@ -158,8 +159,8 @@ extension Store {
         queue.sync { () -> Void in
             let sql = """
             INSERT OR REPLACE INTO memory_event
-            (id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,deleted,created_at,edited,session_id)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+            (id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,deleted,created_at,edited,session_id,quotes_json)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
             """
             // 同一段原话被重新整理时，entity_id 不变 —— 复用旧行的 id，
             // 否则「重新整理」会把同一件事再插一遍，时间线翻倍。
@@ -220,6 +221,7 @@ extension Store {
             sqlite3_bind_double(st, 20, e.createdAt.timeIntervalSince1970)
             sqlite3_bind_int(st, 21, keepEdited ? 1 : 0)
             if let sid = e.sessionId, !sid.isEmpty { bind(st, 22, sid) } else { sqlite3_bind_null(st, 22) }
+            bind(st, 23, EventQuote.encodeAll(e.quotes))
             sqlite3_step(st)
             sqlite3_finalize(st)
         }
@@ -227,7 +229,7 @@ extension Store {
 
     func events(day: String? = nil, limit: Int = 200) -> [MemoryEvent] {
         queue.sync { () -> [MemoryEvent] in
-            var sql = "SELECT id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,created_at,session_id FROM memory_event WHERE deleted=0"
+            var sql = "SELECT id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,created_at,session_id,quotes_json FROM memory_event WHERE deleted=0"
             if day != nil { sql += " AND day=?" }
             sql += " ORDER BY start_at DESC LIMIT \(limit);"
             var st: OpaquePointer?
@@ -244,7 +246,7 @@ extension Store {
 
     func events(from: Date, to: Date, starredOnly: Bool = false, limit: Int = 100) -> [MemoryEvent] {
         queue.sync { () -> [MemoryEvent] in
-            var sql = "SELECT id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,created_at,session_id FROM memory_event WHERE deleted=0 AND start_at>=? AND start_at<=?"
+            var sql = "SELECT id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,created_at,session_id,quotes_json FROM memory_event WHERE deleted=0 AND start_at>=? AND start_at<=?"
             if starredOnly { sql += " AND starred=1" }
             sql += " ORDER BY start_at DESC LIMIT \(limit);"
             var st: OpaquePointer?
@@ -330,12 +332,13 @@ extension Store {
         let created = Date(timeIntervalSince1970: sqlite3_column_double(st, 18))
         let sessionId: String? = sqlite3_column_count(st) > 19 && sqlite3_column_type(st, 19) != SQLITE_NULL
             ? col(st, 19) : nil
+        let quotes = sqlite3_column_count(st) > 20 ? EventQuote.decodeAll(col(st, 20)) : []
         return MemoryEvent(id: id, day: day, startAt: start, endAt: end, scene: scene, title: title,
                            summary: summary, points: points, people: people, place: place,
                            emotion: emotion, intensity: intensity, important: important,
                            starred: starred, starredAt: starredAt, entityId: entityId,
                            lineFrom: lineFrom, lineTo: lineTo, createdAt: created,
-                           sessionId: sessionId)
+                           sessionId: sessionId, quotes: quotes)
     }
 
     // MARK: 提取项
@@ -720,7 +723,7 @@ extension Store {
     func starredEvents(limit: Int = 100) -> [MemoryEvent] {
         queue.sync { () -> [MemoryEvent] in
             var st: OpaquePointer?
-            let sql = "SELECT id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,created_at FROM memory_event WHERE deleted=0 AND starred=1 ORDER BY starred_at DESC LIMIT \(limit);"
+            let sql = "SELECT id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,created_at,quotes_json FROM memory_event WHERE deleted=0 AND starred=1 ORDER BY starred_at DESC LIMIT \(limit);"
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
             var out: [MemoryEvent] = []
             while sqlite3_step(st) == SQLITE_ROW {

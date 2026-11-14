@@ -24,9 +24,33 @@ struct MemoryEvent: Identifiable, Hashable {
     var createdAt: Date
     /// 这一件事是哪个「聆听会话」整理出来的；散段整理的为 nil
     var sessionId: String? = nil
+    /// 速记里的关键原话（3–5 条，带说话人和时间）；老数据为空
+    var quotes: [EventQuote] = []
 
     var timeText: String {
         Fmt.hm.string(from: startAt)
+    }
+
+    /// 这一件是不是「一场会/一场培训」的速记（按场整理的才有 sessionId）
+    var isNote: Bool {
+        guard let s = sessionId else { return false }
+        return !s.isEmpty
+    }
+
+    /// 会议速记 / 培训笔记（场景写死，0.6.0 起会话事件就是这样）
+    var noteTitle: String {
+        NoteRules.noteTitle(forMode: scene == "培训" ? "training" : "meeting")
+    }
+
+    /// 时间线上的小标签：速记 / 笔记
+    var noteTag: String { NoteRules.tag(forScene: scene) }
+
+    /// 结论第一句（「刚结束」卡、时间线两行摘要都用它）
+    var conclusion: String { NoteRules.conclusion(summary) }
+
+    /// 速记的分段（议题/结论先行/要点/决定 或 主题/核心要点/知识点/行动）
+    var noteSections: [NoteSection] {
+        NoteRules.sections(forMode: scene == "培训" ? "training" : "meeting", points: points)
     }
 
     var durationText: String {
@@ -38,6 +62,14 @@ struct MemoryEvent: Identifiable, Hashable {
     }
 
     /// 「三分 12 秒」这种时长说法，纪要里标每人发言时长用
+    /// 「14:51–15:00」这种起止时间，速记卡片和抽屉的副标题用
+    var timeRangeText: String {
+        let s = Fmt.hm.string(from: startAt)
+        guard let end = endAt else { return s }
+        let e = Fmt.hm.string(from: end)
+        return s == e ? s : "\(s)–\(e)"
+    }
+
     static func durationLabel(_ seconds: Double) -> String {
         let s = Int(seconds.rounded())
         if s < 60 { return "\(s) 秒" }
