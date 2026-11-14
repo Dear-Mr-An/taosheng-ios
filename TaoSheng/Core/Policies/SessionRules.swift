@@ -213,7 +213,6 @@ public enum SceneRules {
     public static func scene(forMode raw: String?) -> String {
         switch raw ?? "" {
         case "training": return training
-        case "call": return call
         default: return meeting
         }
     }

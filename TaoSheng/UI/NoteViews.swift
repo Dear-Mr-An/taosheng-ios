@@ -25,7 +25,7 @@ struct HourRail: View {
     @State private var dragY: CGFloat?
 
     private var heights: [CGFloat] {
-        RailRules.heights(counts: slots.map { $0.count }, total: slots.reduce(0) { $0 + $1.count })
+        RailRules.heights(counts: slots.map { $0.count }, total: Double(slots.reduce(0) { $0 + $1.count }))
             .map { CGFloat($0) }
     }
     private var tops: [CGFloat] { RailRules.tops(heights.map { Double($0) }).map { CGFloat($0) } }
