@@ -84,9 +84,10 @@ test('all segment readers return the persisted mode in the twelfth column', () =
     for (const [file, name, params, id, mode] of cases) {
       const statement = db.prepare(sqlIn(file, name));
       // 0.5.2 起多带一列 starred（列表要显示星标状态）
-      assert.equal(statement.columns().length, 13, name);
+    assert.equal(statement.columns().length, 14, name);
       assert.equal(statement.columns()[11].name, 'capture_mode', name);
       assert.equal(statement.columns()[12].name, 'starred', name);
+    assert.equal(statement.columns()[13].name, 'session_id', name);
       assert.equal(statement.all(...params).find(row => row.id === id)?.capture_mode, mode, name);
     }
     db.prepare('UPDATE segment SET digested=1 WHERE id=?').run('seg-call');
