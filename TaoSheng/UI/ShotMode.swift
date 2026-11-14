@@ -56,7 +56,10 @@ enum ShotDemo {
                 scene: "会议",
                 title: "和周工确认交付时间",
                 summary: "下周三之前把接口联调完，周五一起去客户现场。",
-                points: ["接口文档今晚发过去", "周五上午十点出发"],
+                points: ["议题：接口联调排期与交付时间",
+                         "结论先行：下周三之前联调完，周五一起去客户现场",
+                         "要点：前端今天给一版；网关白名单明天配好；联调环境用测试网关",
+                         "决定：联调以周工的时间为准，其他人配合"],
                 people: ["我", "周工"],
                 place: "会议室",
                 emotion: "平静",
@@ -68,7 +71,13 @@ enum ShotDemo {
                 lineFrom: 1,
                 lineTo: 2,
                 createdAt: now,
-                sessionId: meetingSessionID))
+                sessionId: meetingSessionID,
+                quotes: [EventQuote(speaker: "说话人2", time: "13:31",
+                                    text: "下周三之前把接口联调完，别拖到月底。"),
+                         EventQuote(speaker: "我", time: "13:33",
+                                    text: "前端今天先给一版，网关白名单我明天配好。"),
+                         EventQuote(speaker: "说话人3", time: "13:36",
+                                    text: "周五上午十点出发，提前十分钟到楼下。")]))
         }
 
         if Store.shared.items(day: day, status: nil, category: nil, limit: 1).isEmpty {
@@ -227,7 +236,10 @@ enum ShotDemo {
             let ev = MemoryEvent(id: "shot-rail-\(i + 1)", day: day,
                                  startAt: at, endAt: at.addingTimeInterval(600),
                                  scene: s.1, title: s.2, summary: s.3,
-                                 points: [], people: ["我"], place: nil,
+                                 points: s.1 == "会议"
+                                     ? ["议题：" + s.2, "结论先行：" + s.3, "要点：时间先定下来，其余按老流程走"]
+                                     : [],
+                                 people: ["我"], place: nil,
                                  emotion: "平静", intensity: 2, important: false,
                                  starred: false, starredAt: nil,
                                  entityId: "shot-rail-entity-\(i + 1)",

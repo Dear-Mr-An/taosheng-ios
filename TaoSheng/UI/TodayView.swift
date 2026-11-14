@@ -494,6 +494,7 @@ struct TodayView: View {
                             }
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     if timelineEvents.count > 8, !railSlots.isEmpty {
                         HourRail(slots: railSlots,
                                  autoHeight: CGFloat(RailRules.railHeight(slotCount: railSlots.count,
@@ -504,6 +505,7 @@ struct TodayView: View {
                                 proxy.scrollTo("tl-\(key)", anchor: .top)
                             }
                         }
+                        .frame(width: 30)
                         .padding(.top, 26)
                     }
                 }
@@ -536,6 +538,20 @@ struct TodayView: View {
     }
 
     private var digestAgo: String {
+        // 状态只从会话推：上面写「已整理」，右下也必须说这一场的事
+        if let s = flow.current {
+            switch s.state {
+            case .done:
+                if let end = s.endedAt { return Fmt.hm.string(from: end) + " 整理完" }
+                return "这一场已整理"
+            case .failed:
+                return "这一场没整理成，可重试"
+            case .digesting, .finalizing:
+                return "正在整理这一场…"
+            case .recording:
+                break
+            }
+        }
         let t = digest.lastRunAt ?? lastReviewAt
         guard let t = t else { return "还没整理过" }
         let m = Int(Date().timeIntervalSince(t) / 60)

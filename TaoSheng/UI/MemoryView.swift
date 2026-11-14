@@ -445,6 +445,7 @@ struct MemoryView: View {
                             }
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     if items.count > 8 {
                         HourRail(slots: railSlots(items),
                                  autoHeight: RailRules.railHeight(slotCount: railSlots(items).count,
@@ -455,6 +456,7 @@ struct MemoryView: View {
                                 proxy.scrollTo("tl-\(key)", anchor: .top)
                             }
                         }
+                        .frame(width: 30)
                         .padding(.top, 26)
                     }
                 }
@@ -658,37 +660,72 @@ struct MemoryView: View {
 struct CardView: View {
     let card: SkillCard
 
+    private var title: String {
+        if let t = card.fields["title"], !t.isEmpty { return t }
+        let s = card.fields["summary"] ?? ""
+        let c = NoteRules.conclusion(s)
+        return c.isEmpty ? card.skillName : c
+    }
+
+    private var summary: String {
+        let s = card.fields["summary"] ?? ""
+        return s == title ? "" : s
+    }
+
+    private var points: [String] {
+        (card.fields["points"] ?? "")
+            .split(whereSeparator: { $0 == "\n" })
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    private var timeText: String {
+        guard let st = card.startAt else { return "" }
+        let a = Fmt.hm.string(from: st)
+        guard let en = card.endAt else { return a }
+        return a + "–" + Fmt.hm.string(from: en)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "rectangle.stack.badge.person.crop")
-                    .font(.system(size: 12)).foregroundColor(Theme.accent)
-                Text(card.skillName)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(Theme.text)
-                Spacer()
-                if let s = card.startAt {
-                    Text(DigestEngine.hms(s))
-                        .font(.system(size: 11)).foregroundColor(Theme.dim2)
-                }
-            }
-            ForEach(Array(card.fields.keys.sorted()), id: \.self) { k in
-                let v = card.fields[k] ?? ""
-                if !v.isEmpty {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(k)
-                            .font(.system(size: 10.5)).foregroundColor(Theme.dim2)
-                        Text(v)
-                            .font(.system(size: 12.5)).foregroundColor(Theme.text2)
-                            .lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Theme.bgDeep)
+                .frame(width: 34, height: 34)
+                .overlay(
+                    Image(systemName: "person.2.wave.2")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Theme.accent)
+                )
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 4) {
+                    Text(card.skillName)
+                        .font(.system(size: Theme.fsCaption, weight: .medium))
+                        .foregroundColor(Theme.dim)
+                    if !timeText.isEmpty {
+                        Text("· " + timeText)
+                            .font(.system(size: Theme.fsCaption))
+                            .foregroundColor(Theme.dim2)
                     }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(Theme.dim2)
                 }
+                Text(title)
+                    .font(.system(size: Theme.fsBody, weight: .semibold))
+                    .foregroundColor(Theme.text)
+                    .lineLimit(1)
+                Text(summary.isEmpty ? points.prefix(2).joined(separator: "；") : summary)
+                    .font(.system(size: Theme.fsSmall))
+                    .foregroundColor(Theme.text2)
+                    .lineSpacing(2)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(12)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.cardSoft)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
     }
 }
 
