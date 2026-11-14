@@ -43,8 +43,10 @@ enum SessionMerger {
         for seg in usable {
             let url = Store.audioDir.appendingPathComponent(seg.fileName)
             let asset = AVURLAsset(url: url)
-            guard let src = asset.tracks(withMediaType: .audio).first else { continue }
-            let range = CMTimeRange(start: .zero, duration: asset.duration)
+            // iOS 16 起同步取 track / duration 都标了废弃，这里改用异步加载，编译不留警告
+            let tracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
+            guard let src = tracks.first, let length = try? await asset.load(.duration) else { continue }
+            let range = CMTimeRange(start: .zero, duration: length)
             do {
                 try track.insertTimeRange(range, of: src, at: cursor)
             } catch {
@@ -52,7 +54,7 @@ enum SessionMerger {
                 continue
             }
             offsets[seg.id] = cursor.seconds
-            cursor = CMTimeAdd(cursor, asset.duration)
+            cursor = CMTimeAdd(cursor, length)
         }
         guard cursor.seconds > 0.2 else { throw MergeError.empty }
 
