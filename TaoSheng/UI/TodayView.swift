@@ -98,6 +98,7 @@ struct TodayView: View {
                     Text(heroCollapsed ? "展开" : "收起")
                         .font(.system(size: 12))
                         .foregroundColor(.white.opacity(0.8))
+                        .tapTarget(10)
                 }
                 .buttonStyle(.plain)
             }
@@ -166,26 +167,29 @@ struct TodayView: View {
 
     private var modeRow: some View {
         VStack(alignment: .leading, spacing: 6) {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 88), spacing: 8, alignment: .leading)],
-                      alignment: .leading, spacing: 8) {
+            // 四个模式一行排开、等宽：原来用自适应网格，窄屏会折成 3+1 两行。
+            HStack(spacing: 6) {
                 ForEach(CaptureMode.allCases) { m in
                     Button {
                         switchMode(m)
                     } label: {
-                        HStack(spacing: 4) {
+                        HStack(spacing: 3) {
                             Image(systemName: m.symbol)
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: 10.5, weight: .medium))
                             Text(m.title)
-                                .font(.system(size: 12.5, weight: .medium))
+                                .font(.system(size: 12, weight: .medium))
                                 .lineLimit(1)
+                                .minimumScaleFactor(0.8)
                         }
                         .foregroundColor(settings.captureMode == m ? Theme.accent : Color.white)
-                        .padding(.horizontal, 11)
+                        .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                         .background(settings.captureMode == m ? Color.white : Color.white.opacity(0.18))
                         .clipShape(Capsule())
+                        .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(m.title)
                 }
             }
             Text(settings.captureMode.hint)
@@ -260,7 +264,10 @@ struct TodayView: View {
     }
 
     private var heroDivider: some View {
-        Rectangle().fill(Color.white.opacity(0.22)).frame(width: 1, height: 30)
+        Rectangle().fill(Color.white.opacity(0.22))
+            .frame(width: 1, height: 30)
+            // 竖线两侧留 12pt：原来紧贴数字，看起来像「|1」「|2」
+            .padding(.horizontal, 12)
     }
 
     // MARK: 今日节律
@@ -335,6 +342,7 @@ struct TodayView: View {
                 if app.todayEvents.count > 6 {
                     Button { showTimeline = true } label: {
                         Text("全部 >").font(.system(size: 12.5)).foregroundColor(Theme.accent)
+                            .tapTarget(10)
                     }
                     .buttonStyle(.plain)
                 }

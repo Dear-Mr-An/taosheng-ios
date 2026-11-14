@@ -162,6 +162,7 @@ struct TodosView: View {
                     Image(systemName: it.status == .done ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 19))
                         .foregroundColor(it.status == .done ? Theme.ok : Theme.dim2)
+                        .tapTarget(10)
                 }
                 .buttonStyle(.plain)
 

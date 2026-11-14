@@ -9,7 +9,7 @@ enum LLMError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notConfigured:
-            return "还没配置 DeepSeek。去 设置 → 整理模型 → 编辑，填上 API Key。"
+            return "还没配置 DeepSeek。去 设置 → 模型与整理 → 编辑，填上 API Key。"
         case .http(let code, let body):
             return "大模型接口返回 \(code)：\(body.prefix(220))"
         case .badReply(let b):

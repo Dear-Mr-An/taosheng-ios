@@ -836,7 +836,8 @@ extension Store {
         queue.sync {
             for t in ["segment", "item", "digest", "person", "voice_sample", "skill",
                       "skill_run", "channel", "place", "reminder", "review", "ask", "hotword",
-                      "memory_event", "memory_item", "skill_card", "thing", "thing_fact", "env_tag"] {
+                      "memory_event", "memory_item", "skill_card", "thing", "thing_fact", "env_tag",
+                      "voice_cluster"] {
                 exec("DELETE FROM \(t);")
             }
         }

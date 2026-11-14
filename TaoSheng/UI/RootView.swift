@@ -35,7 +35,12 @@ struct RootView: View {
             }
         }
         .animation(.easeOut(duration: 0.18), value: kb.isVisible)
-        .onReceive(NotificationCenter.default.publisher(for: .taoshengAskPrefill)) { _ in
+        // 「问问」的预填问题写在 AppState 上：
+        // 发通知时 AskView 往往还不存在（用户在事件详情里），只在 AskView 自己的监听里赋值会整条丢掉。
+        .onReceive(NotificationCenter.default.publisher(for: .taoshengAskPrefill)) { note in
+            if let q = note.userInfo?["q"] as? String, !q.isEmpty {
+                AppState.shared.askPending = q
+            }
             withAnimation(.easeOut(duration: 0.16)) { tab = 1 }
         }
         .sheet(isPresented: Binding(get: { shotSheet != nil }, set: { if !$0 { shotSheet = nil } })) {

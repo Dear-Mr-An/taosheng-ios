@@ -76,16 +76,19 @@ struct AskView: View {
             }
             .environmentObject(app)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .taoshengAskPrefill)) { note in
-            if let q = note.userInfo?["q"] as? String, !q.isEmpty {
-                app.askPending = q
-            }
-        }
+        // 预填问题由 RootView 写进 AppState.askPending；这里既处理「切过来就已经有值」，
+        // 也处理「已经停在问问页、值后到」的情况，两种情况都能落到输入框里。
         .onAppear {
-            if let q = app.askPending {
+            if let q = app.askPending, !q.isEmpty {
                 app.askPending = nil
                 input = q
             }
+        }
+        .onChange(of: app.askPending) { q in
+            guard let q, !q.isEmpty else { return }
+            app.askPending = nil
+            input = q
+            focused = true
         }
     }
 
@@ -97,7 +100,7 @@ struct AskView: View {
                     .font(.system(size: Theme.fsHero, weight: .bold))
                     .foregroundStyle(Theme.text)
                 Text(settings.effectiveLLM.key.isEmpty
-                     ? "还没配大模型，去设置 → 转写与大模型"
+                     ? "还没配大模型，去设置 → 模型与整理"
                      : "答句都带原话出处 · \(settings.llmModel)")
                     .font(.system(size: 12))
                     .foregroundStyle(settings.effectiveLLM.key.isEmpty ? Theme.warn : Theme.dim)

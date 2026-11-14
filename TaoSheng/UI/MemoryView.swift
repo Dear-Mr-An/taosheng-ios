@@ -237,6 +237,7 @@ struct MemoryView: View {
                         Text("查看完整回顾")
                             .font(.system(size: 12.5))
                             .foregroundColor(Theme.accent)
+                            .tapTarget(10)
                     }
                     .buttonStyle(.plain)
                 }

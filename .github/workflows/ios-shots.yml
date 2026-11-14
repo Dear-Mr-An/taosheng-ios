@@ -16,7 +16,7 @@ jobs:
   shots:
     name: 模拟器截图
     runs-on: macos-15
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - name: 取出代码
         uses: actions/checkout@v4
@@ -70,7 +70,8 @@ jobs:
           fi
           BID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist")
           OUT="$GITHUB_WORKSPACE/shots"
-          mkdir -p "$OUT"
+          LOGS="$OUT/logs"
+          mkdir -p "$OUT" "$LOGS"
 
           # 运行时与设备类型按 runner 上真实可用的做兜底，避免 "Unable to find a device"
           RT=$(xcrun simctl list runtimes | grep -E '^iOS [0-9]+(\.[0-9]+)* ' | tail -n 1 | sed -E 's/.*(com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9-]+).*/\1/')
@@ -108,6 +109,19 @@ jobs:
             if [ -n "$TMO" ]; then "$TMO" "$SECS" "$@"; else "$@"; fi
           }
 
+          # 关掉系统引导页，否则键盘起来时会被「滑动输入」介绍盖住
+          quiet_system_ui() {
+            DEV="$1"
+            for k in DidShowContinuousPathIntroduction DidShowGestureKeyboardIntroduction DidShowContinuousPathIntroductionV2; do
+              tmo 30 xcrun simctl spawn "$DEV" defaults write com.apple.Preferences "$k" -bool true 2>/dev/null || true
+              tmo 30 xcrun simctl spawn "$DEV" defaults write com.apple.keyboard.preferences "$k" -bool true 2>/dev/null || true
+            done
+            tmo 30 xcrun simctl spawn "$DEV" defaults write com.apple.Preferences DidShowKeyboardIntroduction -bool true 2>/dev/null || true
+            # 语言/区域固定，避免首次启动的引导
+            tmo 30 xcrun simctl spawn "$DEV" defaults write NSGlobalDomain AppleLanguages -array zh-Hans 2>/dev/null || true
+            tmo 30 xcrun simctl spawn "$DEV" defaults write NSGlobalDomain AppleLocale -string zh_CN 2>/dev/null || true
+          }
+
           # 全程带超时，避免 simctl 在 CI 上卡死把整个 job 拖到 timeout
           boot_dev() {
             DEV="$1"
@@ -120,26 +134,56 @@ jobs:
               echo "[$(date +%T)] 启动超时，设备未就绪"
               xcrun simctl list devices | grep -F "$DEV" || true
             fi
+            quiet_system_ui "$DEV"
             sleep 3
           }
 
+          app_running() {
+            DEV="$1"
+            tmo 30 xcrun simctl spawn "$DEV" launchctl list 2>/dev/null | grep -q "$BID"
+          }
+
+          dump_diag() {
+            DEV="$1"; NAME="$2"
+            echo "  == 诊断 $NAME"
+            tmo 60 xcrun simctl spawn "$DEV" log show --last 90s --style compact \
+              --predicate "process == \"TaoSheng\" OR eventMessage CONTAINS \"TaoSheng\"" \
+              > "$LOGS/$NAME-app.log" 2>/dev/null || true
+            tail -n 40 "$LOGS/$NAME-app.log" || true
+            cp -R "$HOME/Library/Logs/DiagnosticReports" "$LOGS/$NAME-crashes" 2>/dev/null || true
+            ls -la "$LOGS/$NAME-crashes" 2>/dev/null | tail -n 10 || true
+            tmo 60 xcrun simctl spawn "$DEV" launchctl list 2>/dev/null | head -n 40 > "$LOGS/$NAME-launchctl.txt" || true
+          }
+
           shoot_dev() {
-            DEV="$1"; NAME="$2"; SCREEN="$3"; WAIT="${4:-5}"
+            DEV="$1"; NAME="$2"; SCREEN="$3"; WAIT="${4:-6}"
             echo "[$(date +%T)] == $NAME / $SCREEN"
-            if tmo 90 xcrun simctl install "$DEV" "$APP"; then
-              echo "  安装成功"
-            else
+            if ! tmo 120 xcrun simctl install "$DEV" "$APP"; then
               echo "  安装失败，跳过 $SCREEN"
               return 0
             fi
-            tmo 60 xcrun simctl launch "$DEV" "$BID" -TSShot "$SCREEN" || echo "  启动超时"
+            tmo 60 xcrun simctl launch "$DEV" "$BID" -TSShot "$SCREEN" || echo "  启动返回非零"
             sleep "$WAIT"
+            # 小屏曾经截到桌面：先确认 App 还活着，没活着就重试一次并落日志
+            if ! app_running "$DEV"; then
+              echo "  App 不在运行，重试一次"
+              dump_diag "$DEV" "$NAME-$SCREEN-fail1"
+              tmo 60 xcrun simctl launch "$DEV" "$BID" -TSShot "$SCREEN" || true
+              sleep "$WAIT"
+            fi
+            if app_running "$DEV"; then
+              echo "  App 运行中"
+            else
+              echo "  App 仍未运行，记录诊断"
+              dump_diag "$DEV" "$NAME-$SCREEN-fail2"
+            fi
             if tmo 60 xcrun simctl io "$DEV" screenshot "$OUT/$NAME-$SCREEN.png"; then
-              echo "  截图 $NAME-$SCREEN.png"
+              echo "  截图 $NAME-$SCREEN.png  $(stat -f%z "$OUT/$NAME-$SCREEN.png") bytes"
             else
               echo "  截图失败 $NAME/$SCREEN"
             fi
             tmo 30 xcrun simctl terminate "$DEV" "$BID" 2>/dev/null || true
+            sleep 1
           }
 
           if [ -n "$BIG" ]; then
@@ -150,9 +194,9 @@ jobs:
             shoot_dev "$DEV" "iphone16" "today"
             shoot_dev "$DEV" "iphone16" "ask"
             shoot_dev "$DEV" "iphone16" "memory"
-            shoot_dev "$DEV" "iphone16" "recording-bottom" 6
-            shoot_dev "$DEV" "iphone16" "person-add" 6
-            shoot_dev "$DEV" "iphone16" "event-edit" 6
+            shoot_dev "$DEV" "iphone16" "recording-bottom" 8
+            shoot_dev "$DEV" "iphone16" "person-add" 8
+            shoot_dev "$DEV" "iphone16" "event-edit" 8
             tmo 60 xcrun simctl shutdown "$DEV" 2>/dev/null || true
           fi
           if [ -n "$SMALL" ]; then
@@ -160,6 +204,9 @@ jobs:
             echo "小屏设备: $DEVS"
             boot_dev "$DEVS"
             shoot_dev "$DEVS" "iphonese" "todo"
+            shoot_dev "$DEVS" "iphonese" "today"
+            shoot_dev "$DEVS" "iphonese" "recording-bottom" 8
+            shoot_dev "$DEVS" "iphonese" "person-add" 8
             tmo 60 xcrun simctl shutdown "$DEVS" 2>/dev/null || true
           fi
 
@@ -169,7 +216,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shots-052
+          name: shots-053
           path: ${{ github.workspace }}/shots
           retention-days: 30
           if-no-files-found: warn

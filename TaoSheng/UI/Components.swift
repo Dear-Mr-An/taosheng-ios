@@ -115,6 +115,7 @@ struct SegmentRow: View {
                 Image(systemName: player.playingID == seg.id ? "pause.circle.fill" : "play.circle.fill")
                     .font(.system(size: 20))
                     .foregroundStyle(Theme.accent.opacity(0.85))
+                    .tapTarget(10)
             }
             .buttonStyle(.plain)
         }
@@ -162,10 +163,16 @@ struct EventRow: View {
                         .foregroundColor(Theme.dim2)
                         .padding(.horizontal, 5).padding(.vertical, 1)
                         .background(Theme.bgDeep).clipShape(Capsule())
-                    if event.starred {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 9)).foregroundColor(Theme.warn)
+                    Button {
+                        onStar()
+                    } label: {
+                        Image(systemName: event.starred ? "star.fill" : "star")
+                            .font(.system(size: event.starred ? 9 : 10))
+                            .foregroundColor(event.starred ? Theme.warn : Theme.dim2.opacity(0.7))
+                            .tapTarget(10)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(event.starred ? "取消重点" : "标为重点")
                     Spacer()
                     if event.important {
                         Image(systemName: "exclamationmark.circle.fill")

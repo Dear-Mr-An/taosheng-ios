@@ -13,7 +13,7 @@ struct EventDetailView: View {
     @State private var shotOpened = false
     // 播放按钮要跟着播放器状态走，否则点了不变化
     @ObservedObject private var player = SegmentPlayer.shared
-    @State private var showEdit = false
+    @State private var editItem: EditPayload?
     @State private var draftTitle = ""
     @State private var draftSummary = ""
     @State private var toast: String?
@@ -102,20 +102,20 @@ struct EventDetailView: View {
         .onAppear {
             if ShotMode.screen == "event-edit", !shotOpened {
                 shotOpened = true
-                draftTitle = current.title
-                draftSummary = current.summary
-                showEdit = true
+                editItem = EditPayload(title: current.title, summary: current.summary)
                 return
             }
             draftTitle = event.title
             draftSummary = event.summary
         }
         .task { await loadLines() }
-        .sheet(isPresented: $showEdit) {
+        // 用 sheet(item:) 把初始值一起带进去：
+        // 如果先改 draft 再置 isPresented，弹层会拿到改动前的旧值（标题、摘要都是空的）。
+        .sheet(item: $editItem) { item in
             TextInputSheet(title: "编辑这件事",
                            fields: [
-                               TextInputField(label: "标题", placeholder: "这件事叫什么", text: draftTitle),
-                               TextInputField(label: "摘要", placeholder: "一两句话说明", kind: .multiline, text: draftSummary)
+                               TextInputField(label: "标题", placeholder: "这件事叫什么", text: item.title),
+                               TextInputField(label: "摘要", placeholder: "一两句话说明", kind: .multiline, text: item.summary)
                            ],
                            confirmTitle: "保存",
                            message: "改过之后，自动整理不会再覆盖你写的标题和摘要。") { values in
@@ -161,9 +161,7 @@ struct EventDetailView: View {
             .buttonStyle(.plain)
             Button {
                 // 每次打开都用最新的 current 重置草稿，取消不会残留上一次的输入
-                draftTitle = current.title
-                draftSummary = current.summary
-                showEdit = true
+                editItem = EditPayload(title: current.title, summary: current.summary)
             } label: {
                 Text("编辑")
                     .font(.system(size: 13, weight: .medium))
@@ -220,6 +218,7 @@ struct EventDetailView: View {
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundColor(Theme.accent)
                             .frame(width: 32, height: 32)
+                    .tapTarget(6)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -405,4 +404,11 @@ struct EventDetailView: View {
 extension Notification.Name {
     /// 从别处点「问问」时，把问题预填进问问页
     static let taoshengAskPrefill = Notification.Name("taoshengAskPrefill")
+}
+
+/// 编辑弹层的初始值。跟着 item 一起传进 sheet，避免读到上一次的草稿。
+private struct EditPayload: Identifiable {
+    let id = UUID()
+    var title: String
+    var summary: String
 }

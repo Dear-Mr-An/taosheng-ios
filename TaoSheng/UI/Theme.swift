@@ -221,3 +221,13 @@ struct AvatarDot: View {
             .clipShape(Circle())
     }
 }
+
+extension View {
+    /// 扩大点击区但不改布局：内容外扩 pad，再用负 padding 把占位收回原尺寸。
+    /// 小图标（勾选圈、星标、播放、文字按钮）统一用它，避免点不上。
+    func tapTarget(_ pad: CGFloat = 10) -> some View {
+        padding(pad)
+            .contentShape(Rectangle())
+            .padding(-pad)
+    }
+}

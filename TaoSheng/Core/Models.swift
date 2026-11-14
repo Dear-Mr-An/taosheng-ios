@@ -117,8 +117,11 @@ enum DayKey {
     }
 }
 
+/// 所有表的主键都由这里生成。
+/// 以前是 8 位十六进制前缀，撞库概率虽然不高，但一旦撞上就是 INSERT OR REPLACE 静默覆盖整行，
+/// 所以直接改成完整 UUID（老数据不迁移，主键仍然是字符串）。
 func shortID() -> String {
-    String(UUID().uuidString.prefix(8)).lowercased()
+    UUID().uuidString.lowercased()
 }
 
 // MARK: - 待办时间解析（due 可能是 "明天 15:00" / "2026-11-12 15:00" / "15:00"）

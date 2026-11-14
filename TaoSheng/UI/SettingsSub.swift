@@ -184,7 +184,7 @@ struct HotwordView: View {
                         Button {
                             app.deleteHotword(h.id)
                         } label: {
-                            Image(systemName: "trash").foregroundStyle(Theme.bad)
+                            Image(systemName: "trash").foregroundStyle(Theme.bad).tapTarget(10)
                         }
                         .buttonStyle(.plain)
                     }
@@ -202,8 +202,7 @@ struct HotwordView: View {
 // MARK: - 声纹与人物
 struct PersonsView: View {
     @EnvironmentObject var app: AppState
-    @State private var newName = ""
-    @State private var showAdd = false
+    @State private var addItem: AddPerson?
     @State private var shotOpened = false
 
     var body: some View {
@@ -243,8 +242,7 @@ struct PersonsView: View {
 
             Section {
                 Button {
-                    newName = ""
-                    showAdd = true
+                    addItem = AddPerson()
                 } label: {
                     Label("添加人物", systemImage: "person.badge.plus")
                 }
@@ -259,17 +257,17 @@ struct PersonsView: View {
             // 截图模式：直接弹出新增人物，看输入框有没有被裁
             if ShotMode.screen == "person-add", !shotOpened {
                 shotOpened = true
-                showAdd = true
+                addItem = AddPerson()
             }
         }
-        .sheet(isPresented: $showAdd) {
+        // sheet(item:)：新建人物没有初始值，但仍然统一走 item，避免和「先改状态再置 isPresented」的时序坑
+        .sheet(item: $addItem) { _ in
             TextInputSheet(title: "新的人物",
-                           fields: [TextInputField(label: "名字", placeholder: "例如 老王", text: newName)],
+                           fields: [TextInputField(label: "名字", placeholder: "例如 老王", text: "")],
                            confirmTitle: "添加",
                            message: "指定一次原话，之后就能自动认出这个人的声音。") { values in
-                let n = values.first ?? ""
+                let n = (values.first ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 if !n.isEmpty { app.addPerson(name: n) }
-                newName = ""
             }
         }
     }
@@ -913,7 +911,7 @@ struct ModelSettingsView: View {
                     .foregroundColor(Theme.text)
                 Spacer(minLength: 0)
                 Button { showTranscribe = true } label: {
-                    Text("模型和转写设置")
+                    Text("模型与整理")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(Theme.accent)
                 }
@@ -1651,7 +1649,7 @@ struct AboutView: View {
     }
 }
 
-// MARK: - 模型和转写设置（弹窗）
+// MARK: - 模型与整理（弹窗）
 
 struct TranscribeSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
@@ -1680,7 +1678,7 @@ struct TranscribeSettingsSheet: View {
                 .padding(.bottom, 40)
             }
             .background(Theme.bg.ignoresSafeArea())
-            .navigationTitle("模型和转写设置")
+            .navigationTitle("模型与整理")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -2120,4 +2118,9 @@ private struct DeepSeekEditorSheet: View {
             .onAppear { key = settings.llmKey; model = settings.llmModel }
         }
     }
+}
+
+/// 打开「新的人物」弹层用的标记，跟着 sheet(item:) 走。
+private struct AddPerson: Identifiable {
+    let id = UUID()
 }
