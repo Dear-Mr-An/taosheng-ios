@@ -736,12 +736,12 @@ struct TimelineFullView: View {
                 // 截图模式：滚到中段，让小时轴和中间几条一起入画
                 guard ShotMode.screen == "timeline-rail", !events.isEmpty else { return }
                 try? await Task.sleep(nanoseconds: 500_000_000)
-                let mid = events[events.count / 2]
-                // 让中间那条正好停在列表顶部：截图里「顶部那条的时间」和小时轴高亮的格子对得上。
-                // 第一次滚动时列表可能还没排完版，会停在别的行上，所以隔一会儿再滚一次。
-                withAnimation(nil) { proxy.scrollTo("tl-\(mid.id)", anchor: .top) }
+                guard let first = events.first else { return }
+                // 截图：停在列表开头。演示数据只有十来条，滚到中间会顶到最大偏移、把顶部那行切掉一半，
+                // 图里就看不出「高亮的是哪一条」。停最上面时顶部那条完整可见，和高亮格子一一对应。
+                withAnimation(nil) { proxy.scrollTo("tl-\(first.id)", anchor: .top) }
                 try? await Task.sleep(nanoseconds: 700_000_000)
-                withAnimation(nil) { proxy.scrollTo("tl-\(mid.id)", anchor: .top) }
+                withAnimation(nil) { proxy.scrollTo("tl-\(first.id)", anchor: .top) }
             }
             .navigationTitle("时间线")
             .navigationBarTitleDisplayMode(.inline)
