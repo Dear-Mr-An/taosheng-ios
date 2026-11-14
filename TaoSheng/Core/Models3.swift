@@ -22,6 +22,8 @@ struct MemoryEvent: Identifiable, Hashable {
     var lineFrom: Int
     var lineTo: Int
     var createdAt: Date
+    /// 这一件事是哪个「聆听会话」整理出来的；散段整理的为 nil
+    var sessionId: String? = nil
 
     var timeText: String {
         Fmt.hm.string(from: startAt)
@@ -32,6 +34,15 @@ struct MemoryEvent: Identifiable, Hashable {
         let m = Int(e.timeIntervalSince(startAt) / 60)
         if m < 1 { return "不到 1 分钟" }
         if m < 60 { return "\(m) 分钟" }
+        return "\(m / 60) 小时 \(m % 60) 分"
+    }
+
+    /// 「三分 12 秒」这种时长说法，纪要里标每人发言时长用
+    static func durationLabel(_ seconds: Double) -> String {
+        let s = Int(seconds.rounded())
+        if s < 60 { return "\(s) 秒" }
+        let m = s / 60
+        if m < 60 { return s % 60 == 0 ? "\(m) 分钟" : "\(m) 分 \(s % 60) 秒" }
         return "\(m / 60) 小时 \(m % 60) 分"
     }
 

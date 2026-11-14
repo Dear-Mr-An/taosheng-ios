@@ -40,7 +40,8 @@ final class TranscribeQueue: ObservableObject {
         timer = nil
     }
 
-    func tick(manual: Bool = false) {
+    /// live = 会话里的实时转写：跳过「多久转一次」的间隔限制，网络和开关规则照旧。
+    func tick(manual: Bool = false, live: Bool = false) {
         let s = Settings.shared
         // 手动点「现在转写」时不受「自动转写」开关和间隔限制，
         // 否则关掉自动转写后按钮点了毫无反应，用户以为卡死。
@@ -59,7 +60,7 @@ final class TranscribeQueue: ObservableObject {
         }
         // 间隔由「多久转写一次」决定；实时档就是每 60 秒看一次
         let interval = Double(max(1, s.transcribeIntervalMin)) * 60
-        guard manual || Date().timeIntervalSince(lastRun) >= interval else {
+        guard manual || live || Date().timeIntervalSince(lastRun) >= interval else {
             refreshPending()
             return
         }
@@ -110,8 +111,8 @@ final class TranscribeQueue: ObservableObject {
                         continue
                     }
                     do {
-                        let raw = try await transcriber.transcribe(fileURL: url)
-                        var cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let result = try await transcriber.transcribe(fileURL: url)
+                        var cleaned = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !cleaned.isEmpty {
                             cleaned = HotwordFix.apply(cleaned)
                         }

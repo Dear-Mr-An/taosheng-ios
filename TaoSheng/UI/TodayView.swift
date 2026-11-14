@@ -83,11 +83,13 @@ struct TodayView: View {
             HStack(spacing: 8) {
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(capture.isRunning ? Color.white : Color.white.opacity(0.45))
+                        .fill(flow.isRecording ? Color.white : Color.white.opacity(0.45))
                         .frame(width: 7, height: 7)
-                    Text(capture.isRunning ? "正在聆听" : "已暂停")
+                    Text(heroStatus)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
 
                 Spacer()
@@ -110,6 +112,11 @@ struct TodayView: View {
                 listenButton
                     .padding(.top, 10)
 
+                if flow.isRecording || !liveLines.isEmpty {
+                    liveTranscript
+                        .padding(.top, 10)
+                }
+
                 Divider()
                     .overlay(Color.white.opacity(0.25))
                     .padding(.vertical, 12)
@@ -126,28 +133,45 @@ struct TodayView: View {
                     .font(.system(size: 11.5))
                     .foregroundColor(.white.opacity(0.78))
                     .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 10)
 
                 HStack(spacing: 8) {
-                    Button {
-                        Task { await runDigest() }
-                    } label: {
-                        HStack(spacing: 5) {
-                            if digest.running {
-                                ProgressView().scaleEffect(0.7).tint(.white)
-                            } else {
-                                Image(systemName: "sparkles").font(.system(size: 12))
+                    if flow.canRetry {
+                        Button {
+                            flow.retry()
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "arrow.clockwise").font(.system(size: 12))
+                                Text("重试").font(.system(size: 12.5, weight: .medium))
                             }
-                            Text(digest.running ? "正在整理…" : "现在整理")
-                                .font(.system(size: 12.5, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(Color.white.opacity(0.26))
+                            .clipShape(Capsule())
                         }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(Color.white.opacity(0.22))
-                        .clipShape(Capsule())
+                        .buttonStyle(.plain)
+                    } else {
+                        Button {
+                            Task { await runDigest() }
+                        } label: {
+                            HStack(spacing: 5) {
+                                if digest.running {
+                                    ProgressView().scaleEffect(0.7).tint(.white)
+                                } else {
+                                    Image(systemName: "sparkles").font(.system(size: 12))
+                                }
+                                Text(digest.running ? "正在整理…" : "现在整理")
+                                    .font(.system(size: 12.5, weight: .medium))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(Color.white.opacity(0.22))
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(digest.running)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(digest.running)
 
                     Spacer()
 
@@ -165,13 +189,67 @@ struct TodayView: View {
         .shadow(color: Theme.accent.opacity(0.25), radius: 12, x: 0, y: 6)
     }
 
+    /// 英雄卡顶上那行字：录音/收尾/整理/失败各有各的说法，别一律写「已暂停」。
+    private var heroStatus: String {
+        if flow.working || flow.isRecording { return flow.statusText }
+        if let s = flow.current, s.state == .done { return "已整理" }
+        return flow.statusText
+    }
+
+    /// 录音中的实时转写：最近 6 行，最新在最下面。分人留到结束再做，
+    /// 因为每段是独立送识别的，跨段编号对不上，硬标会标错人。
+    private var liveLines: [(String, String, Bool)] {
+        guard let sid = flow.current?.id, flow.isRecording else { return [] }
+        let rows = app.todaySegments.filter { $0.sessionId == sid }
+        let recent = rows.prefix(6)
+        return recent.map { seg in
+            (Fmt.hm.string(from: seg.startedAt), seg.transcript, seg.state == .transcribed)
+        }.reversed()
+    }
+
+    private var liveTranscript: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            if liveLines.isEmpty {
+                HStack(spacing: 6) {
+                    ProgressView().scaleEffect(0.6).tint(.white)
+                    Text("转写中…")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.85))
+                }
+            } else {
+                ForEach(Array(liveLines.enumerated()), id: \.offset) { _, line in
+                    HStack(alignment: .top, spacing: 6) {
+                        Text(line.0)
+                            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.55))
+                            .padding(.top, 1)
+                        Text(line.2 ? line.1 : "转写中…")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(line.2 ? 0.95 : 0.7))
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            if !NetWatcher.shared.canUpload {
+                Text("等网络后转写")
+                    .font(.system(size: 10.5))
+                    .foregroundColor(.white.opacity(0.7))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(Color.black.opacity(0.14))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+    }
+
     private var modeRow: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // 四个模式一行排开、等宽：原来用自适应网格，窄屏会折成 3+1 两行。
             HStack(spacing: 6) {
                 ForEach(CaptureMode.allCases) { m in
                     Button {
-                        switchMode(m)
+                        guard !flow.isRecording else { return }
+                        settings.captureMode = m
                     } label: {
                         HStack(spacing: 3) {
                             Image(systemName: m.symbol)
@@ -189,14 +267,16 @@ struct TodayView: View {
                         .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .disabled(flow.isRecording)
                     .accessibilityLabel(m.title)
                 }
             }
-            Text(settings.captureMode.hint)
+            Text(flow.isRecording ? "录音中不能换模式，结束这一场再换" : settings.captureMode.hint)
                 .font(.system(size: 11))
                 .foregroundColor(.white.opacity(0.75))
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .opacity(flow.isRecording ? 0.75 : 1)
     }
 
     private var listenButton: some View {
@@ -204,50 +284,37 @@ struct TodayView: View {
             toggleCapture()
         } label: {
             HStack(spacing: 7) {
-                Image(systemName: capture.isRunning ? "stop.fill" : "mic.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                Text(capture.isRunning ? "停止聆听" : "开始聆听")
+                if flow.working {
+                    ProgressView().scaleEffect(0.75).tint(.white)
+                } else {
+                    Image(systemName: flow.isRecording ? "stop.fill" : "mic.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                Text(flow.working ? flow.statusText : (flow.isRecording ? "结束聆听" : "开始聆听"))
                     .font(.system(size: 15, weight: .semibold))
             }
-            .foregroundColor(capture.isRunning ? Color.white : Theme.accent)
+            .foregroundColor(flow.isRecording || flow.working ? Color.white : Theme.accent)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 11)
-            .background(Capsule().fill(capture.isRunning ? Color.white.opacity(0.16) : Color.white))
-            .overlay(Capsule().stroke(Color.white.opacity(capture.isRunning ? 0.45 : 0), lineWidth: 1))
+            .background(Capsule().fill(flow.isRecording || flow.working ? Color.white.opacity(0.16) : Color.white))
+            .overlay(Capsule().stroke(Color.white.opacity(flow.isRecording ? 0.45 : 0), lineWidth: 1))
         }
         .buttonStyle(.plain)
+        .disabled(flow.working)
     }
-
-    private func switchMode(_ m: CaptureMode) {
-        guard settings.captureMode != m else { return }
-        let wasRunning = capture.isRunning
-        settings.captureMode = m
-        guard wasRunning else { return }
-        capture.stop()
-        // 立刻重启时 audio session 还没释放，start() 会静默失败；
-        // 等 0.4 秒再开；仍失败时隔 1 秒再试一次，避免切完模式就再也不录了。
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            // 用户可能在这 0.4 秒里自己点了停止，captureWanted 为假就不能再拉起
-            guard UserDefaults.standard.bool(forKey: "captureWanted"), !capture.isRunning else { return }
-            capture.start()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                guard UserDefaults.standard.bool(forKey: "captureWanted"),
-                      !capture.isRunning, settings.captureMode == m else { return }
-                capture.start()
-            }
-        }
-    }
-
     private var heroNote: String {
+        if flow.isRecording { return "边说边转写；结束后统一分人，再整理成纪要。实时行先不标说话人，避免标错。" }
+        if flow.working { return flow.statusText + "，稍等，整理好会推送到你配置的通道。" }
+        if flow.canRetry, let err = flow.lastError { return err }
+        if let s = flow.current, s.state == .done {
+            return "这一场" + s.mode.title + "已整理，纪要和待办进了时间线。"
+        }
         if let y = capture.yieldReason, !y.isEmpty { return y }
         if let e = capture.lastError, !e.isEmpty { return e }
-        if let e = digest.lastError, !e.isEmpty { return e }
         if settings.effectiveLLM.key.isEmpty {
-            return "填好大模型密钥后，转写出的原话会自动整理成一件件事"
+            return "没填大模型密钥也能录音转写；整理纪要先在「设置 → 大模型与整理」填密钥。"
         }
-        if app.todayEvents.isEmpty {
-            return "录到人声 → 转写成原话 → 整理成一件件事"
-        }
+        if app.todayEvents.isEmpty { return "点「开始聆听」边说边转写，结束就出纪要。" }
         return "模型已就绪 · \(settings.llmModel)"
     }
 
@@ -272,50 +339,100 @@ struct TodayView: View {
 
     // MARK: 今日节律
 
+    /// 四格全部按「会话」统计：场数、时长、产出的待办、说话人数。
+    /// 原来靠段级说话人标签 + 模型给的 scene 字符串，「工作会议」这种写法就把会议数算成 0。
     private var rhythmCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("今日节律")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(Theme.text)
-
-            HStack(spacing: 0) {
-                rhythmCell(durationText(app.mySeconds), "我说了", Theme.accent)
-                rhythmCell(durationText(app.otherSeconds), "别人说了", Theme.blue)
-                rhythmCell("\(app.peopleCount)", "人聊过", Theme.purple)
-                rhythmCell("\(app.meetingCount)", "次开会", Theme.ok)
+            HStack(alignment: .firstTextBaseline) {
+                Text("今日节律")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(Theme.text)
+                Spacer()
+                Text(app.todaySessions.isEmpty ? "还没有会话" : "今天 \(app.todaySessions.count) 场")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(Theme.dim)
             }
 
-            hourBars
+            HStack(spacing: 0) {
+                rhythmCell("\(app.meetingCount)", "场会议", Theme.accent)
+                rhythmCell(sessionMinutesText, "开会时长", Theme.blue)
+                rhythmCell("\(app.sessionTodoCount)", "条待办", Theme.purple)
+                rhythmCell("\(app.peopleCount)", "位说话人", Theme.ok)
+            }
+
+            sessionStrip
+
+            HStack(spacing: 12) {
+                ForEach(CaptureMode.allCases) { m in
+                    HStack(spacing: 4) {
+                        Circle().fill(modeColor(m)).frame(width: 7, height: 7)
+                        Text(m.title)
+                            .font(.system(size: 10.5))
+                            .foregroundColor(Theme.dim)
+                    }
+                }
+            }
         }
         .padding(14)
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
     }
 
-    /// 一天 24 小时里每个小时说了多少，柱高按当天最忙的一小时归一
-    private var hourBars: some View {
-        let totals = hourlyTotals()
-        let peak = max(totals.max() ?? 0, 1)
-        return HStack(alignment: .bottom, spacing: 3) {
-            ForEach(0..<24, id: \.self) { i in
-                let h = totals[i] / peak
-                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                    .fill(totals[i] > 0 ? Theme.accent.opacity(0.30 + 0.55 * h) : Theme.line)
-                    .frame(height: max(2.5, 34 * h))
-                    .frame(maxWidth: .infinity, alignment: .bottom)
-            }
-        }
-        .frame(height: 34, alignment: .bottom)
+    private var sessionMinutesText: String {
+        let minutes = Int((app.sessionSeconds / 60).rounded())
+        if minutes < 60 { return "\(minutes) 分" }
+        let h = minutes / 60
+        let m = minutes % 60
+        return m == 0 ? "\(h) 小时" : "\(h) 时 \(m) 分"
     }
 
-    private func hourlyTotals() -> [Double] {
-        var out = [Double](repeating: 0, count: 24)
-        let cal = Calendar.current
-        for s in app.todaySegments {
-            let h = cal.component(.hour, from: s.startedAt)
-            if h >= 0 && h < 24 { out[h] += max(1, s.duration) }
+    private func modeColor(_ m: CaptureMode) -> Color {
+        switch m {
+        case .meeting: return Theme.accent
+        case .training: return Theme.purple
+        case .call: return Theme.blue
         }
-        return out
+    }
+
+    /// 当天 0–24 点的时间条：一场会话一段色块，一眼看出会开在什么时段。
+    private var sessionStrip: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Theme.bgDeep)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .strokeBorder(Theme.line, lineWidth: 0.6)
+                    )
+                ForEach(app.todaySessions) { s in
+                    let r = dayFractions(s)
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(modeColor(s.mode).opacity(0.85))
+                        .frame(width: max(4, (r.1 - r.0) * w))
+                        .offset(x: r.0 * w)
+                }
+                // 4 个整点刻度，方便对上时间
+                ForEach([6, 12, 18], id: \.self) { h in
+                    Rectangle().fill(Theme.line.opacity(0.9))
+                        .frame(width: 0.6)
+                        .offset(x: w * CGFloat(h) / 24)
+                }
+            }
+        }
+        .frame(height: 22)
+        .accessibilityLabel("今天 \(app.todaySessions.count) 场会话的时间分布")
+    }
+
+    /// 会话在 0–24 小时里的起止比例；录音中的算到此刻。
+    private func dayFractions(_ s: ListenSession) -> (CGFloat, CGFloat) {
+        let cal = Calendar.current
+        let dayStart = cal.startOfDay(for: s.startedAt)
+        let start = max(0, s.startedAt.timeIntervalSince(dayStart))
+        let end = max(start + 60, (s.endedAt ?? Date()).timeIntervalSince(dayStart))
+        let a = min(max(start / 86400, 0), 1)
+        let b = min(max(end / 86400, a + 0.002), 1)
+        return (CGFloat(a), CGFloat(b))
     }
 
     private func rhythmCell(_ v: String, _ l: String, _ c: Color) -> some View {
@@ -323,13 +440,16 @@ struct TodayView: View {
             Text(v)
                 .font(.system(size: 16, weight: .semibold, design: .rounded))
                 .foregroundColor(c)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
             Text(l)
                 .font(.system(size: 10.5))
                 .foregroundColor(Theme.dim)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity)
     }
-
     // MARK: 时间线
 
     private var timelineCard: some View {
@@ -377,13 +497,12 @@ struct TodayView: View {
 
     // MARK: 动作
 
+    /// 开始/结束都走会话：只有会话结束才知道「这一场」的范围，才能整场分人、整场整理。
     private func toggleCapture() {
-        if capture.isRunning {
-            capture.stop()
-            UserDefaults.standard.set(false, forKey: "captureWanted")
+        if flow.isRecording {
+            flow.stop()
         } else {
-            capture.start()
-            UserDefaults.standard.set(true, forKey: "captureWanted")
+            flow.start(mode: settings.captureMode)
         }
     }
 

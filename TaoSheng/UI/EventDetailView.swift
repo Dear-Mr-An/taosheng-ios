@@ -9,6 +9,10 @@ struct EventDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var lines: [Segment] = []
+    /// 会话整理出来的分人原话：有就按人分行显示，没有才退回按段显示
+    @State private var utterances: [Utterance] = []
+    @State private var session: ListenSession?
+    @State private var renameItem: RenamePayload?
     @State private var loadingLines = true
     @State private var shotOpened = false
     // 播放按钮要跟着播放器状态走，否则点了不变化
@@ -74,8 +78,21 @@ struct EventDetailView: View {
                     }
                     .padding(.top, 4)
 
-                    if loadingLines && lines.isEmpty {
+                    if !utterances.isEmpty {
+                        speakerChips
+                    }
+
+                    if loadingLines && lines.isEmpty && utterances.isEmpty {
                         LoadingHint(rows: 2, text: "正在找这段原话…")
+                    } else if !utterances.isEmpty {
+                        VStack(alignment: .leading, spacing: 18) {
+                            ForEach(utterances) { u in
+                                utteranceRow(u)
+                            }
+                        }
+                        .padding(16)
+                        .background(Theme.card)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusLarge, style: .continuous))
                     } else if lines.isEmpty {
                         EmptyHint(symbol: "text.magnifyingglass", title: "没有对应的原话片段",
                                   detail: "这件事可能是从别的内容里整理出来的")
@@ -107,6 +124,9 @@ struct EventDetailView: View {
             }
             draftTitle = event.title
             draftSummary = event.summary
+            if ShotMode.screen == "speaker-rename", renameItem == nil {
+                renameItem = RenamePayload(label: "说话人2", name: session?.name("说话人2") ?? "周工")
+            }
         }
         .task { await loadLines() }
         // 用 sheet(item:) 把初始值一起带进去：
@@ -122,6 +142,18 @@ struct EventDetailView: View {
                 draftTitle = values.first ?? ""
                 draftSummary = values.count > 1 ? values[1] : ""
                 saveEdit()
+            }
+        }
+        // 点说话人标签改名字：一改就是整场，映射存在会话上，下次整理也用新名字
+        .sheet(item: $renameItem) { item in
+            TextInputSheet(title: "这是谁",
+                           fields: [TextInputField(label: "名字", placeholder: "例如 老王", text: item.name)],
+                           confirmTitle: "保存",
+                           message: "改名作用于这一整场；已有人物可以直接填名字。") { values in
+                let name = (values.first ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { return }
+                ListenFlow.shared.renameSpeaker(item.label, to: name)
+                Task { await loadLines() }
             }
         }
         .confirmationDialog("删除后这段原话对应的整理结果也会一起清掉", isPresented: $confirmDelete, titleVisibility: .visible) {
@@ -244,6 +276,76 @@ struct EventDetailView: View {
         return no > 0 ? palette[(no - 1) % palette.count] : Theme.accent
     }
 
+    /// 每个人说了多久，一眼看出谁主导。点一下能改名，改的是整场。
+    private var speakerChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(speakerTotals, id: \.0) { item in
+                    Button {
+                        renameItem = RenamePayload(label: item.0,
+                                                    name: session?.name(item.0) ?? item.0)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text(avatarText(item.0))
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                .foregroundColor(tint(for: item.0))
+                            Text(session?.name(item.0) ?? item.0)
+                                .font(.system(size: 12.5, weight: .medium))
+                                .foregroundColor(tint(for: item.0))
+                            Text(MemoryEvent.durationLabel(item.1))
+                                .font(.system(size: 11.5))
+                                .foregroundColor(Theme.dim)
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(tint(for: item.0).opacity(0.12))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(session?.name(item.0) ?? item.0)，发言 \(MemoryEvent.durationLabel(item.1))，点一下改名")
+                }
+            }
+        }
+    }
+
+    /// 按说话人聚合的发言秒数，多的排前面
+    private var speakerTotals: [(String, Double)] {
+        var map: [String: Double] = [:]
+        for u in utterances { map[u.speaker, default: 0] += u.duration }
+        return map.sorted { $0.value > $1.value }.map { ($0.key, $0.value) }
+    }
+
+    private func tint(for label: String) -> Color {
+        Theme.personColor(session?.name(label) ?? label)
+    }
+
+    private func utteranceRow(_ u: Utterance) -> some View {
+        let display = session?.name(u.speaker) ?? u.speaker
+        let color = tint(for: u.speaker)
+        return HStack(alignment: .top, spacing: 10) {
+            Text(avatarText(display))
+                .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                .foregroundColor(color)
+                .frame(width: 26, height: 26)
+                .background(color.opacity(0.14))
+                .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(display)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundColor(color)
+                    Text(u.timeText)
+                        .font(.system(size: 11.5, design: .rounded))
+                        .foregroundColor(Theme.dim2)
+                }
+                Text(u.text)
+                    .font(.system(size: 15.5))
+                    .foregroundColor(Theme.text)
+                    .lineSpacing(6)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
     private func pill(_ title: String, symbol: String?, tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
@@ -327,6 +429,13 @@ struct EventDetailView: View {
             return rows.filter { $0.startedAt >= ev.startAt.addingTimeInterval(-1) && $0.startedAt <= end.addingTimeInterval(1) }
         }.value
         lines = result
+        let sid = ev.sessionId
+        let extra = await Task.detached(priority: .userInitiated) { () -> (ListenSession?, [Utterance]) in
+            guard let sid, !sid.isEmpty else { return (nil, []) }
+            return (Store.shared.session(id: sid), Store.shared.utterances(sessionId: sid))
+        }.value
+        session = extra.0
+        utterances = extra.1
         loadingLines = false
     }
 
@@ -350,7 +459,12 @@ struct EventDetailView: View {
         if !current.points.isEmpty {
             out += "要点\n" + current.points.map { "· \($0)" }.joined(separator: "\n") + "\n"
         }
-        if !lines.isEmpty {
+        if !utterances.isEmpty {
+            out += "原话\n"
+            for u in utterances {
+                out += "\(session?.name(u.speaker) ?? u.speaker) \(u.timeText) \(u.text)\n"
+            }
+        } else if !lines.isEmpty {
             out += "原话\n"
             for s in lines {
                 out += "\(s.speaker.isEmpty ? "说话人" : s.speaker) \(s.timeText) \(s.transcript)\n"
@@ -411,4 +525,11 @@ private struct EditPayload: Identifiable {
     let id = UUID()
     var title: String
     var summary: String
+}
+
+/// 改说话人名时的原始标签与当前名字
+private struct RenamePayload: Identifiable {
+    let id = UUID()
+    var label: String
+    var name: String
 }

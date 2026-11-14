@@ -1406,9 +1406,9 @@ struct TranscribeSettingsSheet: View {
                     .foregroundColor(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)
                 Button {
-                    settings.captureMode = .training
-                    if !CaptureEngine.shared.isRunning { CaptureEngine.shared.start() }
-                    testResult = "已切到培训模式，这段时间不分人。"
+                    // 走会话：结束时会整场出培训笔记，而不是只换一个模式就没人管了
+                    ListenFlow.shared.start(mode: .training)
+                    testResult = "已开始一个培训专题，这段时间不分人；点今天页的「结束聆听」出笔记。"
                 } label: {
                     HStack(spacing: 3) {
                         Text("开始培训专题").font(.system(size: 13, weight: .medium))

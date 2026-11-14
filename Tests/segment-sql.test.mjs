@@ -6,7 +6,7 @@ import test from 'node:test';
 // Execute the application's SQL against a disposable database, not user data.
 // This checks SQL contracts only; Swift bindings still need an iOS build.
 const root = new URL('../', import.meta.url);
-const sources = Object.fromEntries(['Store.swift', 'Store+Ext.swift', 'Store+Memory.swift'].map(name => [
+const sources = Object.fromEntries(['Store.swift', 'Store+Ext.swift', 'Store+Memory.swift', 'Store+Session.swift'].map(name => [
   name, readFileSync(new URL(`TaoSheng/Core/${name}`, root), 'utf8'),
 ]));
 
@@ -44,16 +44,17 @@ function fixture() {
   createTable(db, 'segment');
   migrateSegments(db);
   const insert = db.prepare(sqlIn('Store.swift', 'writeSegment'));
-  for (const [index, mode] of ['daily', 'meeting', 'training', 'call'].entries()) {
+  // 0.6.0 去掉了「日常」：夹具只造现在的三种模式；session_id 为 null 表示零散录音
+  for (const [index, mode] of ['meeting', 'training', 'call'].entries()) {
     insert.run(`seg-${mode}`, 100 + index, 110 + index, 10, `${mode}.wav`, 320000,
-      `测试 ${mode}`, '', 'transcribed', '2026-11-12', 110 + index, mode);
+      `测试 ${mode}`, '', 'transcribed', '2026-11-12', 110 + index, mode, null);
   }
-  insert.run('pending', 200, 210, 10, 'pending.wav', 320000, '', '', 'recorded', '2026-11-12', 210, 'meeting');
+  insert.run('pending', 200, 210, 10, 'pending.wav', 320000, '', '', 'recorded', '2026-11-12', 210, 'meeting', null);
   db.exec("UPDATE segment SET starred=1 WHERE id='seg-training'");
   return db;
 }
 
-test('migration preserves legacy audio and transcripts, defaults mode to daily, and is repeatable', () => {
+test('migration preserves legacy audio and transcripts, falls back to meeting, and is repeatable', () => {
   const db = new DatabaseSync(':memory:');
   try {
     createTable(db, 'segment');
@@ -62,7 +63,7 @@ test('migration preserves legacy audio and transcripts, defaults mode to daily, 
     migrateSegments(db);
     migrateSegments(db);
     const row = db.prepare('SELECT file_name,transcript,capture_mode FROM segment WHERE id=?').get('legacy');
-    assert.deepEqual({ ...row }, { file_name: 'old.wav', transcript: '历史原话', capture_mode: 'daily' });
+    assert.deepEqual({ ...row }, { file_name: 'old.wav', transcript: '历史原话', capture_mode: 'meeting' });
   } finally { db.close(); }
 });
 
@@ -100,7 +101,7 @@ test('backlog spans multiple pages and retains earlier days for scheduled proces
     const insert = db.prepare(sqlIn('Store.swift', 'writeSegment'));
     for (let i = 0; i < 201; i += 1) {
       insert.run(`old-${i}`, i, i + 1, 1, `${i}.wav`, 32000,
-        '历史原话', '', 'transcribed', '2026-11-11', i + 1, 'daily');
+        '历史原话', '', 'transcribed', '2026-11-11', i + 1, 'meeting', null);
     }
     const days = db.prepare(sqlIn('Store+Memory.swift', 'undigestedDays')).all('2026-11-12');
     assert.deepEqual(days.map(row => row.day), ['2026-11-11', '2026-11-12']);
@@ -138,9 +139,9 @@ test('recent transcripts filter by time before limit, keeping older rows from cr
     const insert = db.prepare(sqlIn('Store.swift', 'writeSegment'));
     for (let i = 0; i < 110; i += 1) {
       insert.run(`outside-${i}`, -1000 + i, -990 + i, 10, `${i}.wav`, 100,
-        '较早原话', '', 'transcribed', '2026-11-11', 1000 + i, 'daily');
+        '较早原话', '', 'transcribed', '2026-11-11', 1000 + i, 'meeting', null);
     }
-    const rows = db.prepare(sqlIn('Store+Ext.swift', 'recentTranscripts').replace('LIMIT 100', 'LIMIT 5')).all(101);
+    const rows = db.prepare(sqlIn('Store+Ext.swift', 'recentTranscripts').replace('LIMIT 100', 'LIMIT 5')).all(100);
     assert.deepEqual(rows.map(row => row.id), ['seg-call', 'seg-training', 'seg-meeting']);
   } finally { db.close(); }
 });
@@ -162,11 +163,12 @@ test('reorganized event keeps its identity and user star state', () => {
   const db = new DatabaseSync(':memory:');
   try {
     createTable(db, 'memory_event');
-    // edited 是 ensureColumn 加的列，CREATE TABLE 里没有，测试里补上
+    // edited / session_id 都是 ensureColumn 加的列，CREATE TABLE 里没有，测试里补上
     db.exec('ALTER TABLE memory_event ADD COLUMN edited INTEGER DEFAULT 0');
+    db.exec('ALTER TABLE memory_event ADD COLUMN session_id TEXT');
     const insert = db.prepare(sqlIn('Store+Memory.swift', 'upsertEvent'));
     const event = (id, title, starred, starredAt, edited = 0) => [id, '2026-11-12', 100, null, '其他', title,
-      '', '[]', '[]', null, '平静', 3, 0, starred, starredAt, 'same-entity', 0, 1, 0, 100, edited];
+      '', '[]', '[]', null, '平静', 3, 0, starred, starredAt, 'same-entity', 0, 1, 0, 100, edited, null];
     insert.run(...event('original', '第一版', 1, 123));
     const existing = db.prepare('SELECT id,starred,starred_at FROM memory_event WHERE entity_id=? AND deleted=0 LIMIT 1')
       .get('same-entity');
@@ -180,6 +182,7 @@ test('reorganized event keeps its identity and user star state', () => {
     assert.match(body, /sqlite3_column_int\(q, 6\) == 1/);
     assert.match(body, /SELECT id,starred,starred_at,edited,title,summary,deleted FROM memory_event/);
     assert.match(body, /sqlite3_bind_int\(st, 21, keepEdited \? 1 : 0\)/);
+    assert.match(body, /session_id\)/);
     db.prepare("UPDATE memory_event SET edited=1, title='手改标题', summary='手改摘要' WHERE id='original'").run();
     const keep = db.prepare("SELECT edited,title FROM memory_event WHERE entity_id=? AND deleted=0 LIMIT 1").get("same-entity");
     insert.run(...event("original", keep.title, 1, 123, keep.edited));

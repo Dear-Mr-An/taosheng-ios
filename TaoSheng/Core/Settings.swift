@@ -128,7 +128,7 @@ final class Settings: ObservableObject {
     @Published var captureModeRaw: String { didSet { d.set(captureModeRaw, forKey: "captureModeRaw") } }
 
     var captureMode: CaptureMode {
-        get { CaptureMode(rawValue: captureModeRaw) ?? .daily }
+        get { CaptureMode(rawValue: captureModeRaw) ?? .meeting }
         set { captureModeRaw = newValue.rawValue }
     }
 

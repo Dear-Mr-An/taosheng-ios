@@ -43,9 +43,16 @@ struct TaoShengApp: App {
                 .onAppear {
                     ShotDemo.seedIfNeeded()
                     ShotDemo.seedSegmentsIfNeeded()
+                    ShotDemo.seedSessionsIfNeeded()
                     app.refresh()
                     // 截图模式只在模拟器里跑，不去弹通知/定位这些系统弹窗，免得住画面
-                    guard !ShotMode.active else { return }
+                    guard !ShotMode.active else {
+                        // 截图要能显示「正在聆听」或「已整理」，所以只换一下当前会话，不去真的收尾
+                        ListenFlow.shared.reloadCurrent()
+                        return
+                    }
+                    // 上次被杀/闪退时正在录的那一场，用已有录音补收尾：分人、整理、推送
+                    ListenFlow.shared.resumeAfterLaunch()
                     queue.start()
                     digest.start()
                     ReviewEngine.shared.start()

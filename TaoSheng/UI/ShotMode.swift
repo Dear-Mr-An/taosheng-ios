@@ -19,7 +19,7 @@ enum ShotMode {
     /// 各画面落在哪个 Tab 上
     static func tab(for screen: String) -> Int? {
         switch screen {
-        case "today", "event-edit": return 0
+        case "today", "event-edit", "today-live", "today-done", "event-meeting", "speaker-rename": return 0
         case "ask": return 1
         case "memory": return 2
         case "todo": return 3
@@ -32,6 +32,8 @@ enum ShotMode {
 /// 截图用的演示数据：只写内存里那几张表，不产生任何音频文件。
 enum ShotDemo {
     static let eventID = "shot-event-1"
+    static let meetingSessionID = "shot-session-meeting"
+    static let liveSessionID = "shot-session-live"
 
     static var today: String { DayKey.of(Date()) }
 
@@ -60,7 +62,8 @@ enum ShotDemo {
                 entityId: "shot-entity-1",
                 lineFrom: 1,
                 lineTo: 2,
-                createdAt: now))
+                createdAt: now,
+                sessionId: meetingSessionID))
         }
 
         if Store.shared.items(day: day, status: nil, category: nil, limit: 1).isEmpty {
@@ -117,6 +120,67 @@ enum ShotDemo {
                               captureModeRaw: CaptureMode.meeting.rawValue,
                               starred: false)
             _ = Store.shared.insert(seg)
+        }
+    }
+    /// 截图用：一场已经结束、3 个说话人的会议；today-live 再额外造一场正在录的会话。
+    /// 只写库、不产生音频，所以模拟器上不会真的去请求识别接口。
+    static func seedSessionsIfNeeded() {
+        guard let screen = ShotMode.screen else { return }
+        let day = today
+        let now = Date()
+
+        if Store.shared.session(id: meetingSessionID) == nil {
+            let started = now.addingTimeInterval(-3600)
+            let s = ListenSession(id: meetingSessionID,
+                                  modeRaw: CaptureMode.meeting.rawValue,
+                                  startedAt: started,
+                                  endedAt: started.addingTimeInterval(1200),
+                                  stateRaw: SessionState.done.rawValue,
+                                  speakersJSON: "{\"说话人2\":\"周工\"}",
+                                  eventId: eventID,
+                                  error: nil)
+            Store.shared.insertSession(s)
+            let texts: [(String, Double, String)] = [
+                ("说话人1", 0, "今天主要两件事：接口联调时间和周五去现场的安排。"),
+                ("说话人2", 34, "我这边周三之前能把接口文档整理完，前端今天先给一版。"),
+                ("说话人1", 92, "好，那我明天把网关白名单配上，顺便把演示账号开好。"),
+                ("说话人3", 150, "客户那边换到新园区了，进门要找前台登记，我提前报备。"),
+                ("说话人2", 214, "行，那我下午把改动清单发群里，周五上午十点出发。")
+            ]
+            let utts = texts.enumerated().map { i, t in
+                Utterance(id: "shot-utt-\(i + 1)", sessionId: meetingSessionID,
+                          speaker: t.0, start: t.1, end: t.1 + 28, text: t.2, orderIndex: i)
+            }
+            Store.shared.replaceUtterances(sessionId: meetingSessionID, utts)
+        }
+
+        if screen == "today-live", Store.shared.session(id: liveSessionID) == nil {
+            let started = now.addingTimeInterval(-420)
+            let s = ListenSession(id: liveSessionID,
+                                  modeRaw: CaptureMode.meeting.rawValue,
+                                  startedAt: started,
+                                  endedAt: nil,
+                                  stateRaw: SessionState.recording.rawValue,
+                                  speakersJSON: "{}",
+                                  eventId: nil,
+                                  error: nil)
+            Store.shared.insertSession(s)
+            let lines = ["先过一下今天的议程，三件事。",
+                         "第一件是接口联调的排期，周三之前要收口。",
+                         "第二件是周五去客户现场的名单。",
+                         "第三件是结算流程先不动。"]
+            for (i, text) in lines.enumerated() {
+                let at = started.addingTimeInterval(Double(i) * 95)
+                let seg = Segment(id: "shot-live-seg-\(i + 1)",
+                                  startedAt: at, endedAt: at.addingTimeInterval(18),
+                                  duration: 18, fileName: "", byteSize: 0,
+                                  transcript: text, speaker: "",
+                                  state: .transcribed, day: day, createdAt: at,
+                                  captureModeRaw: CaptureMode.meeting.rawValue,
+                                  starred: false,
+                                  sessionId: liveSessionID)
+                _ = Store.shared.insert(seg)
+            }
         }
     }
     static func event() -> MemoryEvent {

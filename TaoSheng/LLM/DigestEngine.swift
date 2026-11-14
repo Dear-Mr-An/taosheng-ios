@@ -68,7 +68,6 @@ final class DigestEngine: ObservableObject {
         case .meeting: return Prompts.digestSystem + Prompts.meetingModeExtra
         case .training: return Prompts.digestSystem + Prompts.trainingModeExtra
         case .call: return Prompts.digestSystem + Prompts.callModeExtra
-        case .daily: return Prompts.digestSystem
         }
     }
 
@@ -125,9 +124,12 @@ final class DigestEngine: ObservableObject {
             throw LLMError.notConfigured
         }
 
-        let rows = full
+        // 属于某场「聆听会话」的段由 SessionDigest 单独出纪要（一场一个事件），
+        // 这里只兜底没有会话的零散录音，否则同一段话会被整理两次。
+        let rows = (full
             ? Store.shared.transcriptRows(day: day, limit: -1)
-            : Store.shared.undigestedSegments(day: day, limit: -1)
+            : Store.shared.undigestedSegments(day: day, limit: -1))
+            .filter { $0.sessionId == nil || $0.sessionId?.isEmpty == true }
         guard !rows.isEmpty else { return (0, 0) }
 
         // 按时间上连续的模式分批，避免上午和晚上的同模式跨越会议被合并。

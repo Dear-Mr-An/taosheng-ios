@@ -23,6 +23,7 @@ final class Store {
         migrateExtra()
         migrateMemory()
         migrateVoiceCluster()
+        migrateSession()
     }
 
     static var supportDir: URL {
@@ -111,8 +112,8 @@ final class Store {
     private func writeSegment(_ s: Segment, id: String) -> Bool {
         let sql = """
         INSERT INTO segment
-        (id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?);
+        (id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,session_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);
         """
         var st: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return false }
@@ -129,6 +130,7 @@ final class Store {
         bind(st, 10, s.day)
         sqlite3_bind_double(st, 11, s.createdAt.timeIntervalSince1970)
         bind(st, 12, s.captureMode.rawValue)
+        if let sid = s.sessionId, !sid.isEmpty { bind(st, 13, sid) } else { sqlite3_bind_null(st, 13) }
         let rc = sqlite3_step(st)
         if rc != SQLITE_DONE {
             NSLog("涛声: 写入原话失败 rc=\(rc) \(String(cString: sqlite3_errmsg(db)))")
@@ -468,7 +470,7 @@ final class Store {
         return String(cString: c)
     }
 
-    private func readSegment(_ st: OpaquePointer?) -> Segment {
+    func readSegment(_ st: OpaquePointer?) -> Segment {
         var s = Segment(
             id: col(st, 0),
             startedAt: Date(timeIntervalSince1970: sqlite3_column_double(st, 1)),
@@ -484,6 +486,10 @@ final class Store {
             captureModeRaw: col(st, 11)
         )
         s.starred = sqlite3_column_int(st, 12) == 1
+        if sqlite3_column_count(st) > 13 {
+            let sid = col(st, 13)
+            s.sessionId = sid.isEmpty ? nil : sid
+        }
         return s
     }
 }

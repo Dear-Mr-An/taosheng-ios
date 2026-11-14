@@ -30,7 +30,8 @@ final class ImportEngine {
                     speaker: "",
                     state: .recorded,
                     day: DayKey.of(Date()),
-                    createdAt: Date()
+                    createdAt: Date(),
+                    captureModeRaw: CaptureMode.meeting.rawValue
                 )
                 _ = store.insert(seg)
                 ok += 1

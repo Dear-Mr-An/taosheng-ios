@@ -1,4 +1,5 @@
 import Foundation
+import UserNotifications
 
 /// 推送通道：把整理结果 / 回顾推到 Agent、坚果云、PushPlus 等
 final class PushEngine {
@@ -22,6 +23,46 @@ final class PushEngine {
         }
         md += "\n## 原话\n\(transcript)"
         broadcast(title: "涛声 · \(day) 整理完成", body: md)
+    }
+
+    /// 一场会整理完立刻推。和按天整理的区别：标题里带会议名，正文是纪要 + 待办负责人。
+    /// 用户关掉「整理后推送」就只留界面上的状态，不打扰。
+    func pushSession(session: ListenSession, title: String, summary: String, points: [String], items: [MemoryItem]) {
+        guard Settings.shared.pushOnDigest else { return }
+        var md = "# 涛声 · \(session.mode.title)纪要\n\n"
+        md += "**\(title)**\n\n\(summary)\n\n"
+        md += "\(session.timeRangeText) · \(session.durationText)\n"
+        if !points.isEmpty {
+            md += "\n## 要点\n"
+            for p in points { md += "- \(p)\n" }
+        }
+        if !items.isEmpty {
+            md += "\n## 待办\n"
+            for i in items {
+                let mark = i.status == .done ? "[x]" : "[ ]"
+                md += "- \(mark) \(i.content)"
+                if let who = i.who, !who.isEmpty { md += "（\(who)）" }
+                if let d = i.dueDisplay, !d.isEmpty { md += "（\(d)）" }
+                md += "\n"
+            }
+        }
+        notifyLocal(title: "涛声 · \(title)", body: summary.isEmpty ? session.durationText : summary)
+        broadcast(title: "涛声 · \(session.mode.title)纪要", body: md)
+    }
+
+    /// 本机通知：不进通道也能在锁屏上看到「整理好了」。
+    func notifyLocal(title: String, body: String) {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { st in
+            guard st.authorizationStatus == .authorized || st.authorizationStatus == .provisional else { return }
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = String(body.prefix(120))
+            content.sound = .default
+            let req = UNNotificationRequest(identifier: "ts-session-\(UUID().uuidString)",
+                                           content: content, trigger: nil)
+            center.add(req)
+        }
     }
 
     func pushCard(_ c: SkillCard) {

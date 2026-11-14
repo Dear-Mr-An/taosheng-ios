@@ -106,10 +106,12 @@ extension Store {
             );
             """)
 
-            ensureColumn(table: "segment", column: "capture_mode", ddl: "ALTER TABLE segment ADD COLUMN capture_mode TEXT NOT NULL DEFAULT 'daily';")
+            // 0.6.0 起没有「日常」了：老库补列时直接落到会议，省得住一次 restored() 兜底
+        ensureColumn(table: "segment", column: "capture_mode", ddl: "ALTER TABLE segment ADD COLUMN capture_mode TEXT NOT NULL DEFAULT 'meeting';")
             ensureColumn(table: "segment", column: "digested", ddl: "ALTER TABLE segment ADD COLUMN digested INTEGER NOT NULL DEFAULT 0;")
             ensureColumn(table: "segment", column: "bigram", ddl: "ALTER TABLE segment ADD COLUMN bigram TEXT NOT NULL DEFAULT '';")
         ensureColumn(table: "memory_event", column: "edited", ddl: "ALTER TABLE memory_event ADD COLUMN edited INTEGER NOT NULL DEFAULT 0;")
+        ensureColumn(table: "memory_event", column: "session_id", ddl: "ALTER TABLE memory_event ADD COLUMN session_id TEXT;")
         }
     }
 
@@ -156,8 +158,8 @@ extension Store {
         queue.sync { () -> Void in
             let sql = """
             INSERT OR REPLACE INTO memory_event
-            (id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,deleted,created_at,edited)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+            (id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,deleted,created_at,edited,session_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
             """
             // 同一段原话被重新整理时，entity_id 不变 —— 复用旧行的 id，
             // 否则「重新整理」会把同一件事再插一遍，时间线翻倍。
@@ -217,6 +219,7 @@ extension Store {
             sqlite3_bind_int(st, 19, 0)
             sqlite3_bind_double(st, 20, e.createdAt.timeIntervalSince1970)
             sqlite3_bind_int(st, 21, keepEdited ? 1 : 0)
+            if let sid = e.sessionId, !sid.isEmpty { bind(st, 22, sid) } else { sqlite3_bind_null(st, 22) }
             sqlite3_step(st)
             sqlite3_finalize(st)
         }
@@ -224,7 +227,7 @@ extension Store {
 
     func events(day: String? = nil, limit: Int = 200) -> [MemoryEvent] {
         queue.sync { () -> [MemoryEvent] in
-            var sql = "SELECT id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,created_at FROM memory_event WHERE deleted=0"
+            var sql = "SELECT id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,created_at,session_id FROM memory_event WHERE deleted=0"
             if day != nil { sql += " AND day=?" }
             sql += " ORDER BY start_at DESC LIMIT \(limit);"
             var st: OpaquePointer?
@@ -241,7 +244,7 @@ extension Store {
 
     func events(from: Date, to: Date, starredOnly: Bool = false, limit: Int = 100) -> [MemoryEvent] {
         queue.sync { () -> [MemoryEvent] in
-            var sql = "SELECT id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,created_at FROM memory_event WHERE deleted=0 AND start_at>=? AND start_at<=?"
+            var sql = "SELECT id,day,start_at,end_at,scene,title,summary,points_json,people_json,place,emotion,intensity,important,starred,starred_at,entity_id,line_from,line_to,created_at,session_id FROM memory_event WHERE deleted=0 AND start_at>=? AND start_at<=?"
             if starredOnly { sql += " AND starred=1" }
             sql += " ORDER BY start_at DESC LIMIT \(limit);"
             var st: OpaquePointer?
@@ -325,11 +328,14 @@ extension Store {
         let lineFrom = Int(sqlite3_column_int(st, 16))
         let lineTo = Int(sqlite3_column_int(st, 17))
         let created = Date(timeIntervalSince1970: sqlite3_column_double(st, 18))
+        let sessionId: String? = sqlite3_column_count(st) > 19 && sqlite3_column_type(st, 19) != SQLITE_NULL
+            ? col(st, 19) : nil
         return MemoryEvent(id: id, day: day, startAt: start, endAt: end, scene: scene, title: title,
                            summary: summary, points: points, people: people, place: place,
                            emotion: emotion, intensity: intensity, important: important,
                            starred: starred, starredAt: starredAt, entityId: entityId,
-                           lineFrom: lineFrom, lineTo: lineTo, createdAt: created)
+                           lineFrom: lineFrom, lineTo: lineTo, createdAt: created,
+                           sessionId: sessionId)
     }
 
     // MARK: 提取项

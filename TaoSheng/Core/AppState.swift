@@ -22,6 +22,10 @@ final class AppState: ObservableObject {
     @Published var todayCards: [SkillCard] = []
     @Published var todayReview: ReviewRecord?
     @Published var days: [String] = []
+    /// 今天的聆听会话：今日节律与英雄卡都按会话算，不再按段上的说话人猜
+    @Published var todaySessions: [ListenSession] = []
+    /// 今天会议里出现过的说话人名（后台算好，界面直接用）
+    @Published var todaySpeakerNames: [String] = []
 
     // 待办（跨天）
     @Published var pendingItems: [MemoryItem] = []
@@ -177,6 +181,15 @@ final class AppState: ObservableObject {
             let runs = self.store.skillRuns(day: nil, limit: 40)
             let th = self.store.things(limit: 200)
             let star = self.store.starredEvents(limit: 100)
+            let sess = self.store.sessions(day: today, limit: 50)
+            var speaks = Set<String>()
+            for s in sess where s.mode == .meeting {
+                for u in self.store.utterances(sessionId: s.id) {
+                    let name = u.display(s)
+                    if !name.isEmpty { speaks.insert(name) }
+                }
+            }
+            let speakerNames = speaks.sorted()
 
             DispatchQueue.main.async {
                 guard gen == self.refreshGen else { return }
@@ -185,6 +198,8 @@ final class AppState: ObservableObject {
                 self.todayItems = its
                 self.todayCards = cards
                 self.todayReview = rev
+                self.todaySessions = sess
+                self.todaySpeakerNames = speakerNames
                 self.pendingItems = pend
                 self.activeItems = act
                 self.doneItems = done
@@ -434,31 +449,32 @@ final class AppState: ObservableObject {
 
     var eventCount: Int { todayEvents.count }
 
-    var peopleCount: Int {
-        let names = Set(todaySegments.map { $0.speaker }.filter { !$0.isEmpty })
-        guard !names.isEmpty else { return 0 }
-        // 没建过「我」的声纹时，第一簇（说话人1）通常是机主自己
-        let meKey = names.contains("我") ? "我" : "说话人1"
-        return max(0, names.subtracting([meKey]).count)
+    // 今日节律四格全部按「会话」算：一场会议有几个说话人、多长时间，都是会话的属性，
+    // 段级标签和模型给的 scene 字符串都靠不住（模型会写「工作会议」，人就统计丢了）。
+    var meetingSessions: [ListenSession] {
+        todaySessions.filter { $0.mode == .meeting }
     }
 
-    var meetingCount: Int {
-        todayEvents.filter { $0.scene == "会议" }.count
+    /// 今天开会的场数
+    var meetingCount: Int { meetingSessions.count }
+
+    /// 今天所有会话的时长合计（录音中的会话算到此刻）
+    var sessionSeconds: Double {
+        todaySessions.reduce(0) { $0 + $1.duration }
     }
 
-    /// 声纹认人后，「我」可能是真名或默认簇名，这里统一判一次
-    private var meKey: String {
-        todaySegments.contains { $0.speaker == "我" } ? "我" : "说话人1"
-    }
+    /// 今天各场会议里出现过的说话人（改名后的名字也算），按人去重
+    var peopleCount: Int { todaySpeakerNames.count }
 
-    var mySeconds: Double {
-        todaySegments.filter { $0.speaker == meKey }.reduce(0) { $0 + $1.duration }
+    /// 今天会话产出的待办条数
+    var sessionTodoCount: Int {
+        let ids = Set(todaySessions.compactMap { $0.eventId })
+        guard !ids.isEmpty else { return 0 }
+        return todayItems.filter { it in
+            guard let eid = it.eventId else { return false }
+            return ids.contains(eid)
+        }.count
     }
-
-    var otherSeconds: Double {
-        todaySegments.filter { !$0.speaker.isEmpty && $0.speaker != meKey }.reduce(0) { $0 + $1.duration }
-    }
-
     /// 所有跨天未完成的待办 + 约定（待办页）
     var allOpenItems: [MemoryItem] {
         (pendingItems + activeItems).sorted { a, b in

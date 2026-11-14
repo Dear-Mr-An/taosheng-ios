@@ -251,6 +251,10 @@ jobs:
             shoot_dev "$DEV" "iphone16" "event-edit" 8
             shoot_dev "$DEV" "iphone16" "transcribe" 7
             shoot_dev "$DEV" "iphone16" "llm" 7
+            shoot_dev "$DEV" "iphone16" "today-live" 7
+            shoot_dev "$DEV" "iphone16" "today-done" 7
+            shoot_dev "$DEV" "iphone16" "event-meeting" 8
+            shoot_dev "$DEV" "iphone16" "speaker-rename" 8
             tmo 60 xcrun simctl shutdown "$DEV" 2>/dev/null || true
           fi
           if [ -n "$SMALL" ]; then
@@ -263,6 +267,10 @@ jobs:
             shoot_dev "$DEVS" "iphonese" "person-add" 8
             shoot_dev "$DEVS" "iphonese" "transcribe" 7
             shoot_dev "$DEVS" "iphonese" "llm" 7
+            shoot_dev "$DEVS" "iphonese" "today-live" 7
+            shoot_dev "$DEVS" "iphonese" "today-done" 7
+            shoot_dev "$DEVS" "iphonese" "event-meeting" 8
+            shoot_dev "$DEVS" "iphonese" "speaker-rename" 8
             tmo 60 xcrun simctl shutdown "$DEVS" 2>/dev/null || true
           fi
 
@@ -272,7 +280,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shots-054
+          name: shots-060
           path: ${{ github.workspace }}/shots
           retention-days: 30
           if-no-files-found: warn

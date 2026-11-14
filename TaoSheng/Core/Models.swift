@@ -23,6 +23,8 @@ struct Segment: Identifiable, Codable, Hashable {
     var captureModeRaw: String? = nil
     /// 是否标了重点（只有从库里读出来的段才有值，新录的段是 nil）
     var starred: Bool? = nil
+    /// 属于哪一场聆听会话；导入或历史数据为空。
+    var sessionId: String? = nil
 
     var captureMode: CaptureMode { CaptureMode.restored(captureModeRaw ?? "") }
 

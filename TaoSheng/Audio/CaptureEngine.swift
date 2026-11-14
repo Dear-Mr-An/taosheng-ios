@@ -30,8 +30,11 @@ final class CaptureEngine: ObservableObject {
     // 只在 queue 上访问；停止时先排空旧回调再结算最后一段。
     private var acceptingBuffers = false
     private var bufferGeneration: UInt64 = 0
-    private var recordingMode: CaptureMode = .daily
+    private var recordingMode: CaptureMode = .meeting
     private var minimumDuration: Double = 2
+    /// 当前会话 id：非空时每段都打上它，并且用「实时」阈值切分（停顿 0.8 秒 / 最长 20 秒）。
+    /// 只在 queue 上读写。
+    private var sessionId: String?
     /// 连续收到严格为 0 的样本帧数（判断麦克风是否已被别人独占）
     private var zeroFrames = 0
     private var yieldedBySilence = false
@@ -60,6 +63,20 @@ final class CaptureEngine: ObservableObject {
     private var converterChannels: AVAudioChannelCount = 0
 
     var onSegmentSaved: ((Segment) -> Void)?
+
+    /// 会话开始 / 结束时绑定。模式锁在会话上，录音中改设置不再影响这一场。
+    func bindSession(_ id: String?, mode: CaptureMode?) {
+        queue.sync {
+            self.sessionId = id
+            if let m = mode { self.recordingMode = m }
+            // 实时转写要快：段更短，最短时长也放宽，否则「嗯」「好」这种插话全被丢掉
+            self.minimumDuration = id == nil
+                ? Settings.shared.minSegment
+                : min(Settings.shared.minSegment, 0.8)
+        }
+    }
+
+    var currentSessionId: String? { queue.sync { self.sessionId } }
 
     private init() {
         let c = NotificationCenter.default
@@ -294,20 +311,25 @@ final class CaptureEngine: ObservableObject {
                 return
             }
 
-            let mode = Settings.shared.captureMode
-            let threshold = mode.sensitivity(Settings.shared.sensitivity)
-            let minimum = Settings.shared.minSegment
+            let configuredMode = Settings.shared.captureMode
+            let configuredSensitivity = Settings.shared.sensitivity
+            let configuredMin = Settings.shared.minSegment
             let bufferToken = queue.sync { () -> UInt64 in
                 self.acceptingBuffers = true
                 self.bufferGeneration &+= 1
-                self.recordingMode = mode
-                self.minimumDuration = minimum
+                // 有会话时模式已经锁在会话上，只有没有会话（老路径）才跟设置走
+                if self.sessionId == nil {
+                    self.recordingMode = configuredMode
+                    self.minimumDuration = configuredMin
+                }
                 self.lastVoiceAt = nil
                 self.lastBufferAt = Date()
                 self.zeroFrames = 0
                 self.yieldedBySilence = false
                 return self.bufferGeneration
             }
+            let mode = queue.sync { self.recordingMode }
+            let threshold = mode.sensitivity(configuredSensitivity)
             input.removeTap(onBus: 0)
             input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
                 self?.handle(buffer: buffer, format: format, mode: mode, threshold: threshold, token: bufferToken)
@@ -401,15 +423,21 @@ final class CaptureEngine: ObservableObject {
             guard let self else { return }
             defer { self.releaseSlot() }
             guard self.acceptingBuffers, self.bufferGeneration == token else { return }
-            // 灵敏度 / 静音断句 / 单段上限都按「当前设置」实时取，录音中改设置立即生效
             self.lastBufferAt = now
-            let live = Settings.shared.captureMode
-            let liveThreshold = Settings.shared.modeSensitivity
+            // 有会话时用「实时」档：停顿 0.8 秒、最长 20 秒就切，切完立刻送转写。
+            // 没有会话（历史路径）仍按设置里的模式阈值走。
+            let inSession = self.sessionId != nil
+            let live = inSession ? self.recordingMode : Settings.shared.captureMode
+            let gap = inSession ? CaptureMode.liveSilenceGap : live.silenceGap
+            let maxSegment = inSession ? CaptureMode.liveMaxSegment : live.maxSegment
+            let liveThreshold = inSession
+                ? live.sensitivity(Settings.shared.sensitivity)
+                : Settings.shared.modeSensitivity
             let speaking = rms > liveThreshold
             if speaking {
                 self.lastVoiceAt = now
             }
-            let isSpeaking = self.lastVoiceAt.map { now.timeIntervalSince($0) <= live.silenceGap } ?? false
+            let isSpeaking = self.lastVoiceAt.map { now.timeIntervalSince($0) <= gap } ?? false
             // level/isSpeaking 都是 @Published：每 85ms 写一次会让所有观察 CaptureEngine
             // 的页面（今天、设置、设置子页）整页重绘，而目前没有任何 UI 读 level。
             // 只在「是否在说话」真的变化时更新，电平按 2% 量化后再写。
@@ -443,8 +471,8 @@ final class CaptureEngine: ObservableObject {
             // 结束条件
             if self.file != nil {
                 let started = self.segmentStart ?? now
-                let long = now.timeIntervalSince(started) >= live.maxSegment
-                let quiet = (self.lastVoiceAt.map { now.timeIntervalSince($0) > live.silenceGap } ?? false)
+                let long = now.timeIntervalSince(started) >= maxSegment
+                let quiet = (self.lastVoiceAt.map { now.timeIntervalSince($0) > gap } ?? false)
                 let tooShort = now.timeIntervalSince(started) < self.minimumDuration
                 if long || (quiet && !tooShort) {
                     self.closeSegment(force: false)
@@ -564,7 +592,8 @@ final class CaptureEngine: ObservableObject {
             state: .recorded,
             day: DayKey.of(start),
             createdAt: end,
-            captureModeRaw: recordingMode.rawValue
+            captureModeRaw: recordingMode.rawValue,
+            sessionId: sessionId
         )
         // 写库失败（磁盘满、库损坏）就别再报「保存成功」，
         // 否则用户看到一段原话，重启后消失。
@@ -575,10 +604,13 @@ final class CaptureEngine: ObservableObject {
             }
             return
         }
+        let inSession = sessionId != nil
         DispatchQueue.main.async {
             self.onSegmentSaved?(seg)
             AppState.shared.refresh()
             NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
+            // 开会时这段一落地就转，不等 30 秒的定时器：实时字幕靠这一下面
+            if inSession { TranscribeQueue.shared.tick(live: true) }
         }
     }
 }

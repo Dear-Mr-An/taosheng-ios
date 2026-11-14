@@ -18,8 +18,24 @@ enum TranscribeError: LocalizedError {
     }
 }
 
+/// 识别结果：整段文字 + 逐句话轮。
+///
+/// 以前这里只返回 String，豆包就算返回了说话人也只能丢掉，
+/// 一场会几百段原话全被贴上同一个「说话人1」。现在把话轮一起带回来。
+struct TranscriptResult {
+    var text: String
+    var spans: [UtteranceSpan]
+
+    init(text: String, spans: [UtteranceSpan] = []) {
+        self.text = text
+        self.spans = spans
+    }
+
+    static let empty = TranscriptResult(text: "", spans: [])
+}
+
 protocol Transcriber {
-    func transcribe(fileURL: URL) async throws -> String
+    func transcribe(fileURL: URL) async throws -> TranscriptResult
 }
 
 // MARK: - OpenAI 兼容（豆包 / Whisper / 自建）
@@ -57,7 +73,7 @@ struct OpenAICompatibleTranscriber: Transcriber {
         return out
     }
 
-    func transcribe(fileURL: URL) async throws -> String {
+    func transcribe(fileURL: URL) async throws -> TranscriptResult {
         // 用户可能把完整地址填成 .../v1/audio/transcriptions/，尾斜杠要先去掉，
         // 否则会被再拼一次变成 .../transcriptions/audio/transcriptions 直接 404
         var raw = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -103,10 +119,10 @@ struct OpenAICompatibleTranscriber: Transcriber {
         }
         if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let text = obj["text"] as? String {
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return TranscriptResult(text: text.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         if let text = String(data: data, encoding: .utf8) {
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return TranscriptResult(text: text.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         throw TranscribeError.empty
     }
@@ -156,7 +172,7 @@ struct DoubaoTranscriber: Transcriber {
         }
     }
 
-    func transcribe(fileURL: URL) async throws -> String {
+    func transcribe(fileURL: URL) async throws -> TranscriptResult {
         guard let url = URL(string: Self.endpoint) else { throw TranscribeError.notConfigured }
         let raw = try Data(contentsOf: fileURL)
         if raw.isEmpty { throw TranscribeError.empty }
@@ -201,7 +217,7 @@ struct DoubaoTranscriber: Transcriber {
         let message = http.value(forHTTPHeaderField: "X-Api-Message") ?? ""
 
         // 20000003 = 静音，不算错误
-        if code == "20000003" { return "" }
+        if code == "20000003" { return .empty }
         if code != "20000000" {
             let hint = message.isEmpty ? (String(data: data, encoding: .utf8) ?? "") : message
             throw TranscribeError.http(http.statusCode, Self.explain(code: code, hint: hint))
@@ -210,16 +226,12 @@ struct DoubaoTranscriber: Transcriber {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let result = obj["result"] as? [String: Any] else { throw TranscribeError.empty }
 
-        if let utts = result["utterances"] as? [[String: Any]], !utts.isEmpty {
-            let lines = utts.compactMap { $0["text"] as? String }
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            if !lines.isEmpty { return lines.joined(separator: "\n") }
-        }
-        if let text = result["text"] as? String {
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        throw TranscribeError.empty
+        // 说话人标签在 utterances[].additions.speaker（官方 schema）。
+        // 具体取了哪些字段、为什么这么取，见 DoubaoResultParser 的注释。
+        let spans = DoubaoResultParser.utterances(fromResult: result)
+        if spans.isEmpty { throw TranscribeError.empty }
+        let text = spans.map(\.text).joined(separator: "\n")
+        return TranscriptResult(text: text, spans: spans)
     }
 }
 
@@ -231,7 +243,7 @@ final class AppleSpeechTranscriber: Transcriber {
         locale = Locale(identifier: (language.isEmpty || language == "auto") ? "zh-CN" : (language == "zh" ? "zh-CN" : language))
     }
 
-    func transcribe(fileURL: URL) async throws -> String {
+    func transcribe(fileURL: URL) async throws -> TranscriptResult {
         let status = SFSpeechRecognizer.authorizationStatus()
         if status == .notDetermined {
             await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
@@ -245,7 +257,7 @@ final class AppleSpeechTranscriber: Transcriber {
             throw TranscribeError.speechUnavailable("当前语言包不可用")
         }
 
-        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
+        let text = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
             let req = SFSpeechURLRecognitionRequest(url: fileURL)
             req.shouldReportPartialResults = false
             req.requiresOnDeviceRecognition = rec.supportsOnDeviceRecognition
@@ -273,6 +285,7 @@ final class AppleSpeechTranscriber: Transcriber {
                 finish(.failure(TranscribeError.speechUnavailable("识别超时，请重试")))
             }
         }
+        return TranscriptResult(text: text)
     }
 }
 

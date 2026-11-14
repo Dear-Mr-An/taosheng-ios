@@ -1,8 +1,8 @@
 import Foundation
 
-/// 持久化使用英文值；旧口播稿及未知模式安全回退为日常。
+/// 持久化使用英文值。历史上还有 daily（日常）与 script，现在都归到会议：
+/// 董事长只用「开会」这一种用法，留着日常模式只会让录音静默、节律统计算错。
 enum CaptureMode: String, CaseIterable, Identifiable, Codable {
-    case daily
     case meeting
     case training
     case call
@@ -10,12 +10,20 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
     var id: String { rawValue }
 
     static func restored(_ raw: String) -> CaptureMode {
-        CaptureMode(rawValue: raw) ?? .daily
+        switch raw {
+        case CaptureMode.training.rawValue: return .training
+        case CaptureMode.call.rawValue: return .call
+        default: return .meeting   // meeting / daily / script / 未知值
+        }
     }
+
+    /// 会话中段的切分：停顿满 0.8 秒或长度满 20 秒就切，切完立刻转写。
+    /// 会议里等 2.5 秒判停会让实时字幕迟到半分钟，所以实时转写用另一套更短的阈值。
+    static let liveSilenceGap: Double = 0.8
+    static let liveMaxSegment: Double = 20
 
     var title: String {
         switch self {
-        case .daily: return "日常"
         case .meeting: return "会议"
         case .training: return "培训"
         case .call: return "通话"
@@ -24,7 +32,6 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
 
     var symbol: String {
         switch self {
-        case .daily: return "sun.max"
         case .meeting: return "person.2.wave.2"
         case .training: return "graduationcap"
         case .call: return "phone.arrow.up.right"
@@ -33,8 +40,7 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
 
     var hint: String {
         switch self {
-        case .daily: return "合成一件事，不出纪要"
-        case .meeting: return "多人讨论，结束后出会议纪要"
+        case .meeting: return "多人讨论，结束后分清谁说的，出会议纪要"
         case .training: return "一人主讲，不区分说话人，出培训笔记"
         case .call: return "两人一来一回，出通话记录"
         }
@@ -42,7 +48,6 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
 
     var maxSegment: Double {
         switch self {
-        case .daily: return 180
         case .meeting: return 300
         case .training: return 600
         case .call: return 240
@@ -51,7 +56,6 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
 
     var silenceGap: Double {
         switch self {
-        case .daily: return 1.5
         case .meeting: return 2.5
         case .training: return 3
         case .call: return 1.8
@@ -62,7 +66,6 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
 
     func sensitivity(_ configured: Double) -> Double {
         switch self {
-        case .daily: return configured
         case .meeting, .call: return min(configured, 0.014)
         case .training: return min(configured, 0.018)
         }
