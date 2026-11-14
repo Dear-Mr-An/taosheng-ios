@@ -158,11 +158,19 @@ final class ReviewEngine {
         let end = cal.date(bySettingHour: s.reviewHour, minute: 0, second: 0, of: refDate) ?? refDate
         let start = cal.date(byAdding: .day, value: -1, to: end) ?? end
 
+        // 当天每一场会/培训：让回顾开头能写「今天开了 N 场会」，也方便模型按场交叉核对
+        let noteSessions: [[String: Any]] = evs.filter { $0.sessionId != nil }.reversed().map {
+            var d: [String: Any] = ["title": $0.title, "time": $0.timeRangeText, "scene": $0.scene]
+            if !$0.people.isEmpty { d["people"] = $0.people }
+            return d
+        }
+
         let payload: [String: Any] = [
             "date": day,
             "timeWindow": ["startExclusive": iso.string(from: start),
                            "endInclusive": iso.string(from: end)],
             "events": evArr,
+            "sessions": noteSessions,
             "starred_stale": stale
         ]
         guard let body = try? JSONSerialization.data(withJSONObject: payload),

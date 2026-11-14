@@ -358,3 +358,72 @@ struct SwipeRow<Content: View>: View {
         .clipped()
     }
 }
+
+// MARK: - 待确认横卡（今天页英雄卡下面那一排，对应原版 PendingCard）
+
+/// 原版是一屏两张、卡宽约屏宽一半；这里卡宽也跟着屏宽走，小屏也不会挤。
+struct PendingPeekCard: View {
+    let item: MemoryItem
+    let onAccept: () -> Void
+    let onIgnore: () -> Void
+
+    private var tint: Color { Color(hex: MemoryItem.categoryColor(item.category)) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.sp2) {
+            HStack(spacing: 6) {
+                Text(item.category == "待办", item.kind == nil ? "待办" : "待办 · (item.kind ?? "")")
+                    .font(.system(size: Theme.fsCaption, weight: .medium))
+                    .foregroundColor(tint)
+                    .padding(.horizontal, 9).padding(.vertical, 3)
+                    .background(tint.opacity(0.13))
+                    .clipShape(Capsule())
+                Spacer(minLength: 4)
+                if let due = item.dueDisplay {
+                    Text(due)
+                        .font(.system(size: Theme.fsCaption))
+                        .foregroundColor(Theme.dim)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                }
+            }
+            Text(item.content)
+                .font(.system(size: Theme.fsSmall))
+                .foregroundColor(Theme.text)
+                .lineSpacing(2)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
+            HStack(spacing: 8) {
+                peekButton("忽略", filled: false, action: onIgnore)
+                peekButton(item.category == "约定" ? "记下" : "接受", filled: true, action: onAccept)
+            }
+        }
+        .padding(Theme.sp3)
+        .background(Theme.accentSoft)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+    }
+
+    private func peekButton(_ title: String, filled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: Theme.fsCaption, weight: .medium))
+                .foregroundColor(filled ? .white : Theme.accent)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 5)
+                .background(filled ? Theme.accent : Theme.card)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+extension View {
+    /// iOS 17 才有 scrollTargetLayout；16 上退化成普通横滑（不吸附，但不影响使用）。
+    @ViewBuilder func peekTargetLayout() -> some View {
+        if #available(iOS 17.0, *) { self.scrollTargetLayout() } else { self }
+    }
+
+    @ViewBuilder func peekSnapBehavior() -> some View {
+        if #available(iOS 17.0, *) { self.scrollTargetBehavior(.viewAligned) } else { self }
+    }
+}

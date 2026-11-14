@@ -29,6 +29,7 @@ struct TodayView: View {
                     header
                     heroCard
                     justEnded
+                    pendingPeek
                     timelineCard(proxy: proxy)
                     Color.clear.frame(height: 16)
                 }
@@ -365,6 +366,44 @@ struct TodayView: View {
         if let e = justEndedEvent {
             JustEndedCard(event: e, speakerCount: e.people.count) {
                 detailEvent = e
+            }
+        }
+    }
+
+    // MARK: 待确认（原版英雄卡下面那一排横卡）
+
+    /// 只取最新 6 条：多了横扫没意义，全部处理入口在待办页。
+    private var pendingPeek: some View {
+        let list = Array(app.pendingItems.prefix(6))
+        return Group {
+            if !list.isEmpty {
+                VStack(alignment: .leading, spacing: Theme.sp2) {
+                    HStack(spacing: 6) {
+                        Text("待确认")
+                            .font(.system(size: Theme.fsSmall, weight: .semibold))
+                            .foregroundColor(Theme.text2)
+                        Text("\(app.pendingItems.count) 条")
+                            .font(.system(size: Theme.fsCaption))
+                            .foregroundColor(Theme.dim)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 2)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: Theme.sp2) {
+                            ForEach(list) { it in
+                                PendingPeekCard(item: it) {
+                                    app.setItemStatus(it.id, .accepted)
+                                } onIgnore: {
+                                    app.setItemStatus(it.id, .ignored)
+                                }
+                                .frame(width: max(180, UIScreen.main.bounds.width * 0.62))
+                            }
+                        }
+                        .peekTargetLayout()
+                        .padding(.trailing, 4)
+                    }
+                    .peekSnapBehavior()
+                }
             }
         }
     }

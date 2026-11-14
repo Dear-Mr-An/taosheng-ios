@@ -228,6 +228,11 @@ struct MemoryView: View {
         return weekOffset < 0 ? "\(-weekOffset) 周前" : "\(weekOffset) 周后"
     }
 
+    /// 当天已经出过快记的会/培训（回顾卡里列出来，点一下直接看快记）
+    private var dayNotes: [MemoryEvent] {
+        Array(app.dayEvents.filter { $0.isNote }.reversed())
+    }
+
     private var reviewCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
@@ -252,6 +257,36 @@ struct MemoryView: View {
                 Text("还没生成回顾。整理完事件后点下面生成。")
                     .font(.system(size: 12))
                     .foregroundColor(Theme.dim)
+            }
+            if !dayNotes.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("今天开了 \(dayNotes.count) 场会")
+                        .font(.system(size: Theme.fsCaption, weight: .medium))
+                        .foregroundColor(Theme.text2)
+                    ForEach(dayNotes) { e in
+                        Button { noteEvent = e } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: e.scene == "培训" ? "graduationcap" : "person.2.wave.2")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(e.scene == "培训" ? Theme.purple : Theme.accent)
+                                Text(e.title)
+                                    .font(.system(size: Theme.fsSmall))
+                                    .foregroundColor(Theme.text)
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text(e.timeRangeText)
+                                    .font(.system(size: Theme.fsCaption))
+                                    .foregroundColor(Theme.dim)
+                            }
+                            .padding(.vertical, 3)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(Theme.sp3)
+                .background(Theme.bgDeep)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
             }
             HStack(spacing: 8) {
                 Button {

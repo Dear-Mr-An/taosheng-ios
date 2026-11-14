@@ -156,10 +156,7 @@ struct MemoryItem: Identifiable, Hashable {
     var dueDisplay: String? {
         if let t = dueText, !t.isEmpty { return t }
         guard let d = dueAt else { return nil }
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_CN")
-        f.dateFormat = "M月d日 HH:mm"
-        return f.string(from: d)
+        return Fmt.monthDayTime.string(from: d)
     }
 }
 
