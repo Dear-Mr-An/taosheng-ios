@@ -25,6 +25,7 @@ struct NoteSheet: View {
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.sp4) {
                 header
@@ -40,6 +41,13 @@ struct NoteSheet: View {
             .padding(.bottom, Theme.sp6)
         }
         .background(Theme.bg.ignoresSafeArea())
+        .task {
+            // 截图模式：抽屉要滚到关键原话那一屏，证明这一块真的渲染了
+            guard ShotMode.screen == "card-sheet-bottom", !event.quotes.isEmpty else { return }
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            withAnimation(nil) { proxy.scrollTo("quotes", anchor: .top) }
+        }
+        }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .sheet(item: $renameItem) { item in
@@ -133,7 +141,9 @@ struct NoteSheet: View {
             .lineSpacing(4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Theme.sp3)
-            .background(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous).fill(Theme.cardSoft))
+            // 原版是一块浅蓝灰的「摘要」底，和下面的要点区分开
+            .background(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
+                .fill(Theme.blue.opacity(0.08)))
     }
 
     private var sections: some View {
@@ -146,9 +156,12 @@ struct NoteSheet: View {
                             .foregroundColor(section.title.contains("结论") || section.title == "核心要点" ? Theme.text : Theme.text2)
                         ForEach(Array(section.lines.enumerated()), id: \.offset) { _, line in
                             HStack(alignment: .top, spacing: 7) {
-                                Circle().fill(tint.opacity(0.55)).frame(width: 5, height: 5).padding(.top, 6)
+                                // 「议题」按原版是一句粗体正文，前面不加圆点
+                                if section.title != "议题" {
+                                    Circle().fill(tint.opacity(0.55)).frame(width: 5, height: 5).padding(.top, 6)
+                                }
                                 Text(line)
-                                    .font(.system(size: Theme.fsBody))
+                                    .font(.system(size: Theme.fsBody, weight: section.title == "议题" ? .semibold : .regular))
                                     .foregroundColor(Theme.text)
                                     .lineSpacing(3)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -195,6 +208,7 @@ struct NoteSheet: View {
 
     private var quotesBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Color.clear.frame(height: 0).id("quotes")
             Text("关键原话").font(.system(size: Theme.fsCaption, weight: .medium)).foregroundColor(Theme.dim)
             ForEach(Array(event.quotes.enumerated()), id: \.offset) { _, q in
                 Button { onQuote(q) } label: {
@@ -216,7 +230,7 @@ struct NoteSheet: View {
                         Spacer(minLength: 0)
                     }
                     .padding(10)
-                    .background(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous).fill(Theme.card))
+                    .background(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous).fill(Theme.cardSoft))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

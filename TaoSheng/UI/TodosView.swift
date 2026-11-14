@@ -168,7 +168,9 @@ struct TodosView: View {
             else if d == yesterday { title = "昨天" }
             else if let date = DayKey.date(from: d) { title = Fmt.monthDay.string(from: date) }
             else { title = d }
-            return DayGroup(day: d, title: title, items: map[d] ?? [])
+            // 组标题带条数：原版写的就是「今天 · 3 条」
+            let items = map[d] ?? []
+            return DayGroup(day: d, title: title + " · \(items.count) 条", items: items)
         }
     }
 
@@ -236,7 +238,8 @@ struct TodosView: View {
                 .background(tint(it.category).opacity(0.13))
                 .clipShape(Capsule())
             if let d = it.dueDisplay {
-                Text(d).font(.system(size: Theme.fsCaption)).foregroundColor(Theme.dim)
+                // 有截止时间就用主色：这一行是董事长扫列表时最先看的
+                Text(d).font(.system(size: Theme.fsCaption, weight: .medium)).foregroundColor(Theme.accent)
             }
             if let w = it.who, !w.isEmpty {
                 Text("· " + w).font(.system(size: Theme.fsCaption)).foregroundColor(Theme.dim2)

@@ -37,6 +37,10 @@ struct LLMSettingsView: View {
 
     // MARK: 整理用的模型（固定 DeepSeek，不再提供切换服务商）
 
+    private func intervalLabel(_ minutes: Int) -> String {
+        minutes < 60 ? "\(minutes) 分" : "\(minutes / 60) 小时"
+    }
+
     private var llmCard: some View {
         VStack(alignment: .leading, spacing: Theme.sp3) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -163,12 +167,28 @@ struct LLMSettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 if settings.digestByInterval {
-                    Picker("多久整理一次", selection: $settings.digestIntervalMin) {
-                        ForEach(Settings.digestIntervalOptions, id: \.self) { minutes in
-                            Text(minutes < 60 ? "\(minutes) 分钟" : "\(minutes / 60) 小时").tag(minutes)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("多久整理一次")
+                            .font(.system(size: Theme.fsSmall))
+                            .foregroundColor(Theme.text2)
+                        // 全部选项铺开：原来收在 Picker 里，只能看到当前这一档（董事长看不到 5 分钟和 10 分钟）
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 62), spacing: 8)], spacing: 8) {
+                            ForEach(Settings.digestIntervalOptions, id: \.self) { minutes in
+                                let on = settings.digestIntervalMin == minutes
+                                Button { settings.digestIntervalMin = minutes } label: {
+                                    Text(intervalLabel(minutes))
+                                        .font(.system(size: Theme.fsSmall, weight: on ? .semibold : .regular))
+                                        .foregroundColor(on ? .white : Theme.text2)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 7)
+                                        .background(Capsule().fill(on ? Theme.accent : Theme.bgDeep))
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(intervalLabel(minutes))
+                                .accessibilityAddTraits(on ? [.isSelected] : [])
+                            }
                         }
                     }
-                    .font(.system(size: Theme.fsBody))
                 } else {
                     Picker("每天整理", selection: $settings.digestHour) {
                         ForEach(0..<24, id: \.self) { hour in

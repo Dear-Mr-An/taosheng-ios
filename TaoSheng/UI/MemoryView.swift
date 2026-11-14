@@ -16,6 +16,9 @@ struct MemoryView: View {
     /// catItems 当前装的是哪个分类：切到别的分类时先清空，否则会闪一下上一类的数据
     @State private var loadedCat = ""
     @State private var weekOffset = 0
+    /// 周历条的月份锚点：顶部显示「2026年11月 ∨」，点开可以挑月份
+    @State private var monthAnchor = Date()
+    @State private var showMonthPicker = false
     @State private var reviewBusy = false
     /// 0 全部 / 1 会议 / 2 培训：只筛「按天」这一支，按类那支不动
     @State private var kindFilter = 0
@@ -47,6 +50,12 @@ struct MemoryView: View {
                 .padding(.top, 8)
             }
             .coordinateSpace(name: "railScroll")
+            .task {
+                // 截图模式：滚到时间线中段，让小时轴和橙色气泡一起入画
+                guard ShotMode.screen == "memory-timeline-rail" else { return }
+                try? await Task.sleep(nanoseconds: 700_000_000)
+                withAnimation(nil) { proxy.scrollTo("memo-timeline", anchor: .top) }
+            }
             .onPreferenceChange(RailOffsetKey.self) { map in
                 let visible = map.filter { $0.value <= 4 && $0.value > -260 }
                 if let key = visible.max(by: { $0.value < $1.value })?.key, key != activeRailKey {
@@ -62,7 +71,9 @@ struct MemoryView: View {
             guard let s = ShotMode.screen else { return }
             if s == "memory-filter-meeting" { kindFilter = 1 }
             if (s == "card-sheet-top" || s == "card-sheet-bottom"), noteEvent == nil {
-                noteEvent = app.dayEvents.first { $0.sessionId != nil } ?? app.dayEvents.first
+                noteEvent = app.dayEvents.first { $0.sessionId != nil && !$0.quotes.isEmpty }
+                    ?? app.dayEvents.first { $0.sessionId != nil }
+                    ?? app.dayEvents.first
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .taoshengDataChanged)) { _ in
@@ -71,6 +82,7 @@ struct MemoryView: View {
         .sheet(isPresented: $showShare) {
             ShareSheet(items: [exported])
         }
+        .sheet(isPresented: $showMonthPicker) { monthPickerSheet }
         .sheet(isPresented: $showReview) {
             NavigationStack { ReviewSheet(day: day) }
         }
@@ -176,10 +188,22 @@ struct MemoryView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("上一周")
-            Text(weekLabel)
-                .font(.system(size: Theme.fsCaption))
-                .foregroundColor(Theme.dim)
+            Button { showMonthPicker = true } label: {
+                HStack(spacing: 4) {
+                    Text(Fmt.df("yyyy年M月").string(from: monthAnchor))
+                        .font(.system(size: Theme.fsSmall, weight: .medium))
+                        .foregroundColor(Theme.text)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(Theme.dim)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(Theme.card))
                 .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("选择月份")
             Button {
                 weekOffset += 1
             } label: {
@@ -221,6 +245,42 @@ struct MemoryView: View {
         }
         .padding(.vertical, 2)
         }
+    }
+
+    /// 可选月份：从当月往前 12 个月
+    private var monthOptions: [Date] {
+        var cal = Calendar(identifier: .gregorian)
+        cal.locale = Locale(identifier: "zh_CN")
+        let start = cal.date(from: cal.dateComponents([.year, .month], from: Date())) ?? Date()
+        return (0..<12).compactMap { cal.date(byAdding: .month, value: -$0, to: start) }
+    }
+
+    private var monthPickerSheet: some View {
+        NavigationStack {
+            List(monthOptions, id: \.self) { m in
+                Button {
+                    monthAnchor = m
+                    weekOffset = 0
+                    showMonthPicker = false
+                    app.refreshDay(DayKey.of(m))
+                } label: {
+                    HStack {
+                        Text(Fmt.df("yyyy年M月").string(from: m)).foregroundColor(Theme.text)
+                        Spacer()
+                        if Calendar(identifier: .gregorian).isDate(m, equalTo: monthAnchor, toGranularity: .month) {
+                            Image(systemName: "checkmark").foregroundColor(Theme.accent)
+                        }
+                    }
+                }
+                .listRowBackground(Theme.card)
+            }
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg.ignoresSafeArea())
+            .navigationTitle("选择月份")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { showMonthPicker = false } } }
+        }
+        .presentationDetents([.medium])
     }
 
     private var weekLabel: String {
@@ -347,41 +407,31 @@ struct MemoryView: View {
         }
     }
 
-    /// 速记卡：整张白卡，条间分隔线从文字起画；右上「+ 生成」
+    /// 速记卡：这里只放「会议速记」和「培训笔记」——它们就是每场会/培训的纪要。
+    /// 以前放的是技能卡（项目快讯、今日复盘），摘要里还带着字段名，董事长看不明白。
     @ViewBuilder
     private var cardsCard: some View {
-        let cards = app.dayCards.filter { !$0.isNothing }
+        let notes = Array(app.dayEvents.filter { $0.isNote }.reversed())
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text("速记卡")
+                Text("速记")
                     .font(.system(size: Theme.fsTitle, weight: .semibold))
                     .foregroundColor(Theme.text)
-                if !cards.isEmpty {
-                    Text("\(cards.count)")
+                if !notes.isEmpty {
+                    Text("\(notes.count) 场")
                         .font(.system(size: Theme.fsCaption))
                         .foregroundColor(Theme.dim)
                 }
                 Spacer(minLength: 0)
-                Button {
-                    // afterDigest 类的速记卡：立刻按这一天跑一遍
-                    SkillEngine.shared.runAfterDigest(day: day)
-                    toast = "正在生成，稍后出现在这里"
-                } label: {
-                    Text("+ 生成")
-                        .font(.system(size: Theme.fsSmall, weight: .medium))
-                        .foregroundColor(Theme.accent)
-                        .tapTarget(8)
-                }
-                .buttonStyle(.plain)
             }
-            if cards.isEmpty {
-                EmptyHint(symbol: "rectangle.stack", title: "这一天还没有速记卡",
-                          detail: "速记卡把一天里的事整理成一页，例如项目快讯、今日复盘")
+            if notes.isEmpty {
+                EmptyHint(symbol: "rectangle.stack", title: "这一天还没有速记",
+                          detail: "每场会或培训结束，立刻出一份速记放在这里")
             } else {
                 VStack(spacing: 0) {
-                    ForEach(Array(cards.enumerated()), id: \.element.id) { idx, c in
-                        CardView(card: c)
-                        if idx < cards.count - 1 {
+                    ForEach(Array(notes.enumerated()), id: \.element.id) { idx, e in
+                        noteRow(e)
+                        if idx < notes.count - 1 {
                             Rectangle().fill(Theme.lineSoft)
                                 .frame(height: 0.6)
                                 .padding(.leading, 54)
@@ -395,6 +445,48 @@ struct MemoryView: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
     }
 
+    private func noteRow(_ e: MemoryEvent) -> some View {
+        Button { noteEvent = e } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: e.scene == "培训" ? "graduationcap.fill" : "person.2.wave.2.fill")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(e.scene == "培训" ? Theme.purple : Theme.accent)
+                    .frame(width: 30, height: 30)
+                    // 浅蓝灰的图标底：跟原版速记卡的方块一致
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Theme.blue.opacity(0.10)))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(e.noteTag + " · " + Fmt.hm.string(from: e.startAt))
+                        .font(.system(size: Theme.fsCaption))
+                        .foregroundColor(Theme.dim)
+                    Text(e.title)
+                        .font(.system(size: Theme.fsBody, weight: .semibold))
+                        .foregroundColor(Theme.text)
+                        .lineLimit(1)
+                    Text(noteSummary(e))
+                        .font(.system(size: Theme.fsSmall))
+                        .foregroundColor(Theme.text2)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Theme.dim2)
+                    .padding(.top, 4)
+            }
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 卡片上只放结论那一句：以前拼的是整段 summary，会露出「结论先行：」「要点：」这种字段名。
+    private func noteSummary(_ e: MemoryEvent) -> String {
+        let c = NoteRules.conclusion(e.summary)
+        let text = c.isEmpty ? NoteRules.tidy(e.summary) : c
+        return text.replacingOccurrences(of: "；", with: "，").replacingOccurrences(of: "。。", with: "。")
+    }
+
     private func timelineCard(proxy: ScrollViewProxy) -> some View {
         let items = filteredEvents
         let groups = partGroups(items)
@@ -403,6 +495,7 @@ struct MemoryView: View {
                 Text("时间线 · \(items.count) 件事")
                     .font(.system(size: Theme.fsTitle, weight: .semibold))
                     .foregroundColor(Theme.text)
+                    .id("memo-timeline")
                 Spacer(minLength: 0)
             }
             if items.isEmpty {
@@ -624,7 +717,7 @@ struct MemoryView: View {
         var cal = Calendar(identifier: .gregorian)
         cal.firstWeekday = 2          // 周一为一周开始
         cal.locale = Locale(identifier: "zh_CN")
-        let today = Date()
+        let today = monthAnchor
         let thisWeek = cal.dateInterval(of: .weekOfYear, for: today)?.start ?? today
         let start = cal.date(byAdding: .weekOfYear, value: weekOffset, to: thisWeek) ?? thisWeek
         return (0..<7).compactMap { i in

@@ -8,6 +8,8 @@ struct TodayView: View {
     /// 一场聆听会话的整个生命周期（录音 → 分人 → 整理 → 推送）都在 ListenFlow 里，
     /// 视图只负责把它的状态画出来，不再自己判断「录没在录」。
     @ObservedObject private var flow = ListenFlow.shared
+    /// 底部那行要显示「N 段录音待转写」，所以也观察转写队列的计数
+    @ObservedObject private var queue = TranscribeQueue.shared
     @Environment(\.colorScheme) private var scheme
     @AppStorage("appearance") private var appearance = "auto"
 
@@ -47,6 +49,9 @@ struct TodayView: View {
         .tabBarClearance()
         .background(Theme.bg.ignoresSafeArea())
         .navigationBarHidden(true)
+        .onAppear {
+            if ShotMode.screen == "timeline-rail" { showTimeline = true }
+        }
         .task { await loadLastReview() }
         .onReceive(NotificationCenter.default.publisher(for: .taoshengDataChanged)) { _ in
             Task { await loadLastReview() }
@@ -93,116 +98,121 @@ struct TodayView: View {
 
     // MARK: Hero
 
+    /// 参考原版 TodayScreen.kt 的紧凑版：一行状态 + 点状波形，一行三个数字，
+    /// 底部一行「待转写 + 现在整理 + 模型」，整卡比旧版矮三分之一以上。
     private var heroCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(flow.isRecording ? Color.white : Color.white.opacity(0.45))
-                        .frame(width: 7, height: 7)
-                    Text(heroStatus)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-
-                Spacer()
-
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { heroCollapsed.toggle() }
-                } label: {
-                    Text(heroCollapsed ? "展开" : "收起")
-                        .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.8))
-                        .tapTarget(10)
-                }
-                .buttonStyle(.plain)
+                Circle()
+                    .fill(flow.isRecording ? Color.white : Color.white.opacity(0.5))
+                    .frame(width: 8, height: 8)
+                Text(heroStatus)
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                Text("›")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.8))
+                Spacer(minLength: 6)
+                HeroWave(level: capture.level, active: flow.isRecording)
+                    .frame(width: 96, height: 22)
             }
 
             if !heroCollapsed {
                 modeRow
-                    .padding(.top, 12)
-
-                listenButton
                     .padding(.top, 10)
-
+                listenButton
+                    .padding(.top, 8)
                 if flow.isRecording || !liveLines.isEmpty {
                     liveTranscript
-                        .padding(.top, 10)
+                        .padding(.top, 8)
                 }
-
-                Divider()
-                    .overlay(Color.white.opacity(0.25))
-                    .padding(.vertical, 12)
-
-                HStack(spacing: 0) {
-                    heroStat(app.todayTalkText, "录到人声")
-                    heroDivider
-                    heroStat("\(app.eventCount)", "件事")
-                    heroDivider
-                    heroStat("\(app.counts.pending)", "待确认")
-                }
-
-                Text(heroNote)
-                    .font(.system(size: 11.5))
-                    .foregroundColor(.white.opacity(0.78))
-                    .lineSpacing(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 10)
-
-                HStack(spacing: 8) {
-                    if flow.canRetry {
-                        Button {
-                            flow.retry()
-                        } label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: "arrow.clockwise").font(.system(size: 12))
-                                Text("重试").font(.system(size: 12.5, weight: .medium))
-                            }
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 14).padding(.vertical, 8)
-                            .background(Color.white.opacity(0.26))
-                            .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        Button {
-                            Task { await runDigest() }
-                        } label: {
-                            HStack(spacing: 5) {
-                                if digest.running {
-                                    ProgressView().scaleEffect(0.7).tint(.white)
-                                } else {
-                                    Image(systemName: "sparkles").font(.system(size: 12))
-                                }
-                                Text(digest.running ? "正在整理…" : "现在整理")
-                                    .font(.system(size: 12.5, weight: .medium))
-                            }
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 14).padding(.vertical, 8)
-                            .background(Color.white.opacity(0.22))
-                            .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(digest.running)
-                    }
-
-                    Spacer()
-
-                    Text(digestAgo)
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.7))
-                }
-                .padding(.top, 12)
             }
+
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                bigStat(app.todayTalkText, "录到人声")
+                bigStat("\(app.eventCount)", "件事")
+                bigStat("\(app.counts.pending)", "待确认")
+            }
+            .padding(.top, heroCollapsed ? 8 : 12)
+
+            Rectangle()
+                .fill(Color.white.opacity(0.3))
+                .frame(height: 0.5)
+                .padding(.top, 8)
+
+            HStack(spacing: 6) {
+                Text(stageLine)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.85))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 6)
+                if flow.canRetry {
+                    Button { flow.retry() } label: { heroPill("重试", solid: true) }
+                        .buttonStyle(.plain)
+                } else {
+                    Button { Task { await runDigest() } } label: {
+                        heroPill(digest.running ? "排队中" : "现在整理", solid: true)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(digest.running)
+                }
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) { heroCollapsed.toggle() }
+                } label: {
+                    heroPill(heroCollapsed ? "展开" : "收起", solid: false)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 8)
         }
-        .padding(16)
-        .background(LinearGradient(colors: [Theme.accent, Theme.accentHi],
+        .padding(.leading, 18)
+        .padding(.trailing, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
+        .background(LinearGradient(colors: [Color(hex: "FFAE6A"), Color(hex: "F07B2E"), Color(hex: "E8582A")],
                                    startPoint: .topLeading, endPoint: .bottomTrailing))
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
-        .shadow(color: Theme.accent.opacity(0.25), radius: 12, x: 0, y: 6)
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .shadow(color: Color(hex: "E8582A").opacity(0.22), radius: 10, x: 0, y: 5)
     }
+
+    private func heroPill(_ text: String, solid: Bool) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundColor(solid ? Color(hex: "E8582A") : .white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(solid ? Color.white : Color.white.opacity(0.2)))
+    }
+
+    private func bigStat(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value)
+                .font(.system(size: 21, weight: .semibold, design: .rounded))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(label)
+                .font(.system(size: 10.5))
+                .foregroundColor(.white.opacity(0.78))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 底部那行说明：录音中给转写进度，空闲时给待转写段数和整理状态。
+    private var stageLine: String {
+        if flow.isRecording {
+            return liveLines.isEmpty ? "正在转写…" : "已转写 \(liveLines.count) 段，结束统一分人"
+        }
+        if flow.working { return flow.phaseText.isEmpty ? flow.statusText : flow.phaseText }
+        if toTranscribe > 0 { return "\(toTranscribe) 段录音待转写" }
+        if flow.canRetry, let err = flow.lastError { return err }
+        return digestAgo
+    }
+
+    private var toTranscribe: Int { queue.pendingCount }
 
     /// 英雄卡顶上那行字：录音/收尾/整理/失败各有各的说法，别一律写「已暂停」。
     private var heroStatus: String {
@@ -364,7 +374,7 @@ struct TodayView: View {
     @ViewBuilder
     private var justEnded: some View {
         if let e = justEndedEvent {
-            JustEndedCard(event: e, speakerCount: e.people.count) {
+            JustEndedCard(event: e, speakerCount: app.speakerCount(e)) {
                 detailEvent = e
             }
         }
@@ -396,7 +406,7 @@ struct TodayView: View {
                                 } onIgnore: {
                                     app.setItemStatus(it.id, status: .ignored)
                                 }
-                                .frame(width: max(180, UIScreen.main.bounds.width * 0.62))
+                                .frame(width: (UIScreen.main.bounds.width - 40) / 2)
                             }
                         }
                         .peekTargetLayout()
@@ -582,6 +592,32 @@ struct TodayView: View {
 
 // MARK: - 全天时间线
 
+
+/// 英雄卡右侧的点状波形：录音时随音量呼吸，静止时是一条淡的基线。
+/// 用 TimelineView 只在录音时驱动，避免空闲时也每秒重绘整张卡。
+private struct HeroWave: View {
+    let level: Double
+    let active: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.14, paused: !active)) { ctx in
+            let t = ctx.date.timeIntervalSince1970
+            HStack(alignment: .center, spacing: 3.2) {
+                ForEach(0..<16, id: \.self) { i in
+                    let phase = t * 2.4 + Double(i) * 0.62
+                    let amp = active ? max(0.22, min(1, level * 3)) : 0.1
+                    let h = 3.2 + amp * 15 * (0.45 + 0.55 * abs(sin(phase)))
+                    Capsule()
+                        .fill(Color.white.opacity(active ? 0.92 : 0.38))
+                        .frame(width: 2.6, height: h)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .animation(.easeInOut(duration: 0.2), value: active)
+    }
+}
+
 struct TimelineFullView: View {
     let day: String
     @Environment(\.dismiss) private var dismiss
@@ -636,28 +672,37 @@ struct TimelineFullView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                headerRow
-                filterRow
-                listBody
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    headerRow
+                    filterRow
+                    listBody
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-        }
-        .background(Theme.bg.ignoresSafeArea())
-        .task(id: "\(currentDay)|\(reloadTick)") { await loadTimeline() }
-        .navigationTitle("时间线")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("关闭") { dismiss() }
+            .background(Theme.bg.ignoresSafeArea())
+            .task(id: "\(currentDay)|\(reloadTick)") {
+                await loadTimeline()
+                // 截图模式：滚到中段，让小时轴和中间几条一起入画
+                guard ShotMode.screen == "timeline-rail", !events.isEmpty else { return }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                let mid = events[events.count / 2]
+                withAnimation(nil) { proxy.scrollTo(mid.id, anchor: .center) }
             }
-        }
-        .sheet(item: $detailEvent) { e in
-            EventDetailView(event: e)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
+            .navigationTitle("时间线")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+            .sheet(item: $detailEvent) { e in
+                EventDetailView(event: e)
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            }
         }
     }
 
@@ -732,6 +777,7 @@ struct TimelineFullView: View {
                     .padding(.leading, 58)
             }
         }
+        .id(e.id)
     }
     private var segControl: some View {
         HStack(spacing: 0) {

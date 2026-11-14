@@ -26,6 +26,9 @@ final class AppState: ObservableObject {
     @Published var todaySessions: [ListenSession] = []
     /// 今天会议里出现过的说话人名（后台算好，界面直接用）
     @Published var todaySpeakerNames: [String] = []
+    /// 每场会话的说话人数（去重后）：所有「N 位说话人」都从这里取，
+    /// 不能再用 digest 写进 people 的那份——那份常常只有一个人。
+    @Published var speakerCountBySession: [String: Int] = [:]
 
     // 待办（跨天）
     @Published var pendingItems: [MemoryItem] = []
@@ -178,10 +181,16 @@ final class AppState: ObservableObject {
             let star = self.store.starredEvents(limit: 100)
             let sess = self.store.sessions(day: today, limit: 50)
             var speaks = Set<String>()
-            for s in sess where s.mode == .meeting {
-                for u in self.store.utterances(sessionId: s.id) {
-                    let name = u.display(s)
-                    if !name.isEmpty { speaks.insert(name) }
+            var countsBySession: [String: Int] = [:]
+            for s in sess {
+                let us = self.store.utterances(sessionId: s.id)
+                let labels = Set(us.map { $0.speaker }.filter { !$0.isEmpty })
+                countsBySession[s.id] = labels.count
+                if s.mode == .meeting {
+                    for u in us {
+                        let name = u.display(s)
+                        if !name.isEmpty { speaks.insert(name) }
+                    }
                 }
             }
             let speakerNames = speaks.sorted()
@@ -195,6 +204,7 @@ final class AppState: ObservableObject {
                 self.todayReview = rev
                 self.todaySessions = sess
                 self.todaySpeakerNames = speakerNames
+                self.speakerCountBySession = countsBySession
                 self.pendingItems = pend
                 self.activeItems = act
                 self.doneItems = done
@@ -460,6 +470,12 @@ final class AppState: ObservableObject {
 
     /// 今天各场会议里出现过的说话人（改名后的名字也算），按人去重
     var peopleCount: Int { todaySpeakerNames.count }
+
+    /// 一场会议/培训显示几个说话人：优先会话里去重后的真实人数。
+    func speakerCount(_ e: MemoryEvent) -> Int {
+        if let sid = e.sessionId, !sid.isEmpty, let n = speakerCountBySession[sid], n > 0 { return n }
+        return max(e.people.count, 0)
+    }
 
     /// 今天会话产出的待办条数
     var sessionTodoCount: Int {

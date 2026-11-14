@@ -244,7 +244,12 @@ enum ShotDemo {
                                  starred: false, starredAt: nil,
                                  entityId: "shot-rail-entity-\(i + 1)",
                                  lineFrom: 0, lineTo: 0, createdAt: at,
-                                 sessionId: s.1 == "会议" ? meetingSessionID : nil)
+                                 sessionId: s.1 == "会议" ? meetingSessionID : nil,
+                                 quotes: s.1 == "会议" ? [
+                                     EventQuote(speaker: "说话人1", time: "0:12", text: "这个字段名统一成下划线，前端今天给一版。"),
+                                     EventQuote(speaker: "说话人2", time: "1:36", text: "网关白名单明天上午配好。"),
+                                     EventQuote(speaker: "说话人3", time: "2:48", text: "周五上午十点我去客户现场，进门找前台登记。")
+                                 ] : [])
             Store.shared.upsertEvent(ev)
         }
     }
