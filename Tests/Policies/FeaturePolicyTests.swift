@@ -8,7 +8,7 @@ final class FeaturePolicyTests: XCTestCase {
         XCTAssertEqual(CaptureMode.restored("script"), .meeting)
         XCTAssertEqual(CaptureMode.restored("daily"), .meeting)
         XCTAssertEqual(CaptureMode.restored("nonsense"), .meeting)
-        XCTAssertEqual(CaptureMode.restored(nil), .meeting)
+        XCTAssertEqual(CaptureMode.restored(""), .meeting)
         XCTAssertEqual(CaptureMode.allCases.count, 3)
         XCTAssertEqual(CaptureMode.restored("training").separateSpeakers, false)
         XCTAssertEqual(CaptureMode.restored("call").separateSpeakers, true)

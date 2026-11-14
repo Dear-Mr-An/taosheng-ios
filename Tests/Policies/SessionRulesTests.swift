@@ -85,7 +85,7 @@ final class SessionRulesTests: XCTestCase {
         XCTAssertEqual(CaptureMode.restored("daily"), .meeting)
         XCTAssertEqual(CaptureMode.restored("script"), .meeting)
         XCTAssertEqual(CaptureMode.restored("whatever"), .meeting)
-        XCTAssertEqual(CaptureMode.restored(nil), .meeting)
+        XCTAssertEqual(CaptureMode.restored(""), .meeting)
         XCTAssertEqual(CaptureMode.restored("training"), .training)
         XCTAssertEqual(CaptureMode.restored("call"), .call)
         XCTAssertEqual(CaptureMode.allCases.map(\.rawValue), ["meeting", "training", "call"])
