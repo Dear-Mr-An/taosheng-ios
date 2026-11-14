@@ -16,7 +16,7 @@ jobs:
   shots:
     name: 模拟器截图
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: 取出代码
         uses: actions/checkout@v4
@@ -149,36 +149,21 @@ jobs:
             sleep 3
           }
 
+          # 进程是否在跑：iOS 26 模拟器里 launchctl 的标签不一定是 bundle id，两个都认
           app_running() {
             local DEV="$1"
-            tmo 30 xcrun simctl spawn "$DEV" launchctl list 2>/dev/null | grep -q "$BID"
+            tmo 30 xcrun simctl spawn "$DEV" launchctl list 2>/dev/null | grep -qE "$BID|TaoSheng"
           }
 
-          # simctl install 会在安装真正落地前就返回（installcoordinationd 还在装占位包），
-          # 这时 launch 会报 App not found、截图拍到的是桌面。必须等 bundle 真正可查。
-          wait_installed() {
-            local DEV="$1" i
-            for i in $(seq 1 30); do
-              if xcrun simctl get_app_container "$DEV" "$BID" app >/dev/null 2>&1; then
-                echo "  安装已就绪（第 ${i} 次探测）"
-                return 0
-              fi
-              sleep 2
-            done
-            echo "  等待安装超时"
-            return 1
-          }
-
-          # 启动后轮询，直到 App 进程真的起来，避免固定 sleep 拍早了
+          # 启动成功即以 simctl 输出的 pid 为准；只有明确报错才重试，避免每张图白等几十秒
           launch_and_wait() {
-            local DEV="$1" SCREEN="$2" i
+            local DEV="$1" SCREEN="$2" i out
             for i in 1 2 3; do
-              if tmo 60 xcrun simctl launch "$DEV" "$BID" -TSShot "$SCREEN"; then
-                local j
-                for j in $(seq 1 15); do
-                  if app_running "$DEV"; then return 0; fi
-                  sleep 1
-                done
+              out=$(tmo 60 xcrun simctl launch "$DEV" "$BID" -TSShot "$SCREEN" 2>&1 || true)
+              echo "  launch: $out"
+              if echo "$out" | grep -Eq ":[[:space:]]*[0-9]+$"; then
+                sleep 1
+                return 0
               fi
               echo "  第 $i 次启动没成功，2 秒后再试"
               sleep 2
