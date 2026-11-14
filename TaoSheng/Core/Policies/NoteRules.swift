@@ -16,6 +16,20 @@ public struct NoteSection: Equatable {
     public var isEmpty: Bool { lines.isEmpty }
 }
 
+/// 一条关键原话。定义放在 Policies 里，SPM 测试目标才能编到它。
+public struct EventQuote: Codable, Hashable {
+    public var speaker: String
+    /// 「14:52」这种相对本场开始的分钟:秒
+    public var time: String
+    public var text: String
+
+    public init(speaker: String, time: String, text: String) {
+        self.speaker = speaker
+        self.time = time
+        self.text = text
+    }
+}
+
 public enum NoteRules {
     /// 会议速记 / 培训笔记
     public static func noteTitle(forMode raw: String?) -> String {
