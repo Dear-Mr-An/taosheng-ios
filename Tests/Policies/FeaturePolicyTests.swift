@@ -9,9 +9,9 @@ final class FeaturePolicyTests: XCTestCase {
         XCTAssertEqual(CaptureMode.restored("daily"), .meeting)
         XCTAssertEqual(CaptureMode.restored("nonsense"), .meeting)
         XCTAssertEqual(CaptureMode.restored(""), .meeting)
-        XCTAssertEqual(CaptureMode.allCases.count, 3)
+        XCTAssertEqual(CaptureMode.allCases.count, 2)
         XCTAssertEqual(CaptureMode.restored("training").separateSpeakers, false)
-        XCTAssertEqual(CaptureMode.restored("call").separateSpeakers, true)
+        XCTAssertEqual(CaptureMode.restored("call"), .meeting)
     }
 
     func testDeepSeekMigrationNeverReusesAnotherProvidersKey() {

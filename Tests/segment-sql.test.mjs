@@ -45,10 +45,12 @@ function fixture() {
   migrateSegments(db);
   const insert = db.prepare(sqlIn('Store.swift', 'writeSegment'));
   // 0.6.0 去掉了「日常」：夹具只造现在的三种模式；session_id 为 null 表示零散录音
-  for (const [index, mode] of ['meeting', 'training', 'call'].entries()) {
+  for (const [index, mode] of ['meeting', 'training'].entries()) {
     insert.run(`seg-${mode}`, 100 + index, 110 + index, 10, `${mode}.wav`, 320000,
       `测试 ${mode}`, '', 'transcribed', '2026-11-12', 110 + index, mode, null);
   }
+  // 老库里还有 capture_mode='call' 的行（0.6.1 已没有通话模式），读出来要原样保留
+  insert.run('seg-call', 102, 112, 10, 'call.wav', 320000, '测试 call', '', 'transcribed', '2026-11-12', 112, 'call', null);
   insert.run('pending', 200, 210, 10, 'pending.wav', 320000, '', '', 'recorded', '2026-11-12', 210, 'meeting', null);
   db.exec("UPDATE segment SET starred=1 WHERE id='seg-training'");
   return db;

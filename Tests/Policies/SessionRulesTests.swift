@@ -87,14 +87,15 @@ final class SessionRulesTests: XCTestCase {
         XCTAssertEqual(CaptureMode.restored("whatever"), .meeting)
         XCTAssertEqual(CaptureMode.restored(""), .meeting)
         XCTAssertEqual(CaptureMode.restored("training"), .training)
-        XCTAssertEqual(CaptureMode.restored("call"), .call)
-        XCTAssertEqual(CaptureMode.allCases.map(\.rawValue), ["meeting", "training", "call"])
+        // 0.6.1 起只有会议和培训，通话/日常/脚本一律落到会议
+        XCTAssertEqual(CaptureMode.restored("call"), .meeting)
+        XCTAssertEqual(CaptureMode.allCases.map(\.rawValue), ["meeting", "training"])
     }
 
     func testSceneIsDecidedByMode() {
         XCTAssertEqual(SceneRules.scene(forMode: "meeting"), "会议")
         XCTAssertEqual(SceneRules.scene(forMode: "training"), "培训")
-        XCTAssertEqual(SceneRules.scene(forMode: "call"), "通话")
+        XCTAssertEqual(SceneRules.scene(forMode: "call"), "会议")
         // 模型以前会把会议写成「日常」「工作会议」，现在一律按模式写死
         XCTAssertEqual(SceneRules.scene(forMode: "daily"), "会议")
         XCTAssertEqual(SceneRules.scene(forMode: nil), "会议")
