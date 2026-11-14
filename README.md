@@ -5,6 +5,15 @@ Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 Swift
 
 0.6.1 第七轮（按原版安卓对齐界面，速记独立成卡，2026-11-14）
 
+截图复核后补修的 6 处（提交 1dcc503、515df1a、a46cc07）
+
+- 英雄卡右下写「还没整理过」而右上写「已整理」：两处状态不同源。改成先看这一场会话的状态——已整理显示「HH:mm 整理完」，失败显示「这一场没整理成，可重试」，整理中显示「正在整理这一场…」。
+- 时间线右侧小时轴被挤出屏幕，只剩半个数字：列表改为占满宽度、刻度条固定 30pt 宽叠在右上角，列表右侧留 36pt；`TodayView` 与 `MemoryView` 两处同改。
+- 记忆页速记卡把 `points` / `summary` 当字段名显示：改成「图标 + 模式名·时间 / 粗体标题 / 两行摘要」。
+- `event-summary`、`event-raw`、`event-speakers` 三张截图拍到的是今天页：`RootView` 的截图分派补上这三个画面。
+- 待办行把类型写了两遍：合并成「待办 · 我要做」一颗胶囊，后面只跟截止和人物。
+- 关键原话里的说话人按整场映射显示（改过名就写名字）；截图演示数据补了分段要点与三条关键原话。
+
 版本号 0.6.1 (28)。这一轮按董事长的用法继续收紧：只留会议和培训两套流程、每场结束立刻出速记、长会议不再整场失败，今天页与记忆页照原版安卓重做。新增 `TaoSheng/Core/Policies/ChunkRules.swift`、`NoteRules.swift`、`RailRules.swift`、`TaoSheng/UI/NoteViews.swift`、`TaoSheng/UI/NoteSheet.swift`。
 
 一、长会议不再整场失败
