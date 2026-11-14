@@ -5,6 +5,9 @@ struct TodayView: View {
     @ObservedObject private var capture = CaptureEngine.shared
     @ObservedObject private var digest = DigestEngine.shared
     @ObservedObject private var settings = Settings.shared
+    /// 一场聆听会话的整个生命周期（录音 → 分人 → 整理 → 推送）都在 ListenFlow 里，
+    /// 视图只负责把它的状态画出来，不再自己判断「录没在录」。
+    @ObservedObject private var flow = ListenFlow.shared
     @Environment(\.colorScheme) private var scheme
     @AppStorage("appearance") private var appearance = "auto"
 

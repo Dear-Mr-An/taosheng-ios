@@ -1502,7 +1502,7 @@ struct TranscribeSettingsSheet: View {
         testResult = nil
         Task {
             do {
-                let text = try await t.transcribe(fileURL: url)
+                let text = try await t.transcribe(fileURL: url).text
                 await MainActor.run {
                     testing = false
                     let head = text.trimmingCharacters(in: .whitespacesAndNewlines)
