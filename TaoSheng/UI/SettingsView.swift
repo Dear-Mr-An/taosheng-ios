@@ -4,8 +4,21 @@ struct SettingsView: View {
     @EnvironmentObject var settings: Settings
     @EnvironmentObject var app: AppState
     @EnvironmentObject var capture: CaptureEngine
+    @ObservedObject private var queue = TranscribeQueue.shared
 
     @AppStorage("appearance") private var appearance = "auto"
+
+    private var asrDot: Color {
+        if !settings.asrReady { return Theme.warn }
+        return queue.pendingCount > 0 ? Theme.warn : Theme.ok
+    }
+
+    private var asrDetail: String {
+        if !settings.asrReady { return "转写未就绪" }
+        if queue.busy { return "正在转写" }
+        if queue.pendingCount > 0 { return "待转写 \(queue.pendingCount) 段" }
+        return "都转完了"
+    }
 
     var body: some View {
         NavigationStack {
@@ -18,9 +31,13 @@ struct SettingsView: View {
                             dot: capture.isRunning ? Theme.ok : Theme.dim2,
                             detail: capture.isRunning ? "正在聆听" : "已暂停")
                         sep
-                        nav(ModelSettingsView(), icon: "text.bubble", title: "模型与整理",
-                            dot: settings.llmReady && settings.asrReady ? Theme.ok : Theme.warn,
-                            detail: settings.llmReady ? settings.llmModel : "整理未就绪")
+                        nav(TranscribeOverviewView(), icon: "text.bubble", title: "转写与原话",
+                            dot: asrDot,
+                            detail: asrDetail)
+                        sep
+                        nav(LLMSettingsView(), icon: "brain", title: "大模型与整理",
+                            dot: settings.llmReady ? Theme.ok : Theme.warn,
+                            detail: settings.llmReady ? settings.llmModel : "未填密钥")
                         sep
                         nav(EnvironmentSoundView(), icon: "wind", title: "环境音识别",
                             dot: settings.envSoundOn ? Theme.ok : Theme.dim2,

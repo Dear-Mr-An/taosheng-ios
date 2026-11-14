@@ -16,13 +16,22 @@ struct RootView: View {
                 case 2: NavigationStack { MemoryView() }
                 case 3: NavigationStack { TodosView() }
                 default:
-                    if ShotMode.screen == "recording-bottom" {
-                        // 截图时把设置里的「录音与后台」直接当这一屏渲染（走 sheet 在模拟器上不稳）
+                    // 截图时把设置子页直接当这一屏渲染（走 sheet 在模拟器上不稳）
+                    switch ShotMode.screen ?? "" {
+                    case "recording-bottom":
                         NavigationStack { RecordingSettingsView() }
                             .environmentObject(Settings.shared)
                             .environmentObject(AppState.shared)
                             .environmentObject(CaptureEngine.shared)
-                    } else {
+                    case "transcribe":
+                        NavigationStack { TranscribeOverviewView() }
+                            .environmentObject(Settings.shared)
+                            .environmentObject(AppState.shared)
+                    case "llm":
+                        NavigationStack { LLMSettingsView() }
+                            .environmentObject(Settings.shared)
+                            .environmentObject(AppState.shared)
+                    default:
                         SettingsView()
                     }
                 }

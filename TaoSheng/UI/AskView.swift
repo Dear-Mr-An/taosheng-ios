@@ -100,7 +100,7 @@ struct AskView: View {
                     .font(.system(size: Theme.fsHero, weight: .bold))
                     .foregroundStyle(Theme.text)
                 Text(settings.effectiveLLM.key.isEmpty
-                     ? "还没配大模型，去设置 → 模型与整理"
+                     ? "还没配大模型，去设置 → 大模型与整理"
                      : "答句都带原话出处 · \(settings.llmModel)")
                     .font(.system(size: 12))
                     .foregroundStyle(settings.effectiveLLM.key.isEmpty ? Theme.warn : Theme.dim)

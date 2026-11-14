@@ -42,7 +42,8 @@ struct TaoShengApp: App {
                 .preferredColorScheme(scheme)
                 .onAppear {
                     ShotDemo.seedIfNeeded()
-            app.refresh()
+                    ShotDemo.seedSegmentsIfNeeded()
+                    app.refresh()
                     // 截图模式只在模拟器里跑，不去弹通知/定位这些系统弹窗，免得住画面
                     guard !ShotMode.active else { return }
                     queue.start()

@@ -93,9 +93,19 @@ jobs:
           echo "大屏: $BIG  小屏: $SMALL"
 
           mk() {
-            local NAME="$1" TYPE="$2"
+            local NAME="$1" TYPE="$2" DEV PLIST
             xcrun simctl delete "$NAME" 2>/dev/null || true
-            xcrun simctl create "$NAME" "$TYPE" "$RT"
+            DEV=$(xcrun simctl create "$NAME" "$TYPE" "$RT")
+            # 关掉「连接硬件键盘」：模拟器默认把 Mac 键盘当硬件键盘，软键盘就不弹，
+            # 小屏的「新的人物」输入框截出来没有键盘。这个开关存在设备自己的 device.plist 里，
+            # 必须在 boot 之前改，boot 之后改要重启设备才生效。
+            PLIST="$HOME/Library/Developer/CoreSimulator/Devices/$DEV/device.plist"
+            if [ -f "$PLIST" ]; then
+              plutil -replace ConnectHardwareKeyboard -bool false "$PLIST" 2>/dev/null \
+                || plutil -insert ConnectHardwareKeyboard -bool false "$PLIST" 2>/dev/null || true
+              echo "已关闭硬件键盘: $DEV"
+            fi
+            echo "$DEV"
           }
 
           # macOS runner 上没有 GNU timeout，先装 coreutils 用 gtimeout；没有就直跑
@@ -238,6 +248,8 @@ jobs:
             shoot_dev "$DEV" "iphone16" "recording-bottom" 8
             shoot_dev "$DEV" "iphone16" "person-add" 8
             shoot_dev "$DEV" "iphone16" "event-edit" 8
+            shoot_dev "$DEV" "iphone16" "transcribe" 7
+            shoot_dev "$DEV" "iphone16" "llm" 7
             tmo 60 xcrun simctl shutdown "$DEV" 2>/dev/null || true
           fi
           if [ -n "$SMALL" ]; then
@@ -248,6 +260,8 @@ jobs:
             shoot_dev "$DEVS" "iphonese" "today"
             shoot_dev "$DEVS" "iphonese" "recording-bottom" 8
             shoot_dev "$DEVS" "iphonese" "person-add" 8
+            shoot_dev "$DEVS" "iphonese" "transcribe" 7
+            shoot_dev "$DEVS" "iphonese" "llm" 7
             tmo 60 xcrun simctl shutdown "$DEVS" 2>/dev/null || true
           fi
 
@@ -257,7 +271,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shots-053
+          name: shots-054
           path: ${{ github.workspace }}/shots
           retention-days: 30
           if-no-files-found: warn
