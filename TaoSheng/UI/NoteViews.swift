@@ -387,9 +387,12 @@ struct PendingPeekCard: View {
                 Text(item.category == "待办" ? (item.kind == nil ? "待办" : "待办 · \(item.kind ?? "")") : item.category)
                     .font(.system(size: Theme.fsCaption, weight: .medium))
                     .foregroundColor(tint)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                     .padding(.horizontal, 9).padding(.vertical, 3)
                     .background(tint.opacity(0.13))
                     .clipShape(Capsule())
+                    .layoutPriority(1)
                 Spacer(minLength: 4)
                 if let due = item.dueDisplay {
                     Text(due)
