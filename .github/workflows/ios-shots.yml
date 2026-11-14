@@ -93,7 +93,7 @@ jobs:
           echo "大屏: $BIG  小屏: $SMALL"
 
           mk() {
-            NAME="$1"; TYPE="$2"
+            local NAME="$1" TYPE="$2"
             xcrun simctl delete "$NAME" 2>/dev/null || true
             xcrun simctl create "$NAME" "$TYPE" "$RT"
           }
@@ -105,13 +105,13 @@ jobs:
           echo "超时命令: $TMO"
 
           tmo() {
-            SECS="$1"; shift
+            local SECS="$1"; shift
             if [ -n "$TMO" ]; then "$TMO" "$SECS" "$@"; else "$@"; fi
           }
 
           # 关掉系统引导页，否则键盘起来时会被「滑动输入」介绍盖住
           quiet_system_ui() {
-            DEV="$1"
+            local DEV="$1" k
             for k in DidShowContinuousPathIntroduction DidShowGestureKeyboardIntroduction DidShowContinuousPathIntroductionV2; do
               tmo 30 xcrun simctl spawn "$DEV" defaults write com.apple.Preferences "$k" -bool true 2>/dev/null || true
               tmo 30 xcrun simctl spawn "$DEV" defaults write com.apple.keyboard.preferences "$k" -bool true 2>/dev/null || true
@@ -124,7 +124,7 @@ jobs:
 
           # 全程带超时，避免 simctl 在 CI 上卡死把整个 job 拖到 timeout
           boot_dev() {
-            DEV="$1"
+            local DEV="$1"
             echo "[$(date +%T)] boot $DEV"
             tmo 120 xcrun simctl boot "$DEV" 2>/dev/null || true
             tmo 300 xcrun simctl bootstatus "$DEV" -b || true
@@ -139,12 +139,38 @@ jobs:
           }
 
           app_running() {
-            DEV="$1"
+            local DEV="$1"
             tmo 30 xcrun simctl spawn "$DEV" launchctl list 2>/dev/null | grep -q "$BID"
           }
 
+          # simctl install 会在安装真正落地前就返回（installcoordinationd 还在装占位包），
+          # 这时 launch 会报 App not found、截图拍到的是桌面。必须等 bundle 真正可查。
+          wait_installed() {
+            local DEV="$1" i
+            for i in $(seq 1 30); do
+              if xcrun simctl get_app_container "$DEV" "$BID" app >/dev/null 2>&1; then
+                echo "  安装已就绪（第 ${i} 次探测）"
+                return 0
+              fi
+              sleep 2
+            done
+            echo "  等待安装超时"
+            return 1
+          }
+
+          # 启动后轮询，直到 App 进程真的起来，避免固定 sleep 拍早了
+          launch_and_wait() {
+            local DEV="$1" SCREEN="$2" i
+            tmo 60 xcrun simctl launch "$DEV" "$BID" -TSShot "$SCREEN" || echo "  启动返回非零"
+            for i in $(seq 1 12); do
+              if app_running "$DEV"; then return 0; fi
+              sleep 1
+            done
+            return 1
+          }
+
           dump_diag() {
-            DEV="$1"; NAME="$2"
+            local DEV="$1" NAME="$2"
             echo "  == 诊断 $NAME"
             tmo 60 xcrun simctl spawn "$DEV" log show --last 90s --style compact \
               --predicate "process == \"TaoSheng\" OR eventMessage CONTAINS \"TaoSheng\"" \
@@ -156,20 +182,17 @@ jobs:
           }
 
           shoot_dev() {
-            DEV="$1"; NAME="$2"; SCREEN="$3"; WAIT="${4:-6}"
+            local DEV="$1" NAME="$2" SCREEN="$3" WAIT="${4:-6}"
             echo "[$(date +%T)] == $NAME / $SCREEN"
             if ! tmo 120 xcrun simctl install "$DEV" "$APP"; then
               echo "  安装失败，跳过 $SCREEN"
               return 0
             fi
-            tmo 60 xcrun simctl launch "$DEV" "$BID" -TSShot "$SCREEN" || echo "  启动返回非零"
-            sleep "$WAIT"
-            # 小屏曾经截到桌面：先确认 App 还活着，没活着就重试一次并落日志
-            if ! app_running "$DEV"; then
-              echo "  App 不在运行，重试一次"
+            wait_installed "$DEV" || true
+            if ! launch_and_wait "$DEV" "$SCREEN"; then
+              echo "  App 没起来，重试一次"
               dump_diag "$DEV" "$NAME-$SCREEN-fail1"
-              tmo 60 xcrun simctl launch "$DEV" "$BID" -TSShot "$SCREEN" || true
-              sleep "$WAIT"
+              launch_and_wait "$DEV" "$SCREEN" || true
             fi
             if app_running "$DEV"; then
               echo "  App 运行中"
@@ -177,6 +200,7 @@ jobs:
               echo "  App 仍未运行，记录诊断"
               dump_diag "$DEV" "$NAME-$SCREEN-fail2"
             fi
+            sleep "$WAIT"
             if tmo 60 xcrun simctl io "$DEV" screenshot "$OUT/$NAME-$SCREEN.png"; then
               echo "  截图 $NAME-$SCREEN.png  $(stat -f%z "$OUT/$NAME-$SCREEN.png") bytes"
             else
