@@ -40,10 +40,10 @@ struct TodayView: View {
             }
             .coordinateSpace(name: "railScroll")
             .onPreferenceChange(RailOffsetKey.self) { map in
-                // 顶部那一行决定时间轴的高亮小时：取「已经越过顶部、离顶部最近」的那条
-                let visible = map.filter { $0.value <= 4 && $0.value > -240 }
-                let key = visible.max(by: { $0.value < $1.value })?.key
-                if let key, key != activeRailKey { activeRailKey = key }
+                // 顶部那一行决定时间轴的高亮小时（算法在 RailRules.activeKey，三处共用）
+                if let key = RailRules.activeKey(map.mapValues { Double($0) }), key != activeRailKey {
+                    activeRailKey = key
+                }
             }
         }
         .tabBarClearance()
@@ -448,6 +448,13 @@ struct TodayView: View {
         return out
     }
 
+    /// 截图专用：气泡停在高亮的小时上，图里「顶部那条」和「气泡」说的是同一个时刻
+    private var shotBubbleIndex: Int? {
+        guard ShotMode.screen == "timeline-rail", !railSlots.isEmpty else { return nil }
+        if let k = activeRailKey, let i = railSlots.firstIndex(where: { $0.key == k }) { return i }
+        return railSlots.count / 2
+    }
+
     private var railSlots: [RailSlot] {
         let entries = timelineEvents.map { (key: $0.id, hour: Calendar.current.component(.hour, from: $0.startAt)) }
         return RailRules.slots(entries)
@@ -515,7 +522,7 @@ struct TodayView: View {
                                                                           entryCount: timelineEvents.count,
                                                                           available: 340)),
                                  activeKey: activeRailKey,
-                                 forcedBubbleAt: ShotMode.screen == "timeline-rail" ? min(1, max(0, railSlots.count - 1)) : nil) { key in
+                                 forcedBubbleAt: shotBubbleIndex) { key in
                             withAnimation(.easeInOut(duration: 0.25)) {
                                 proxy.scrollTo("tl-\(key)", anchor: .top)
                             }
@@ -696,8 +703,10 @@ struct TimelineFullView: View {
             }
             .coordinateSpace(name: "railScroll")
             .onPreferenceChange(RailOffsetKey.self) { prefs in
-                guard let key = prefs.max(by: { $0.value < $1.value })?.key else { return }
-                if key != activeRailKey { activeRailKey = key }
+                // 只认「已经越过顶部、离顶部最近」的那一行，直接取 max 会永远命中列表最后一条
+                if let key = RailRules.activeKey(prefs.mapValues { Double($0) }), key != activeRailKey {
+                    activeRailKey = key
+                }
             }
             // 小时轴用 overlay 盖在 ScrollView 上：固定在屏幕右边，不跟列表一起滚走
             .overlay(alignment: .trailing) {
@@ -707,7 +716,7 @@ struct TimelineFullView: View {
                                                                       entryCount: events.count,
                                                                       available: 460)),
                              activeKey: activeRailKey,
-                             forcedBubbleAt: ShotMode.screen == "timeline-rail" ? min(1, max(0, railSlots.count - 1)) : nil) { key in
+                             forcedBubbleAt: shotBubbleIndex) { key in
                         withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo("tl-\(key)", anchor: .top) }
                     }
                     .frame(width: 30)

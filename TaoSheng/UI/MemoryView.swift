@@ -57,8 +57,7 @@ struct MemoryView: View {
                 withAnimation(nil) { proxy.scrollTo("memo-timeline", anchor: .top) }
             }
             .onPreferenceChange(RailOffsetKey.self) { map in
-                let visible = map.filter { $0.value <= 4 && $0.value > -260 }
-                if let key = visible.max(by: { $0.value < $1.value })?.key, key != activeRailKey {
+                if let key = RailRules.activeKey(map.mapValues { Double($0) }), key != activeRailKey {
                     activeRailKey = key
                 }
             }
@@ -546,7 +545,7 @@ struct MemoryView: View {
                                                                   entryCount: items.count,
                                                                   available: 320),
                                  activeKey: activeRailKey,
-                                 forcedBubbleAt: ShotMode.screen == "memory-timeline-rail" ? min(1, max(0, railSlots(items).count - 1)) : nil) { key in
+                                 forcedBubbleAt: shotBubbleIndex(railSlots(items))) { key in
                             withAnimation(.easeInOut(duration: 0.25)) {
                                 proxy.scrollTo("tl-\(key)", anchor: .top)
                             }
@@ -584,6 +583,13 @@ struct MemoryView: View {
         if h < 12 { return "上午" }
         if h < 18 { return "下午" }
         return "晚上"
+    }
+
+    /// 截图专用：气泡停在高亮的小时上，和列表顶部那条对应
+    private func shotBubbleIndex(_ slots: [RailSlot]) -> Int? {
+        guard ShotMode.screen == "memory-timeline-rail", !slots.isEmpty else { return nil }
+        if let k = activeRailKey, let i = slots.firstIndex(where: { $0.key == k }) { return i }
+        return slots.count / 2
     }
 
     private func railSlots(_ list: [MemoryEvent]) -> [RailSlot] {

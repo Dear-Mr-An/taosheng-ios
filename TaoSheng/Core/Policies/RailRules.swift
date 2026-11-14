@@ -92,3 +92,15 @@ public enum RailRules {
         return t + h * (within / Double(n))
     }
 }
+    /// 列表顶部那一行：在 `down...up` 区间里取 minY 最大的一条。
+    /// 三处时间线（今天页、记忆页、「全部」页）都用它，避免各写一遍过滤器。
+    /// - up：允许略微越过顶部的行（正数，单位 pt）
+    /// - down：最远还算「顶部」的行（负数，单位 pt）
+    public static func activeKey(_ offsets: [String: Double],
+                                 up: Double = 4,
+                                 down: Double = -260) -> String? {
+        offsets
+            .filter { $0.value <= up && $0.value > down }
+            .max(by: { $0.value < $1.value })?
+            .key
+    }
