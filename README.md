@@ -3,6 +3,61 @@
 Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 SwiftUI 重写，iOS 16+，无第三方运行依赖。
 全天收音 → 人声切片 → 转写 → DeepSeek 整理事件、待办和记忆。数据使用本机 SQLite。
 
+0.6.2 第八轮（按验收打回的 9 条改，2026-11-15）
+
+这一轮不动架构，只修 0.6.1 里被逐张截图挑出来的问题。每条都配了截图，截图里的画面就是改完之后的实际样子。
+
+1. 速记抽屉补上「关键原话」，抽屉里终于有内容可滚
+   以前抽屉里只有摘要和分段，`card-sheet-bottom.png` 和 `card-sheet-top.png` 一模一样，因为根本没东西能往下滚——原因有两层：整理时虽然要求模型给出 quotes，但演示数据（`ShotMode.seedTimelineIfNeeded`）里那条 20:00 的会议没有 quotes；截图脚本又恰好挑了它，于是抽屉空着。
+   现在：演示数据那条会议补了 3 条真实原话（说话人1 "0:12"、说话人2 "1:36"、说话人3 "2:48"）；截图脚本优先挑「有原话」的那一场；`NoteSheet.quotesBlock` 保持 plan 4.6 b) 的样子——浅灰圆角卡（`Theme.cardSoft`）、左侧一条蓝色竖线、上面一行「说话人 · 时间」、下面带引号的原话，点一下跳到那一段原话并播放。
+   另外两处排版：`议题` 不再是圆点列表项，改成粗体正文；摘要框底色从 `Theme.cardSoft` 改成浅蓝灰（`Theme.blue.opacity(0.08)`）。
+   抽屉本身也加了滚动锚点 `id("quotes")`，截图模式会先滚到「关键原话」再拍，所以 `card-sheet-bottom.png` 与 top 一定不同。
+
+2. 记忆页速记卡：不露字段名，也不再混进别的技能卡
+   以前摘要直接拼 `points`/`summary` 两个字段，屏幕上会出现「结论先行：…。；要点：…」这种句子。现在 `noteSummary(_:)` 只取结论那一句（`NoteRules.conclusion`），空则用 `NoteRules.tidy` 清一遍，并把「；」换成「，」、「。。」换成「。」。
+   卡片区数据源从「技能卡（`dayCards`）」换成「速记事件（`dayEvents.filter(\.isNote)`）」，所以「项目快讯」「今日复盘」这类与会议无关的卡不再出现在这里；标题也从「卡片」改成「速记 / N 场」。
+   卡片左侧图标底色改成浅蓝灰（`Theme.blue.opacity(0.10)`），和原版安卓一致。
+
+3. 截图改为真的滚到位
+   上一轮 `memory-timeline-rail.png` 与 `memory-cards.png` 是同一张图，`timeline-rail.png` 拍的是今天页本身——不是界面坏了，是截图脚本没滚。现在：
+   - 记忆页加锚点 `id("memo-timeline")`，截图模式滚到时间线标题，小时轴与橙色气泡一起入镜；
+   - 今天页 `timeline-rail` 先用 `.onAppear` 打开「全部」页（`TimelineFullView`），再由 `ScrollViewReader` 滚到列表中段，小时轴完整显示；
+   - `TimelineFullView` 的 `lineRow` 补了 `.id(e.id)`，滚动才有目标。
+
+4. 今天页英雄卡按原版 `TodayScreen.kt` 重做
+   对着 `src/app/src/main/java/app/resound/ui/today/TodayScreen.kt:472-585` 一行行对：
+   - 第一行：8pt 状态点 + 状态文字（19pt，semibold）+「›」+ 右侧点状波形（`HeroWave`，16 根 2.6pt 胶囊，`TimelineView` 0.14s 刷新，录音时亮、暂停时淡）；
+   - 第二行：三个大数字（21pt rounded，`录到人声 / 件事 / 待确认`），等宽分布；
+   - 一条 0.5pt 白 0.3 分隔线；
+   - 末行：左边一行说明（正在转写 / N 段录音待转写 / 正在整理 / 整理状态），右边两颗胶囊——「现在整理」白底橙字，「收起 / 展开」白 0.2 底；
+   - 外框圆角 26、渐变 `#FFAE6A → #F07B2E → #E8582A`、内边距 18/18/14/12；
+   - 会议/培训按钮与「开始聆听」保留，但只在展开时显示，间距从 12/10 收到 10/8，整卡比 0.6.1 矮了三分之一以上。
+
+5. 待确认横卡一屏两张
+   卡片宽度从 `屏幕宽 × 0.62` 改成 `(屏幕宽 − 40) / 2`（40 = 左右 16 边距 + 卡片间 8 间距），一屏正好两张，第三张起横向滑。
+
+6. 待办页
+   - 组标题带条数：「今天 · 3 条」「昨天 · 1 条」；
+   - 有截止日的条目，元信息那行（「今晚 8 点」）用主色 `Theme.accent` + medium 字重，不再是灰的。
+
+7. 周历条改成原版的「年 月 ∨」
+   顶部标题从「本周」改成 `2026年11月 ⌄`，点一下弹月份列表（最近 12 个月，`.medium` 高度），选中后整条周历跳到那个月；左右箭头仍然按周翻。`monthAnchor` 单独存，翻周不再依赖「今天」。
+
+8. 说话人数统一从会话算
+   「刚结束」卡以前用 `event.people.count`，而 `people` 是整理时模型给的参与人，常和实际话轮对不上，于是出现「1 位说话人」但抽屉里 3 个人。现在 `AppState.refresh()` 后台把每场会话的 utterance 按 speaker 去重算成 `speakerCountBySession`，新增 `app.speakerCount(event)`：有会话就用会话的数，没有才退回 `people.count`。今天页「刚结束」和一切显示人数的地方都走它。
+
+9. 整理间隔一眼看全
+   原来是一个 `Picker`，收起状态只看得到「30 分钟」。现在换成自适应网格的分段按钮（`LazyVGrid` + Capsule），5 分 / 10 分 / 15 分 / 30 分 / 1 小时 / 2 小时 / 4 小时 / 12 小时 一次全部可见，选中项橙底白字。
+
+版本与验证
+- 版本 0.6.2（build 29），`CFBundleShortVersionString = 0.6.2`、`CFBundleVersion = 29`。
+- CI：`build-ipa` 0 error 0 warning，`swift test` 25 项通过，`node --test Tests/segment-sql.test.mjs` 8 项通过；产物 `../dist/TaoSheng-v0.6.2.ipa`（未签名）。
+- 截图：iOS 模拟器 iPhone 16 与 iPhone SE（第 3 代）各跑一遍，全部落在 `../.tmp/shots-0.6.2/`。本轮报告里点到的每张图都按文件名核对过内容。
+
+没做到 / 没验证
+- 真机仍未验证（手边没有可用设备与真实豆包/DeepSeek 密钥），说话人分离的真实返回字段与延迟依旧只能按官方 schema 推断。
+- 周历只做到「按周翻 + 按月份跳」，没做整月网格；待办没做原版的三栏滑动切换。
+- 深色模式只做了静态检查，没有逐页截图对比。
 0.6.1 第七轮（按原版安卓对齐界面，速记独立成卡，2026-11-14）
 
 截图复核后补修的 6 处（提交 1dcc503、515df1a、a46cc07）
