@@ -161,10 +161,16 @@ jobs:
           # 启动后轮询，直到 App 进程真的起来，避免固定 sleep 拍早了
           launch_and_wait() {
             local DEV="$1" SCREEN="$2" i
-            tmo 60 xcrun simctl launch "$DEV" "$BID" -TSShot "$SCREEN" || echo "  启动返回非零"
-            for i in $(seq 1 12); do
-              if app_running "$DEV"; then return 0; fi
-              sleep 1
+            for i in 1 2 3; do
+              if tmo 60 xcrun simctl launch "$DEV" "$BID" -TSShot "$SCREEN"; then
+                local j
+                for j in $(seq 1 15); do
+                  if app_running "$DEV"; then return 0; fi
+                  sleep 1
+                done
+              fi
+              echo "  第 $i 次启动没成功，2 秒后再试"
+              sleep 2
             done
             return 1
           }
@@ -189,8 +195,9 @@ jobs:
               return 0
             fi
             wait_installed "$DEV" || true
+            sleep 2
             if ! launch_and_wait "$DEV" "$SCREEN"; then
-              echo "  App 没起来，重试一次"
+              echo "  App 没起来，记录诊断后重试"
               dump_diag "$DEV" "$NAME-$SCREEN-fail1"
               launch_and_wait "$DEV" "$SCREEN" || true
             fi
@@ -202,7 +209,17 @@ jobs:
             fi
             sleep "$WAIT"
             if tmo 60 xcrun simctl io "$DEV" screenshot "$OUT/$NAME-$SCREEN.png"; then
-              echo "  截图 $NAME-$SCREEN.png  $(stat -f%z "$OUT/$NAME-$SCREEN.png") bytes"
+              if app_running "$DEV"; then
+                echo "  截图 $NAME-$SCREEN.png  $(stat -f%z "$OUT/$NAME-$SCREEN.png") bytes"
+              else
+                # 截完发现 App 不在前台，这张大概率是桌面，删掉重拍一次
+                echo "  截图后 App 不在运行，删掉重拍"
+                rm -f "$OUT/$NAME-$SCREEN.png"
+                launch_and_wait "$DEV" "$SCREEN" || true
+                sleep "$WAIT"
+                tmo 60 xcrun simctl io "$DEV" screenshot "$OUT/$NAME-$SCREEN.png" \
+                  && echo "  重拍 $NAME-$SCREEN.png  $(stat -f%z "$OUT/$NAME-$SCREEN.png") bytes"
+              fi
             else
               echo "  截图失败 $NAME/$SCREEN"
             fi
