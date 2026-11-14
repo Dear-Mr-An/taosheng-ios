@@ -303,3 +303,58 @@ struct SpeakerBars: View {
         }
     }
 }
+
+/// 左滑露出「完成 / 接受」，右滑直接进删除确认（原版待办页的手势）
+struct SwipeRow<Content: View>: View {
+    let onDone: () -> Void
+    let onDelete: () -> Void
+    @ViewBuilder var content: Content
+
+    @State private var offset: CGFloat = 0
+
+    private let actionWidth: CGFloat = 84
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) { offset = 0 }
+                    onDone()
+                } label: {
+                    VStack(spacing: 2) {
+                        Image(systemName: "checkmark").font(.system(size: 15, weight: .semibold))
+                        Text("完成").font(.system(size: 10))
+                    }
+                    .foregroundColor(.white)
+                    .frame(width: actionWidth)
+                    .frame(maxHeight: .infinity)
+                    .background(Theme.ok)
+                }
+                .buttonStyle(.plain)
+                .opacity(offset < -8 ? 1 : 0)
+            }
+
+            content
+                .background(Theme.card)
+                .offset(x: offset)
+                .gesture(
+                    DragGesture(minimumDistance: 12)
+                        .onChanged { v in
+                            offset = max(-actionWidth, min(120, v.translation.width))
+                        }
+                        .onEnded { v in
+                            if v.translation.width > 72 {
+                                offset = 0
+                                onDelete()
+                            } else if v.translation.width < -44 {
+                                withAnimation(.easeOut(duration: 0.16)) { offset = -actionWidth }
+                            } else {
+                                withAnimation(.easeOut(duration: 0.16)) { offset = 0 }
+                            }
+                        }
+                )
+        }
+        .clipped()
+    }
+}

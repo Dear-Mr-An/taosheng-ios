@@ -17,6 +17,9 @@ struct TodosView: View {
     @State private var voiceStartTask: Task<Void, Never>?
     @State private var voiceFinishTask: Task<Void, Never>?
     @State private var parseTask: Task<Void, Never>?
+    /// 批量「全部忽略」要点两次：第一次只是换个字，避免误触
+    @State private var ignoreArmed = false
+    @State private var deleting: MemoryItem?
     @Environment(\.scenePhase) private var scenePhase
 
     private var list: [MemoryItem] {
@@ -49,6 +52,15 @@ struct TodosView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationBarHidden(true)
         .sheet(isPresented: $showAdd, onDismiss: cancelParsing) { addSheet }
+        .confirmationDialog("删除这条待办？", isPresented: Binding(get: { deleting != nil },
+                                                        set: { if !$0 { deleting = nil } }),
+                            titleVisibility: .visible) {
+            Button("删除", role: .destructive) {
+                if let it = deleting { app.deleteItem(it.id) }
+                deleting = nil
+            }
+            Button("取消", role: .cancel) { deleting = nil }
+        }
         .alert("提示", isPresented: Binding(get: { toast != nil }, set: { if !$0 { toast = nil } })) {
             Button("好") { toast = nil }
         } message: { Text(toast ?? "") }
@@ -102,12 +114,102 @@ struct TodosView: View {
             EmptyHint(symbol: emptySymbol, title: emptyText, detail: emptyDetail)
                 .padding(.top, 40)
         } else {
-            VStack(spacing: 10) {
-                ForEach(list) { it in
-                    card(it)
+            VStack(alignment: .leading, spacing: Theme.sp3) {
+                if tab == 0 && list.count > 1 { bulkBar }
+                ForEach(groups, id: \.day) { g in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(g.title)
+                            .font(.system(size: Theme.fsCaption, weight: .medium))
+                            .foregroundColor(Theme.dim)
+                            .padding(.leading, 4)
+                        VStack(spacing: 0) {
+                            ForEach(Array(g.items.enumerated()), id: \.element.id) { idx, it in
+                                SwipeRow(onDone: { toggle(it) },
+                                         onDelete: { deleting = it }) {
+                                    row(it)
+                                }
+                                if idx < g.items.count - 1 {
+                                    Rectangle().fill(Theme.lineSoft)
+                                        .frame(height: 0.6)
+                                        .padding(.leading, 46)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        .background(Theme.card)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+                    }
                 }
             }
         }
+    }
+
+    private struct DayGroup: Identifiable {
+        let day: String
+        let title: String
+        let items: [MemoryItem]
+        var id: String { day }
+    }
+
+    /// 按天一张大卡：今天 / 昨天 / 10月24日
+    private var groups: [DayGroup] {
+        var order: [String] = []
+        var map: [String: [MemoryItem]] = [:]
+        let today = DayKey.of(Date())
+        let yesterday = DayKey.of(Date().addingTimeInterval(-86400))
+        for it in list {
+            let d = it.day.isEmpty ? "未知" : it.day
+            if map[d] == nil { order.append(d) }
+            map[d, default: []].append(it)
+        }
+        return order.map { d in
+            let title: String
+            if d == today { title = "今天" }
+            else if d == yesterday { title = "昨天" }
+            else if let date = DayKey.date(from: d) { title = Fmt.monthDay.string(from: date) }
+            else { title = d }
+            return DayGroup(day: d, title: title, items: map[d] ?? [])
+        }
+    }
+
+    private var bulkBar: some View {
+        HStack(spacing: 8) {
+            Button {
+                for it in app.pendingItems { app.setItemStatus(it.id, status: .accepted) }
+                toast = "已全部接受"
+            } label: {
+                Text("全部接受 \(app.pendingItems.count) 条")
+                    .font(.system(size: Theme.fsSmall, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 7)
+                    .background(Capsule().fill(Theme.accent))
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                if ignoreArmed {
+                    for it in app.pendingItems { app.setItemStatus(it.id, status: .ignored) }
+                    ignoreArmed = false
+                    toast = "已全部忽略"
+                } else {
+                    ignoreArmed = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { ignoreArmed = false }
+                }
+            } label: {
+                Text(ignoreArmed ? "再点一次全部忽略" : "全部忽略")
+                    .font(.system(size: Theme.fsSmall, weight: ignoreArmed ? .semibold : .regular))
+                    .foregroundColor(ignoreArmed ? .white : Theme.text2)
+                    .padding(.horizontal, 16).padding(.vertical, 7)
+                    .background(Capsule().fill(ignoreArmed ? Theme.bad : Theme.card))
+                    .overlay(Capsule().stroke(ignoreArmed ? Color.clear : Theme.line, lineWidth: 0.6))
+            }
+            .buttonStyle(.plain)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func toggle(_ it: MemoryItem) {
+        app.setItemStatus(it.id, status: it.status == .done ? .accepted : .done)
     }
 
     private var emptySymbol: String {
@@ -153,75 +255,42 @@ struct TodosView: View {
         }
     }
 
-    private func card(_ it: MemoryItem) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 10) {
-                Button {
-                    app.setItemStatus(it.id, status: it.status == .done ? .accepted : .done)
-                } label: {
-                    Image(systemName: it.status == .done ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 19))
-                        .foregroundColor(it.status == .done ? Theme.ok : Theme.dim2)
-                        .tapTarget(10)
-                }
-                .buttonStyle(.plain)
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(it.content)
-                        .font(.system(size: 14.5))
-                        .foregroundColor(it.status == .done ? Theme.dim2 : Theme.text)
-                        .strikethrough(it.status == .done, color: Theme.dim2)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    metaRow(it)
-                }
+    private func row(_ it: MemoryItem) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Button { toggle(it) } label: {
+                Image(systemName: it.status == .done ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 19))
+                    .foregroundColor(it.status == .done ? Theme.ok : Theme.dim2)
+                    .tapTarget(10)
             }
+            .buttonStyle(.plain)
 
-            if tab == 0 {
-                HStack(spacing: 8) {
-                    Button {
-                        app.setItemStatus(it.id, status: .accepted)
-                    } label: {
-                        Text("确认")
-                            .font(.system(size: 12.5, weight: .medium))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 14).padding(.vertical, 6)
-                            .background(Theme.accent).clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    Button {
-                        app.setItemStatus(it.id, status: .ignored)
-                    } label: {
-                        Text("不用记")
-                            .font(.system(size: 12.5))
-                            .foregroundColor(Theme.dim)
-                            .padding(.horizontal, 14).padding(.vertical, 6)
-                            .background(Theme.bgDeep).clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    Spacer()
-                }
-            }
-
-            if let s = it.sourceText, !s.isEmpty {
-                Text("原话：\(s)")
-                    .font(.system(size: 11))
-                    .foregroundColor(Theme.dim2)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(it.content)
+                    .font(.system(size: Theme.fsBody))
+                    .foregroundColor(it.status == .done ? Theme.dim2 : Theme.text)
+                    .strikethrough(it.status == .done, color: Theme.dim2)
+                    // 原版就是固定两行：短内容也占两行，列表节奏不跳
                     .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                metaRow(it)
             }
+            Spacer(minLength: 0)
         }
-        .padding(14)
-        .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
         .contextMenu {
-            if it.status != .done {
-                Button {
-                    addReminder(for: it)
-                } label: { Label("一小时后提醒", systemImage: "bell") }
+            if tab == 0 {
+                Button { app.setItemStatus(it.id, status: .accepted) } label: { Label("接受", systemImage: "checkmark") }
+                Button { app.setItemStatus(it.id, status: .ignored) } label: { Label("不用记", systemImage: "xmark") }
             }
-            Button(role: .destructive) {
-                app.deleteItem(it.id)
-            } label: { Label("删除", systemImage: "trash") }
+            if it.status != .done {
+                Button { addReminder(for: it) } label: { Label("一小时后提醒", systemImage: "bell") }
+            }
+            Button(role: .destructive) { deleting = it } label: { Label("删除", systemImage: "trash") }
         }
     }
 

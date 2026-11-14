@@ -17,27 +17,42 @@ struct MemoryView: View {
     @State private var loadedCat = ""
     @State private var weekOffset = 0
     @State private var reviewBusy = false
+    /// 0 全部 / 1 会议 / 2 培训：只筛「按天」这一支，按类那支不动
+    @State private var kindFilter = 0
+    @State private var noteEvent: MemoryEvent?
+    @State private var activeRailKey: String?
 
     private let cats = ["重点", "寻物", "灵感", "关键信息", "决定"]
 
     private var day: String { app.selectedDay }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                header
-                if byDay {
-                    dayStrip
-                    reviewCard
-                    eventList
-                } else {
-                    catChips
-                    catList
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.sp3 + 2) {
+                    header
+                    if byDay {
+                        dayStrip
+                        kindBar
+                        reviewCard
+                        cardsCard
+                        timelineCard(proxy: proxy)
+                    } else {
+                        catChips
+                        catList
+                    }
+                    Color.clear.frame(height: 16)
                 }
-                Color.clear.frame(height: 16)
+                .padding(.horizontal, Theme.sp4)
+                .padding(.top, 8)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .coordinateSpace(name: "railScroll")
+            .onPreferenceChange(RailOffsetKey.self) { map in
+                let visible = map.filter { $0.value <= 4 && $0.value > -260 }
+                if let key = visible.max(by: { $0.value < $1.value })?.key, key != activeRailKey {
+                    activeRailKey = key
+                }
+            }
         }
         .tabBarClearance()
         .background(Theme.bg.ignoresSafeArea())
@@ -57,6 +72,21 @@ struct MemoryView: View {
                 .environmentObject(app)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $noteEvent) { e in
+            NoteSheet(event: e,
+                      people: notePeople(e),
+                      onRename: { label, name in
+                          guard let sid = e.sessionId else { return }
+                          ListenFlow.shared.renameSpeaker(label, to: name)
+                          _ = sid
+                      },
+                      onQuote: { _ in detailEvent = e },
+                      onRegenerate: { noteEvent = nil; detailEvent = e },
+                      onDelete: {
+                          app.deleteEvent(e.id)
+                          noteEvent = nil
+                      })
         }
         .alert("提示", isPresented: Binding(get: { toast != nil }, set: { if !$0 { toast = nil } })) {
             Button("好") { toast = nil }
@@ -249,39 +279,188 @@ struct MemoryView: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
     }
 
-    private var eventList: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("时间线 · \(app.dayEvents.count) 件事")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(Theme.text)
-                Spacer()
+    /// 「全部 / 会议 / 培训」：只影响按天那一支的列表
+    private var kindBar: some View {
+        HStack(spacing: 8) {
+            ForEach(Array(["全部", "会议", "培训"].enumerated()), id: \.offset) { idx, name in
+                Button { kindFilter = idx } label: {
+                    Text(name)
+                        .font(.system(size: Theme.fsSmall, weight: kindFilter == idx ? .semibold : .regular))
+                        .foregroundColor(kindFilter == idx ? Theme.accent : Theme.text2)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(kindFilter == idx ? Theme.accentSoft : Theme.card))
+                }
+                .buttonStyle(.plain)
             }
-            if app.dayEvents.isEmpty {
-                EmptyHint(symbol: "sparkles", title: "这一天还没有整理出内容", detail: "先录一段，整理后会自动生成时间线")
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var filteredEvents: [MemoryEvent] {
+        switch kindFilter {
+        case 1: return app.dayEvents.filter { $0.scene == "会议" }
+        case 2: return app.dayEvents.filter { $0.scene == "培训" }
+        default: return app.dayEvents
+        }
+    }
+
+    /// 速记卡：整张白卡，条间分隔线从文字起画；右上「+ 生成」
+    @ViewBuilder
+    private var cardsCard: some View {
+        let cards = app.dayCards.filter { !$0.isNothing }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("速记卡")
+                    .font(.system(size: Theme.fsTitle, weight: .semibold))
+                    .foregroundColor(Theme.text)
+                if !cards.isEmpty {
+                    Text("\(cards.count)")
+                        .font(.system(size: Theme.fsCaption))
+                        .foregroundColor(Theme.dim)
+                }
+                Spacer(minLength: 0)
+                Button {
+                    // afterDigest 类的速记卡：立刻按这一天跑一遍
+                    SkillEngine.shared.runAfterDigest(day: day)
+                    toast = "正在生成，稍后出现在这里"
+                } label: {
+                    Text("+ 生成")
+                        .font(.system(size: Theme.fsSmall, weight: .medium))
+                        .foregroundColor(Theme.accent)
+                        .tapTarget(8)
+                }
+                .buttonStyle(.plain)
+            }
+            if cards.isEmpty {
+                EmptyHint(symbol: "rectangle.stack", title: "这一天还没有速记卡",
+                          detail: "速记卡把一天里的事整理成一页，例如项目快讯、今日复盘")
             } else {
                 VStack(spacing: 0) {
-                    ForEach(Array(app.dayEvents.enumerated()), id: \.element.id) { idx, e in
-                        TimelineLine(event: e,
-                                     onStar: { app.starEvent(e.id, starred: !e.starred) },
-                                     onTap: { detailEvent = e })
-                        if idx < app.dayEvents.count - 1 {
-                            Rectangle().fill(Theme.line)
+                    ForEach(Array(cards.enumerated()), id: \.element.id) { idx, c in
+                        CardView(card: c)
+                        if idx < cards.count - 1 {
+                            Rectangle().fill(Theme.lineSoft)
                                 .frame(height: 0.6)
-                                .padding(.leading, 58)
+                                .padding(.leading, 54)
                         }
                     }
                 }
             }
-            if !app.dayCards.isEmpty {
-                ForEach(app.dayCards) { c in
-                    if !c.isNothing { CardView(card: c) }
+        }
+        .padding(Theme.sp4)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+    }
+
+    private func timelineCard(proxy: ScrollViewProxy) -> some View {
+        let items = filteredEvents
+        let groups = partGroups(items)
+        return VStack(alignment: .leading, spacing: Theme.sp3) {
+            HStack(spacing: 8) {
+                Text("时间线 · \(items.count) 件事")
+                    .font(.system(size: Theme.fsTitle, weight: .semibold))
+                    .foregroundColor(Theme.text)
+                Spacer(minLength: 0)
+            }
+            if items.isEmpty {
+                EmptyHint(symbol: "sparkles", title: "这一天还没有整理出内容",
+                          detail: kindFilter == 0 ? "先录一段，整理后会自动生成时间线" : "换一个筛选看看，或先录一场")
+            } else {
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(groups, id: \.title) { g in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("\(g.title) · \(g.items.count) 件")
+                                    .font(.system(size: Theme.fsCaption, weight: .medium))
+                                    .foregroundColor(Theme.dim)
+                                    .padding(.leading, 4)
+                                VStack(spacing: 0) {
+                                    ForEach(Array(g.items.enumerated()), id: \.element.id) { idx, e in
+                                        Group {
+                                            if e.isNote {
+                                                NoteTimelineLine(event: e, itemCount: noteItemCount(e)) {
+                                                    noteEvent = e
+                                                }
+                                            } else {
+                                                TimelineLine(event: e,
+                                                             onStar: { app.starEvent(e.id, starred: !e.starred) },
+                                                             onTap: { detailEvent = e })
+                                            }
+                                        }
+                                        .id("tl-\(e.id)")
+                                        .railTrack(e.id)
+                                        if idx < g.items.count - 1 {
+                                            Rectangle().fill(Theme.lineSoft)
+                                                .frame(height: 0.6)
+                                                .padding(.leading, 58)
+                                        }
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                                .background(Theme.card)
+                                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+                            }
+                        }
+                    }
+                    if items.count > 8 {
+                        HourRail(slots: railSlots(items),
+                                 autoHeight: RailRules.railHeight(slotCount: railSlots(items).count,
+                                                                  entryCount: items.count,
+                                                                  available: 320),
+                                 activeKey: activeRailKey) { key in
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                proxy.scrollTo("tl-\(key)", anchor: .top)
+                            }
+                        }
+                        .padding(.top, 26)
+                    }
                 }
             }
         }
-        .padding(14)
-        .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+    }
+
+    private struct PartGroup: Identifiable {
+        let title: String
+        let items: [MemoryEvent]
+        var id: String { title }
+    }
+
+    private func partGroups(_ list: [MemoryEvent]) -> [PartGroup] {
+        var order: [String] = []
+        var map: [String: [MemoryEvent]] = [:]
+        for e in list {
+            let p = partOf(e.startAt)
+            if map[p] == nil { order.append(p) }
+            map[p, default: []].append(e)
+        }
+        return order.map { PartGroup(title: $0, items: (map[$0] ?? []).sorted { $0.startAt < $1.startAt }) }
+    }
+
+    private func partOf(_ date: Date) -> String {
+        let h = Calendar.current.component(.hour, from: date)
+        if h < 6 { return "凌晨" }
+        if h < 12 { return "上午" }
+        if h < 18 { return "下午" }
+        return "晚上"
+    }
+
+    private func railSlots(_ list: [MemoryEvent]) -> [RailSlot] {
+        RailRules.slots(list.map { (key: $0.id, hour: Calendar.current.component(.hour, from: $0.startAt)) })
+    }
+
+    private func noteItemCount(_ e: MemoryEvent) -> Int {
+        app.todayItems.filter { $0.eventId == e.id }.count + app.dayItems.filter { $0.eventId == e.id }.count
+    }
+
+    private func notePeople(_ e: MemoryEvent) -> [(label: String, name: String, seconds: Double)] {
+        guard let sid = e.sessionId else { return [] }
+        let session = Store.shared.session(id: sid)
+        let rows = Store.shared.utterances(sessionId: sid)
+        var sums: [String: Double] = [:]
+        for u in rows { sums[u.speaker, default: 0] += u.duration }
+        return sums.map { (label: $0.key, name: session?.name($0.key) ?? $0.key, seconds: $0.value) }
+            .sorted { $0.seconds > $1.seconds }
     }
 
     private var catChips: some View {
