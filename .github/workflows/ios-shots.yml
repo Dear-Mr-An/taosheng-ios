@@ -103,8 +103,9 @@ jobs:
             if [ -f "$PLIST" ]; then
               plutil -replace ConnectHardwareKeyboard -bool false "$PLIST" 2>/dev/null \
                 || plutil -insert ConnectHardwareKeyboard -bool false "$PLIST" 2>/dev/null || true
-              echo "已关闭硬件键盘: $DEV"
+              echo "已关闭硬件键盘: $DEV" >&2
             fi
+            # 只有 UDID 走 stdout：调用方是 DEV=$(mk ...)，多余输出会一起被捕获
             echo "$DEV"
           }
 
