@@ -3,6 +3,88 @@
 Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 SwiftUI 重写，iOS 16+，无第三方运行依赖。
 全天收音 → 人声切片 → 转写 → DeepSeek 整理事件、待办和记忆。数据使用本机 SQLite。
 
+0.6.1 第七轮（按原版安卓对齐界面，速记独立成卡，2026-11-14）
+
+版本号 0.6.1 (28)。这一轮按董事长的用法继续收紧：只留会议和培训两套流程、每场结束立刻出速记、长会议不再整场失败，今天页与记忆页照原版安卓重做。新增 `TaoSheng/Core/Policies/ChunkRules.swift`、`NoteRules.swift`、`RailRules.swift`、`TaoSheng/UI/NoteViews.swift`、`TaoSheng/UI/NoteSheet.swift`。
+
+一、长会议不再整场失败
+
+- 豆包极速版单次上限按官方文档取 2 小时 / 100MB（`ChunkRules.flashMaxSeconds`、`flashMaxBytes`），运行时不贴着上限用，按 80%（`safeRatio`）判断。
+- 超过上限就按段切成若干块，一块一块识别（`ASR/SessionTranscriber.swift` 的 `ChunkRules.chunks`），每块各自分说话人。
+- 合并跨块的说话人：每块里同一个人累计语音满 15 秒才取样，取其语音片段的声纹（`speakerVector`），按余弦相似度与已有说话人比对（阈值 0.75），配得上算同一个人，配不上开新的；最后整场按首次出现顺序统一编号。
+- 分人阶段英雄卡显示「正在分辨说话人（2/3）…」。
+- 如实说明：2 小时 / 100MB 是文档口径，没有真机跑过这么长的会；跨块配音阈值 0.75 是经验值，多人会议如果串人可调。
+
+二、只留会议和培训
+
+- `CaptureMode` 只剩 `.meeting` / `.training`，默认会议；旧数据的 call / daily / script 一律映射成会议（`CaptureMode.restored`），导入录音记会议。
+- 删掉 `Prompts.callModeExtra` 与全部通话文案；模式按钮一行两个等宽。
+
+三、每场结束就出速记
+
+- 一场会/培训就是一个事件，标题固定「会议速记 / 培训笔记」，结构由代码按模式选：
+  - 会议：议题 / 结论先行 / 要点（分点）/ 决定 / 待办（负责人写说话人名）
+  - 培训：主题 / 核心要点 / 知识点 / 行动（负责人是我）
+- 新增「关键原话」3–5 条（`EventQuote`，存 `memory_event.quotes_json`）。
+- 推送内容改成「标题 + 结论 + 待办」（`PushEngine.pushSession`）。
+- 内置技能「会议速记」下线：新装不再预置，老用户启动时自动置为关闭，旧卡片仍可在记忆页查到。
+- 原定时整理保留，但会跳过属于某一场的段，同一场不会出两个事件。
+
+四、速记摆在哪儿
+
+- 今天页英雄卡下面「刚结束」卡：标题、结论第一句、时长与说话人数，点「看速记」进详情。
+- 时间线里会议/培训单独一行：左边模式图标与起止时间，右边标题、两行结论、速记/笔记标签。
+- 事件详情三段「速记 | 原话 | 发言」：速记是分段纪要加关键原话；原话按人分行带颜色点；发言是每人时长条，点名字可改名（改名作用于整场，原话页跟着变）。
+- 记忆页顶部「全部 / 会议 / 培训」筛选，时间线变成本类事件；回顾卡里列出当天几场会，点进去就是速记。
+
+五、今天页与时间轴
+
+- 「今日节律」整块删除（连带 Space 里那套时段统计一起清掉）。
+- 时间线改正序：凌晨 → 上午 → 下午 → 晚上，当天事件全部显示；超过 8 条时右侧出现小时轴（`UI/NoteViews.swift` 的 `HourRail`）。小时轴只列有事件的小时，间距按条数有比例但有最小高度；点或按住拖动跳到那一小时的第一条，带轻触反馈；滚动时当前小时用橙色气泡标出并跟着走。
+- 整理间隔新增 5 分钟和 10 分钟（`Settings.digestIntervalOptions = [5, 10, 15, 30, 60, 120, 240, 720]`）。
+
+六、界面按原版重做
+
+- 今天页：英雄卡下面加「待确认」横卡（一屏两张、卡宽约屏宽六成、留出右侧下一张；iOS 17 上整卡吸附翻页，iOS 16 退化成普通横滑）。
+- 待办页：三条筛选带数量、全部接受/全部忽略（忽略要点两次）、按天一张大卡、细分隔线从文字起画、标题固定两行、左滑完成右滑删除。
+- 记忆页：速记卡区是一张白色大卡，条间分隔线从文字起画，左边浅色方块放模式图标；点卡片从底部弹出抽屉（`UI/NoteSheet.swift`），里面有复制全部内容、选择部分内容、摘要框、字段分段、参与人胶囊（点一下改名）、关键原话（点一下跳到原话并播放）、重新生成与删除。
+- 配色、圆角、字号继续走 `UI/Theme.swift` 的令牌。
+
+七、截图（模拟器，`.tmp/shots-0.6.1/`）
+
+iPhone 16 与 iPhone SE（第三代）各截一遍，重点画面：
+
+- `iphone16-today-hero.png`、`iphonese-today-hero.png`
+- `iphone16-today-justended.png`
+- `iphone16-today-timeline-asc.png`、`iphonese-today-timeline-asc.png`
+- `iphone16-timeline-rail.png`
+- `iphone16-timeline-meeting.png`
+- `iphone16-today-timeline-parts.png`
+- `iphone16-event-summary.png`、`iphone16-event-raw.png`、`iphone16-event-speakers.png`
+- `iphone16-memory-filter-meeting.png`
+- `iphone16-memory-cards.png`、`iphonese-memory-cards.png`
+- `iphone16-memory-week.png`、`iphone16-memory-timeline-rail.png`
+- `iphone16-card-sheet-top.png`、`iphone16-card-sheet-bottom.png`、`iphonese-card-sheet-top.png`
+- `iphone16-review-meetings.png`
+- `iphone16-todo-pending.png`、`iphonese-todo-pending.png`
+- `iphone16-llm-interval.png`
+
+八、验证
+
+- CI `build-ipa` 成功，`.swift` 层 0 error 0 warning；`swift test` 25 项通过（含 0.6.1 新加的会话规则、模式映射、场景、推送规则、时间轴规则用例）；`node --test Tests/segment-sql.test.mjs` 8 项通过。
+- 产物 `../dist/TaoSheng-v0.6.1.ipa`，1.6 MB，`CFBundleShortVersionString 0.6.1`、`CFBundleVersion 28`，Info.plist 为 XML。
+
+九、没做到 / 没验证的
+
+- 真机没跑：录音、分人、切块都只在模拟器与代码层验证；2 小时上限、`additions.speaker` 的真实返回字段与延迟仍未在真实密钥下确认。
+- 记忆页周历条仍是「本周 / N 周前」按周翻页，原版的「点月份展开整月网格」没有做。
+- 原版待办页三栏可左右滑动切换，这里仍是顶部胶囊切换。
+- 深色模式没有逐页截图核对。
+
+十、界面参考
+
+- 界面结构与文案参考 0xCoach/TaoSheng（MIT）。
+
 0.6.0 第六轮修复（按会议流程重做录音主链路，2026-11-14）
 
 版本号 0.6.0 (27)。这一版按董事长的实际用法重排：「开会前点开始聆听 → 边录边转写 → 点结束 → 分清说话人 1/2/3 → 立即整理 → 推送」。改动集中在 `TaoSheng/Core/ListenFlow.swift`（新增，一场会的生命周期）、`TaoSheng/ASR/SessionTranscriber.swift`（新增，整场分人）、`TaoSheng/Audio/SessionMerger.swift`（新增，整场拼音频）、`TaoSheng/LLM/SessionDigest.swift`（新增，单场纪要）。
