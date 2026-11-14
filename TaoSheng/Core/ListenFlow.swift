@@ -136,6 +136,7 @@ final class ListenFlow: ObservableObject {
                 let out = try await SessionTranscriber.run(session: s, segments: segs)
                 utterances = out.utterances
                 Store.shared.replaceUtterances(sessionId: s.id, out.utterances)
+                writeSpeakersBack(utterances, segments: segs)
                 note = out.note
             }
 
@@ -167,6 +168,29 @@ final class ListenFlow: ObservableObject {
         working = false
         AppState.shared.refresh()
         NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
+    }
+
+    /// 把整场分好的说话人写回每一段：原话页、时间线里那些按段显示的地方
+    /// 也就能看到「周工」而不是「说话人2」。按时间重叠最多的那条话轮算。
+    private func writeSpeakersBack(_ utterances: [Utterance], segments: [Segment]) {
+        guard !utterances.isEmpty else { return }
+        // 拼接时是按时间顺序首尾相接的，所以每段在整场音频里的起点 = 前面所有段时长之和，
+        // 和 SessionMerger 记的 offsets 一致，不用再单独传进来。
+        var cursor = 0.0
+        for seg in segments {
+            let start = cursor
+            let end = cursor + max(seg.duration, 0.1)
+            cursor = end
+            var best: Utterance?
+            var bestOverlap = 0.0
+            for u in utterances {
+                let overlap = min(end, u.end) - max(start, u.start)
+                if overlap > bestOverlap { bestOverlap = overlap; best = u }
+            }
+            if let best, !best.speaker.isEmpty {
+                Store.shared.setSpeaker(id: seg.id, speaker: best.speaker)
+            }
+        }
     }
 
     /// 改说话人名：作用在整场（utterance + 会话映射），事件详情上的标签立刻跟着变。
