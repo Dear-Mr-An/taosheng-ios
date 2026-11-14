@@ -85,7 +85,10 @@ enum ShotDemo {
     static func seedSegmentsIfNeeded() {
         guard ShotMode.active else { return }
         let day = today
-        if Store.shared.segments(day: day, limit: 1).count >= 8 { return }
+        // 同一台模拟器会被连续启动多次（每个画面一次），必须按固定 id 判重；
+        // 用 count 判重会漏（limit 只管行数），结果每启一次就多插 8 段。
+        let existing = Set(Store.shared.segments(day: day, limit: 999).map(\.id))
+        if existing.contains("shot-seg-1") { return }
         let lines: [(String, String)] = [
             ("我", "早上先把接口文档过了一遍，字段名统一成下划线风格。"),
             ("周工", "下周三之前要联调完，前端这边今天就能给你一版。"),
@@ -98,6 +101,7 @@ enum ShotDemo {
         ]
         let base = Date().addingTimeInterval(-Double(lines.count) * 300)
         for (i, line) in lines.enumerated() {
+            if existing.contains("shot-seg-\(i + 1)") { continue }
             let start = base.addingTimeInterval(Double(i) * 300)
             let seg = Segment(id: "shot-seg-\(i + 1)",
                               startedAt: start,
