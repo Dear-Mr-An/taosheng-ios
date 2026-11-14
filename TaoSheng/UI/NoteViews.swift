@@ -19,6 +19,8 @@ struct HourRail: View {
     let autoHeight: CGFloat
     /// 当前滚动到顶部的那一条的 id，用来画橙色气泡
     let activeKey: String?
+    /// 截图验收时把橙色气泡固定停在某一格；正常使用只在拖动时出现
+    var forcedBubbleAt: Int? = nil
     let onJump: (String) -> Void
 
     @State private var dragging = false
@@ -79,16 +81,26 @@ struct HourRail: View {
         .accessibilityLabel("小时时间轴")
     }
 
+    private var bubbleIndex: Int? {
+        if let forcedBubbleAt { return forcedBubbleAt }
+        guard dragging, let y = dragY else { return nil }
+        return index(at: y)
+    }
+
+    private func bubbleY(_ i: Int) -> CGFloat {
+        tops.indices.contains(i) ? tops[i] : 0
+    }
+
     @ViewBuilder
     private var bubble: some View {
-        if dragging, let y = dragY, let i = index(at: y) {
+        if let i = bubbleIndex, slots.indices.contains(i) {
             Text("\(slots[i].hour):00")
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundColor(.white)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 4)
                 .background(Capsule().fill(Theme.accent))
-                .offset(x: -46, y: max(0, y - 10))
+                .offset(x: -46, y: max(0, bubbleY(i) - 10))
                 .allowsHitTesting(false)
         }
     }

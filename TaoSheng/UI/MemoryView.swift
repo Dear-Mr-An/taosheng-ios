@@ -545,7 +545,8 @@ struct MemoryView: View {
                                  autoHeight: RailRules.railHeight(slotCount: railSlots(items).count,
                                                                   entryCount: items.count,
                                                                   available: 320),
-                                 activeKey: activeRailKey) { key in
+                                 activeKey: activeRailKey,
+                                 forcedBubbleAt: ShotMode.screen == "memory-timeline-rail" ? min(1, max(0, railSlots(items).count - 1)) : nil) { key in
                             withAnimation(.easeInOut(duration: 0.25)) {
                                 proxy.scrollTo("tl-\(key)", anchor: .top)
                             }

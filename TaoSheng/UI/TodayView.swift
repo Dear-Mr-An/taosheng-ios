@@ -514,7 +514,8 @@ struct TodayView: View {
                                  autoHeight: CGFloat(RailRules.railHeight(slotCount: railSlots.count,
                                                                           entryCount: timelineEvents.count,
                                                                           available: 340)),
-                                 activeKey: activeRailKey) { key in
+                                 activeKey: activeRailKey,
+                                 forcedBubbleAt: ShotMode.screen == "timeline-rail" ? min(1, max(0, railSlots.count - 1)) : nil) { key in
                             withAnimation(.easeInOut(duration: 0.25)) {
                                 proxy.scrollTo("tl-\(key)", anchor: .top)
                             }
