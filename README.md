@@ -81,7 +81,9 @@ iPhone 16 与 iPhone SE（第三代）各截一遍，重点画面：
 八、验证
 
 - CI `build-ipa` 成功，`.swift` 层 0 error 0 warning；`swift test` 25 项通过（含 0.6.1 新加的会话规则、模式映射、场景、推送规则、时间轴规则用例）；`node --test Tests/segment-sql.test.mjs` 8 项通过。
-- 产物 `../dist/TaoSheng-v0.6.1.ipa`，1.6 MB，`CFBundleShortVersionString 0.6.1`、`CFBundleVersion 28`，Info.plist 为 XML。
+- 产物 `../dist/TaoSheng-v0.6.1.ipa`，1645283 B，`CFBundleShortVersionString 0.6.1`、`CFBundleVersion 28`、`CFBundleIdentifier app.taosheng.TaoSheng`，Info.plist 为 XML（来自 `build-ipa #91`，sha `a46cc07`）。
+- 截图由 `shots #34`（sha `a46cc07`）产出，46 张，两台机各 23 张，已下载到 `../.tmp/shots-0.6.1/`；逐张看过：英雄卡右下与顶部状态同源、「刚结束」卡可进速记、时间线正序并按上午/下午/晚上分组、右侧小时轴完整露在屏内、速记卡是「图标 + 模式名·时间 + 标题 + 两行摘要」、三张事件详情分别停在速记/原话/发言、共 3 名说话人显示 46 秒/32 秒/18 秒、改名弹层预填「周工」、待办只写一次「待办 · 我要做」、回顾里「今天开了 5 场会」可点开、小屏同样正常。
+- 整理间隔的 5 分钟 / 10 分钟在代码里（`Settings.digestIntervalOptions = [5, 10, 15, 30, 60, 120, 240, 720]`，`Settings.swift:119`），截图 `iphone16-llm-interval.png` 只能看到折叠下拉的当前值「30 分钟」，展开后的选项没有截到。
 
 九、没做到 / 没验证的
 
