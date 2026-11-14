@@ -91,7 +91,7 @@ public enum RailRules {
         let t = s < tops.count ? tops[s] : 0
         return t + h * (within / Double(n))
     }
-}
+
     /// 列表顶部那一行：在 `down...up` 区间里取 minY 最大的一条。
     /// 三处时间线（今天页、记忆页、「全部」页）都用它，避免各写一遍过滤器。
     /// - up：允许略微越过顶部的行（正数，单位 pt）
@@ -104,3 +104,4 @@ public enum RailRules {
             .max(by: { $0.value < $1.value })?
             .key
     }
+}
