@@ -206,7 +206,10 @@ struct TodayView: View {
         if flow.isRecording {
             return liveLines.isEmpty ? "正在转写…" : "已转写 \(liveLines.count) 段，结束统一分人"
         }
-        if flow.working { return flow.phaseText.isEmpty ? flow.statusText : flow.phaseText }
+        if flow.working {
+            let p = flow.phaseText ?? ""
+            return p.isEmpty ? flow.statusText : p
+        }
         if toTranscribe > 0 { return "\(toTranscribe) 段录音待转写" }
         if flow.canRetry, let err = flow.lastError { return err }
         return digestAgo
