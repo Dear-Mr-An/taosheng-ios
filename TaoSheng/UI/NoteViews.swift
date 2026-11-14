@@ -372,7 +372,7 @@ struct PendingPeekCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.sp2) {
             HStack(spacing: 6) {
-                Text(item.category == "待办", item.kind == nil ? "待办" : "待办 · (item.kind ?? "")")
+                Text(item.category == "待办" ? (item.kind == nil ? "待办" : "待办 · \(item.kind ?? "")") : item.category)
                     .font(.system(size: Theme.fsCaption, weight: .medium))
                     .foregroundColor(tint)
                     .padding(.horizontal, 9).padding(.vertical, 3)

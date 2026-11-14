@@ -392,9 +392,9 @@ struct TodayView: View {
                         HStack(spacing: Theme.sp2) {
                             ForEach(list) { it in
                                 PendingPeekCard(item: it) {
-                                    app.setItemStatus(it.id, .accepted)
+                                    app.setItemStatus(it.id, status: .accepted)
                                 } onIgnore: {
-                                    app.setItemStatus(it.id, .ignored)
+                                    app.setItemStatus(it.id, status: .ignored)
                                 }
                                 .frame(width: max(180, UIScreen.main.bounds.width * 0.62))
                             }
