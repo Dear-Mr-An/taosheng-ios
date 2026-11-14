@@ -3,6 +3,56 @@
 Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 SwiftUI 重写，iOS 16+，无第三方运行依赖。
 全天收音 → 人声切片 → 转写 → DeepSeek 整理事件、待办和记忆。数据使用本机 SQLite。
 
+0.5.4 第五轮修复（把「转写」和「整理」拆成两页，2026-11-14）
+
+版本号 0.5.4 (26)。0.5.1 删服务商入口时，把「整理用的大模型」和「什么时候整理」两张卡塞进了原话页；原话一多，整理设置就被顶到很远。本轮把这一页拆成两个入口，并修掉小屏上看到的截断与截图种子重复。
+
+一、拆成两个入口
+
+「设置 → 记录」现在是：录音与后台 / 转写与原话 / 大模型与整理 / 环境音识别 / 足迹。
+
+- **转写与原话**：新文件 `TaoSheng/UI/TranscribeOverviewView.swift`（由原 `ModelSettingsView` 改名），只留「转写状态卡」和「今天的原话」。状态点看 `settings.asrReady` 与待转写数量，副标题是「都转完了 / 待转写 N 段 / 正在转写 / 转写未就绪」。
+- **大模型与整理**：新文件 `TaoSheng/UI/LLMSettingsView.swift`，只放「整理用的大模型」卡（余额、检测连接、余额提醒、编辑弹层）和「什么时候整理」卡（自动整理、按间隔或时间点、整理前先思考、参考地点和环境音）。状态点看 `settings.llmReady`，副标题显示模型名或「未填密钥」。同样带 `.tabBarClearance()`，最后一行不会被悬浮 TabBar 挡住。
+- 代码侧：`SettingsSub.swift` 里整段删掉 `ModelSettingsView`（561 行）与 `private struct DeepSeekEditorSheet`（37 行），两者各自独立成文件，`DeepSeekEditorSheet` 跟着搬到 `LLMSettingsView.swift`。`SettingsView.swift` 的「记录」组改成两行 `nav(...)`，各自读自己的就绪状态。
+
+二、原话卡只留 3 段
+
+- `previewLimit = 3`，`ForEach(Array(todaySegments.prefix(3).enumerated()), id: \.element.id)`；`Store.segments(day:)` 本来就是 `ORDER BY started_at DESC`，所以最新的三段落在上。
+- 超过 3 段时底部是「看全部 N 段 ›」进 `RawLinesView`；3 段以内显示「打开原话页」；一段都没有时仍是原来那句提示。
+
+三、标题与按钮
+
+- `TranscribeSettingsSheet` 的导航标题、`// MARK` 注释都改回「转写设置」；转写状态卡右上角的按钮文字也是「转写设置」——它现在只弹转写相关设置，不再指向整理。
+
+四、文案对齐
+
+- `LLM/LLMAuto.swift`、`UI/AskView.swift`、`UI/SettingsSub.swift` 里所有「模型与整理」改成「大模型与整理」；`SettingsSub.swift` 的两处说明文字分别指向「大模型与整理」和「转写与原话」。
+- 全仓 grep「模型与整理」为 0，只剩「大模型与整理」。
+
+五、小屏截断（截图时发现）
+
+- `iphonese-transcribe.png` 第一版里「云端转写」和「原声」两行的值被截成 `约 ¥...`、`占用...`。统计行改成两行可回绕 + `minimumScaleFactor(0.85)`，标签列 62 → 58，文案也缩短（「近 30 天」→「30 天」、「约 ¥」→「≈¥」、「把手机里的原始录音打包导出」→「打包导出原始录音」）。
+
+六、截图种子重复（截图时发现）
+
+- 第一版 `iphone16-transcribe.png` 显示「64 段」，三行原文还一模一样：截图模式每启动一次就插 8 段，而判重写的是 `segments(day:limit: 1).count >= 8`（limit 只限行数，恒为 1）。改成按固定 id `shot-seg-1…8` 判重并跳过已存在的，一台设备连续启动 15 次也只会有 8 段。
+
+七、截图
+
+- `ShotMode` 新增两个画面：`transcribe` → 直接渲染「转写与原话」（先灌 8 段今天的原话，用来证明只列 3 段 + 「看全部 8 段」）；`llm` → 直接渲染「大模型与整理」并用 `ShotBottomAnchor` 贴到页面底部，验证最后一行不被 TabBar 挡住。
+- `ios-shots.yml`：iPhone 16 Pro 与 iPhone SE (3rd) 各加 `transcribe`、`llm`；建完设备就按 UDID 往 `device.plist` 写 `ConnectHardwareKeyboard=false`（必须在 `simctl boot` 之前），小屏的「新的人物」这次能看到软键盘。另外修掉 `mk()` 把提示语写进 stdout 的 bug（`DEV=$(mk)` 会把两行都捕获，导致 `Invalid device: 已关闭硬件键盘: …`、一张图都拍不出来）。
+- 截图目录 `../.tmp/shots-0.5.4/`，共 15 张：大屏 9 张（todo / today / ask / memory / recording-bottom / person-add / event-edit / transcribe / llm），小屏 6 张（todo / today / recording-bottom / person-add / transcribe / llm）。
+
+八、验证
+
+- CI `build-ipa`（run 43567418231）：success，`.swift` 层 0 error 0 warning。
+- CI `shots`（run 43567418201）：success，15 张。
+- 产物 `../dist/TaoSheng-v0.5.4.ipa`：`CFBundleShortVersionString = 0.5.4`、`CFBundleVersion = 26`、`CFBundleIdentifier = app.taosheng.TaoSheng`、Info.plist 为 XML。
+
+九、本轮仍未做
+
+- 声纹算法、备份结构（只覆盖 legacy 表）、S3 key 编码：与上一轮结论相同，留后续版本。
+
 0.5.3 第四轮修复（验收打回，2026-11-14）
 
 版本号 0.5.3 (25)。上一轮交付被逐张截图打回 9 条，本轮全部处理；其中第 2 条（小屏截到桌面）先查清原因再修，截图流程本身也加了自检。
