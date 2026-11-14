@@ -131,7 +131,7 @@ struct TranscribeOverviewView: View {
             Divider().overlay(Theme.lineSoft)
             statRow("原声", audioLine) { showKeepDays = true }
             Divider().overlay(Theme.lineSoft)
-            statRow("录音包", exporting ? "正在打包录音…" : "把手机里的原始录音打包导出") { exportAudio() }
+            statRow("录音包", exporting ? "正在打包…" : "打包导出原始录音") { exportAudio() }
 
             HStack {
                 Text("录音原话")
@@ -177,8 +177,8 @@ struct TranscribeOverviewView: View {
     private var cloudLine: String {
         let today = Self.minutesText(stats.todayMinutes)
         let month = Self.minutesText(stats.monthMinutes)
-        if stats.monthMinutes <= 0 { return "今天 0 分 · 近 30 天 0 分" }
-        return "今天 \(today) · 近 30 天 \(month) · 约 ¥\(Self.cost(stats.monthMinutes))"
+        if stats.monthMinutes <= 0 { return "今天 0 分 · 30 天 0 分" }
+        return "今天 \(today) · 30 天 \(month) · ≈¥\(Self.cost(stats.monthMinutes))"
     }
 
     private var cloudDetail: String {
@@ -186,7 +186,7 @@ struct TranscribeOverviewView: View {
     }
 
     private var audioLine: String {
-        "保留 \(settings.keepAudioDays) 天 · 重点长期保留 · 占用 \(ByteText.short(stats.bytes))"
+        "\(settings.keepAudioDays) 天 · 重点长期保留 · \(ByteText.short(stats.bytes))"
     }
 
     private func statRow(_ label: String, _ value: String, action: @escaping () -> Void) -> some View {
@@ -195,12 +195,14 @@ struct TranscribeOverviewView: View {
                 Text(label)
                     .font(.system(size: 13))
                     .foregroundColor(Theme.dim)
-                    .frame(width: 62, alignment: .leading)
+                    .frame(width: 58, alignment: .leading)
                 Text(value)
                     .font(.system(size: 13.5))
                     .foregroundColor(Theme.text)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.trailing)
+                    .minimumScaleFactor(0.85)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 11, weight: .semibold))
