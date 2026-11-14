@@ -12,10 +12,10 @@ final class RailRulesTests: XCTestCase {
         XCTAssertEqual(RailRules.activeKey(offsets), "c")
     }
 
-    func testIgnoresRowsBelowTheTop() {
-        // 只有下方那些行时不该有高亮（避免把远处的事件算成当前小时）
+    func testFallsBackToTopmostVisibleRow() {
+        // 窗口里没有行时（列表从更下方开始）退回最靠上的那一行，不能一个都不亮
         let offsets: [String: Double] = ["x": 120, "y": 880]
-        XCTAssertNil(RailRules.activeKey(offsets))
+        XCTAssertEqual(RailRules.activeKey(offsets), "x")
     }
 
     func testIgnoresRowsScrolledFarAbove() {

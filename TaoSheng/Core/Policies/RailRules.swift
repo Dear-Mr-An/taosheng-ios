@@ -99,9 +99,10 @@ public enum RailRules {
     public static func activeKey(_ offsets: [String: Double],
                                  up: Double = 4,
                                  down: Double = -260) -> String? {
-        offsets
-            .filter { $0.value <= up && $0.value > down }
-            .max(by: { $0.value < $1.value })?
-            .key
+        let window = offsets.filter { $0.value <= up && $0.value > down }
+        if let key = window.max(by: { $0.value < $1.value })?.key { return key }
+        // 没有行落在窗口里（比如列表整体从更下方开始）：退回最靠上的那一行，
+        // 总比不亮或者亮错强
+        return offsets.filter { $0.value > up }.min(by: { $0.value < $1.value })?.key
     }
 }
