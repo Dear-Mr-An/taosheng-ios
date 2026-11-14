@@ -1,7 +1,69 @@
-# 涛声 iOS
+﻿# 涛声 iOS
 
 Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 SwiftUI 重写，iOS 16+，无第三方运行依赖。
 全天收音 → 人声切片 → 转写 → DeepSeek 整理事件、待办和记忆。数据使用本机 SQLite。
+
+
+0.6.4 第十轮（时间轴高亮跟着列表顶部走，2026-11-15）
+
+第九轮 5 处都通过了，这一轮只剩一个真 bug：右侧小时轴高亮的小时永远是最后一格。
+
+问题
+「全部」页的时间线加了小时轴之后，高亮的永远是最后那个小时——列表停在 08:00–17:00，轴上亮的却是 21:00。
+
+原因
+三处时间线各自写了一遍「取顶部那一行」的算法，其中两处（今天页、记忆页）先做了过滤：
+
+```swift
+let visible = map.filter { $0.value <= 4 && $0.value > -260 }
+let key = visible.max(by: { $0.value < $1.value })?.key
+```
+
+`TimelineFullView` 里漏了过滤，直接 `prefs.max(by: { $0.value < $1.value })`：
+
+```swift
+.onPreferenceChange(RailOffsetKey.self) { prefs in
+    guard let key = prefs.max(by: { $0.value < $1.value })?.key else { return }
+    ...
+}
+```
+
+每行上报的是自己相对滚动容器顶部的 minY：滚到中间以后，顶部那几行是负数（已经滚出屏幕上方），下面的行是越来越大的正数。全表取最大值，命中的必然是列表最底下那一行，于是高亮永远是最后几个小时。
+
+修法
+把算法抽成 `RailRules` 里的纯函数，三处共用：
+
+```swift
+/// 列表顶部那一行：在 down...up 区间里取 minY 最大的一条。
+public static func activeKey(_ offsets: [String: Double],
+                             up: Double = 4,
+                             down: Double = -260) -> String? {
+    offsets
+        .filter { $0.value <= up && $0.value > down }
+        .max(by: { $0.value < $1.value })?
+        .key
+}
+```
+
+- `TodayView` 今天页卡片、`TodayView` 的 `TimelineFullView`、`MemoryView` 记忆页时间线三处都改成 `RailRules.activeKey(map.mapValues { Double($0) })`。
+- 截图时橙色气泡的强制位置也从「固定第二格」改成「跟着高亮的那一格」，这样图里「列表顶部那条事件」和「气泡上的小时」是同一个时刻，不会再出现列表停在 10:00、气泡写 8:00 的情况。
+
+单测
+`Tests/Policies/RailRulesTests.swift` 六组用例：
+
+1. 一排 minY（-600 / -180 / -40 / 900）应选中 -40 那条（越过顶部且离顶部最近）。
+2. 窗口里一行都没有时（列表整体从更下方开始）退回最靠上的那一行——记忆页时间线从分组标题下面起步，正好是这种情况，以前会一个都不亮。
+3. 全部滚出顶部太远（-900 / -400）时返回 nil（上面也没有可见行）。
+4. 略高于顶部（-3）算它，越过 down 边界（-261）不算。
+5. 回归用例：12 行从 -300 到 +1350，旧算法返回 `row-11`，新算法必须返回 `row-2`。
+
+版本与验证
+- 版本 0.6.4（build 31），`CFBundleShortVersionString = 0.6.4`、`CFBundleVersion = 31`。
+- CI：`build-ipa` 0 error 0 warning；`swift test` 31 项通过（原 25 + 本次 6）；`node --test Tests/segment-sql.test.mjs` 8 项通过；产物 `../dist/TaoSheng-v0.6.4.ipa`（未签名）。
+- 截图：../.tmp/shots-0.6.4/，重点看 iphone16-timeline-rail（高亮小时 = 列表顶部那条的时间）与 iphone16-memory-timeline-rail。iphone16-timeline-rail 停在列表开头：演示数据只有十来条，内容总高刚过一屏，滚到中段会被夹在最大偏移上，顶部那行只剩半截、看不出高亮对的是哪一条。
+
+没验证
+- 真机未验证；小时轴的点击跳转只在模拟器里点过。
 
 0.6.3 第九轮（全部页时间轴、气泡单行、记忆页正序、关于页致谢，2026-11-15）
 
