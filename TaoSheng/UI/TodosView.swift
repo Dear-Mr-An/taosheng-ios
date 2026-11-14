@@ -225,26 +225,29 @@ struct TodosView: View {
     }
     private func tint(_ c: String) -> Color { Color(hex: MemoryItem.categoryColor(c)) }
 
+    /// 原版的样子：类型胶囊写「待办 · 我要做」，后面跟截止和人物，不再重复写一遍 kind
     private func metaRow(_ it: MemoryItem) -> some View {
         HStack(spacing: 6) {
-            Text(it.category)
-                .font(.system(size: 10.5))
+            Text(chipText(it))
+                .font(.system(size: Theme.fsCaption, weight: .medium))
                 .foregroundColor(tint(it.category))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(tint(it.category).opacity(0.1))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(tint(it.category).opacity(0.13))
                 .clipShape(Capsule())
-            if let k = it.kind, !k.isEmpty {
-                Text(k).font(.system(size: 10.5)).foregroundColor(Theme.dim2)
-            }
             if let d = it.dueDisplay {
-                Text(d).font(.system(size: 11)).foregroundColor(Theme.dim)
+                Text(d).font(.system(size: Theme.fsCaption)).foregroundColor(Theme.dim)
             }
             if let w = it.who, !w.isEmpty {
-                Text(w).font(.system(size: 11)).foregroundColor(Theme.dim2)
+                Text("· " + w).font(.system(size: Theme.fsCaption)).foregroundColor(Theme.dim2)
             }
-            Spacer()
+            Spacer(minLength: 0)
         }
+    }
+
+    private func chipText(_ it: MemoryItem) -> String {
+        if it.category == "待办", let k = it.kind, !k.isEmpty { return "待办 · " + k }
+        return it.category
     }
 
     private var emptyText: String {

@@ -61,7 +61,8 @@ struct RootView: View {
             if let t = ShotMode.tab(for: s) { tab = t }
             switch s {
             case "person-add": shotSheet = "persons"
-            case "event-edit", "event-meeting", "speaker-rename": shotSheet = "event"
+            case "event-edit", "event-meeting", "speaker-rename",
+                 "event-summary", "event-raw", "event-speakers": shotSheet = "event"
             default: break
             }
         }
