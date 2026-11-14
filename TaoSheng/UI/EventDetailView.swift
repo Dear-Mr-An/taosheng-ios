@@ -180,7 +180,7 @@ struct EventDetailView: View {
                         HStack(alignment: .top, spacing: 10) {
                             RoundedRectangle(cornerRadius: 1.5).fill(noteTint.opacity(0.5)).frame(width: 3)
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("\(q.speaker) · \(q.time)")
+                                Text((session?.name(q.speaker) ?? q.speaker) + " · " + q.time)
                                     .font(.system(size: 10.5))
                                     .foregroundColor(Theme.dim)
                                 Text("「\(q.text)」")

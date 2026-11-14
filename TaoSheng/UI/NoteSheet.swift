@@ -19,6 +19,11 @@ struct NoteSheet: View {
 
     private var tint: Color { event.scene == "培训" ? Theme.purple : Theme.accent }
 
+    /// 说话人编号到名字的映射：改过名的整场都用新名字，关键原话里也一样
+    private func speakerName(_ label: String) -> String {
+        people.first { $0.label == label }?.name ?? label
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.sp4) {
@@ -198,7 +203,7 @@ struct NoteSheet: View {
                             .fill(Theme.blue.opacity(0.45))
                             .frame(width: 3)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("\(q.speaker) · \(q.time)")
+                            Text((speakerName(q.speaker)) + " · " + q.time)
                                 .font(.system(size: 10.5))
                                 .foregroundColor(Theme.dim)
                             Text("「\(q.text)」")

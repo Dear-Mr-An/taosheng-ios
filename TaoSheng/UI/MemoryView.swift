@@ -409,7 +409,7 @@ struct MemoryView: View {
                 EmptyHint(symbol: "sparkles", title: "这一天还没有整理出内容",
                           detail: kindFilter == 0 ? "先录一段，整理后会自动生成时间线" : "换一个筛选看看，或先录一场")
             } else {
-                HStack(alignment: .top, spacing: 8) {
+                ZStack(alignment: .topTrailing) {
                     VStack(alignment: .leading, spacing: 14) {
                         ForEach(groups, id: \.title) { g in
                             VStack(alignment: .leading, spacing: 8) {
@@ -446,6 +446,7 @@ struct MemoryView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.trailing, items.count > 8 ? 36 : 0)
                     if items.count > 8 {
                         HourRail(slots: railSlots(items),
                                  autoHeight: RailRules.railHeight(slotCount: railSlots(items).count,

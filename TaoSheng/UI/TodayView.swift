@@ -458,7 +458,7 @@ struct TodayView: View {
                 EmptyHint(symbol: "clock.badge.questionmark", title: "这一天还没有整理出事件",
                           detail: "点上面的「开始聆听」，结束就出速记")
             } else {
-                HStack(alignment: .top, spacing: 8) {
+                ZStack(alignment: .topTrailing) {
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(Array(timelineGroups.enumerated()), id: \.offset) { _, group in
                             VStack(alignment: .leading, spacing: 6) {
@@ -495,6 +495,7 @@ struct TodayView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.trailing, timelineEvents.count > 8 ? 36 : 0)
                     if timelineEvents.count > 8, !railSlots.isEmpty {
                         HourRail(slots: railSlots,
                                  autoHeight: CGFloat(RailRules.railHeight(slotCount: railSlots.count,
