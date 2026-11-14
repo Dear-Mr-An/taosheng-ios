@@ -3,6 +3,69 @@
 Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 SwiftUI 重写，iOS 16+，无第三方运行依赖。
 全天收音 → 人声切片 → 转写 → DeepSeek 整理事件、待办和记忆。数据使用本机 SQLite。
 
+0.6.0 第六轮修复（按会议流程重做录音主链路，2026-11-14）
+
+版本号 0.6.0 (27)。这一版按董事长的实际用法重排：「开会前点开始聆听 → 边录边转写 → 点结束 → 分清说话人 1/2/3 → 立即整理 → 推送」。改动集中在 `TaoSheng/Core/ListenFlow.swift`（新增，一场会的生命周期）、`TaoSheng/ASR/SessionTranscriber.swift`（新增，整场分人）、`TaoSheng/Audio/SessionMerger.swift`（新增，整场拼音频）、`TaoSheng/LLM/SessionDigest.swift`（新增，单场纪要）。
+
+一、聆听会话（A）
+
+- 新表 `listen_session(id, mode, started_at, ended_at, state, speakers_json, event_id, error, created_at)`，状态 `recording / finalizing / digesting / done / failed`，状态流转规则在 `TaoSheng/Core/Policies/SessionRules.swift` 的 `SessionFlow.canMove(from:to:)`。`segment` 新增 `session_id`，`memory_event` 也加 `session_id`（整理出的事件能反查那一场）。
+- 点「开始聆听」建会话，模式写在会话上：`ListenFlow.start(mode:)` 先写会话再 `CaptureEngine.bindSession`，所以录音中换模式不会再出现「音频按旧模式切、界面显示新模式」。录音中模式按钮置灰，提示「录音中不能换模式，结束这一场再换」。
+- 设置里的培训入口改走 `ListenFlow.start(mode: .training)`（原来只切 `settings.captureMode` 再 `capture.start()`，消息发不进同一套流程）。
+- App 被杀或闪退：`TaoShengApp.onAppear` 调 `ListenFlow.resumeAfterLaunch()`，把 `recording` 状态的会话改成 `finalizing` 并用已有段收尾，不会留下永远「正在聆听」的会话。
+
+二、边录边转写（B）
+
+- 会话中段在停顿 0.8 秒或长度 20 秒时切开（`CaptureMode.liveSilenceGap` / `liveMaxSegment`），切完立刻调 `TranscribeQueue.tick(live: true)`，不等 60 秒定时器；非会话录音仍是原来的 2.5–3 秒 / 300–600 秒。
+- 今天页英雄卡在录音时显示实时转写区：最近 6 行、带 `HH:mm`，还没出字的行显示「转写中…」；不允许联网时提示「等网络后转写」。实时行不标说话人——跨段编号在结束时统一分，先标会标错。
+
+三、结束 → 整场分说话人（C）
+
+- 点「结束聆听」：`SessionMerger.merge` 用 `AVMutableComposition` 把本场所有段按时间拼成一个 m4a（记下每段在整场里的起点），一次送豆包，只请求一次，说话人编号才稳定。
+- 接口用的是豆包极速版 `POST https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash`，请求体带 `show_utterances: true`、`enable_speaker_info: true`（且不传 language，官方字段表要求 `enable_speaker_info` 依赖 `show_utterances` 且语言留空或 zh-CN）。
+- 文档：极速版音频文件识别 https://docs.byteplus.com/en/docs/byteplusvoice/asraudiofile-flash ；响应结构（含 `ASRUtterance.text / start_time / end_time / additions`）https://modelschemas.com/schemas/byteplus/audio/auc/bigmodel/recognize/flash?kind=output ；说话人分离最佳实践 https://docs.volcengine.com/docs/doubao-voice/speaker-separation?lang=zh
+- 解析在 `TaoSheng/Core/Policies/SessionRules.swift` 的 `DoubaoResultParser`：说话人标签先读 `utterances[].additions.speaker`，兼容 `additions.speaker_id / spk / speakerId` 与顶层同名键；时间戳 `start_time/end_time`（毫秒）自动换算成秒。编号按首次出现顺序映射成「说话人1、说话人2…」（`SpeakerRules.numbering`）。
+- 拿不到标签（或整场只有 1 个标签）时如实降级：退回逐段声纹（`SpeakerRules` + 段上已有的 `speaker`），会话备注写「未能分辨说话人，按每段自己认的人显示」；只有一个标签时写「接口只返回了一个说话人，可能是单人讲述」。界面照实显示，不假装分开了。
+- 结果落 `utterance(id, session_id, speaker, start_sec, end_sec, text, order_index)`。事件详情里按人分行显示，每个人一颗胶囊带本场发言时长（`MemoryEvent.durationLabel`），点胶囊可以改名（已有人物、「我」或新名字），映射写回 `listen_session.speakers_json`，整场一起改。
+
+四、立即整理并推送（D）
+
+- 分完人直接整理这一场：`SessionDigest.run` 只喂本会话的话轮，一场只产出一个事件（标题 / 摘要 / 要点 + 决定 / 待办），`scene` 由代码按会话模式写死（会议 / 培训 / 通话，`SceneRules.scene(forMode:)`），不再让模型自由发挥；事件带 `session_id`。
+- 整理完立刻推送：本机通知（`PushEngine.notifyLocal`，需要通知权限）+ 已配置通道（`PushEngine.pushSession`）。
+- 英雄卡依次显示「正在分辨说话人…」→「正在整理…」→「已整理并推送」；失败显示原因和「重试」，重试会从失败的那一步继续（已有话轮就不重复分人）。
+- 没填大模型密钥时：转写和分人照常做，整理那一步给出「去『设置 → 大模型与整理』填好，再点重试」。
+- 原来的定时整理保留，只兜底没有会话的零散段（`DigestEngine.performDigest` 过滤掉带 `session_id` 的段），不会和单场整理重复出事件。
+
+五、去掉「日常」模式（E）
+
+- `CaptureMode` 只剩 `meeting / training / call`，默认会议；`CaptureMode.restored` 把 `daily`、`script` 和未知值都映射成 `meeting`，老库里的 `capture_mode='daily'` 读出来就是会议。导入的录音记会议。
+- `SkillSchedule.daily`、`ReviewKind.daily` 是别的枚举，没动。
+
+六、今日节律重做（F）
+
+- 四格改成「场会议 / 开会时长 / 条待办 / 位说话人」，数字全部来自会话：会议场次 = 今天 `mode=meeting` 的会话数，时长 = 今天所有会话时长和，待办 = 今天会话产出的事件下挂的待办数，说话人 = 今天各场会议去重后的人数（`AppState.meetingCount / sessionSeconds / sessionTodoCount / peopleCount`）。不再依赖段级说话人标签，也不再靠模型写的 scene 字符串。
+- 下面那条空白虚线换成 0–24 点时间条：每场会一块色块（会议橙、培训紫、通话蓝），带 6/12/18 点刻度。
+
+七、新增与改动的文件
+
+- 新增：`Core/Policies/SessionRules.swift`、`Core/Models4.swift`、`Core/Store+Session.swift`、`Core/ListenFlow.swift`、`Audio/SessionMerger.swift`、`ASR/SessionTranscriber.swift`、`LLM/SessionDigest.swift`、`Tests/Policies/SessionRulesTests.swift`。
+- 改动：`ASR/Transcriber.swift`（协议改为返回 `TranscriptResult{text, spans}`）、`Audio/CaptureEngine.swift`（会话绑定、0.8s/20s 切片、切完触发转写）、`ASR/TranscribeQueue.swift`（`tick(live:)`）、`Core/Store.swift`（`session_id` 列）、`Core/Store+Memory.swift`（事件 `session_id`）、`Core/AppState.swift`（会话统计）、`UI/TodayView.swift`（英雄卡 + 节律）、`UI/EventDetailView.swift`（分人原话 + 改名 + 时长）、`Core/PushEngine.swift`（`pushSession` / `notifyLocal`）、`UI/ShotMode.swift`（四个新画面）、`Core/Policies/CaptureMode.swift`（删 daily）、`UI/SettingsSub.swift`（培训入口）、`Core/ImportEngine.swift`。
+
+八、模拟器截图
+
+`ios-shots.yml` 的产物 `shots-060`，两台机各 11 张，新的四张：`today-live`（录音中带实时转写行）、`today-done`（已整理 + 节律会话语块）、`event-meeting`（按人分行 + 每人发言时长）、`speaker-rename`（改说话人名字的弹层）。截图种子在 `ShotDemo.seedSessionsIfNeeded()`：一场三名说话人的已结束会议（其中「说话人2」已改名「周工」）+ 一场录音中的会话。
+
+九、验证
+
+- CI `build-ipa`：编译 0 error、`.swift` 层 0 warning；`swift test` 全绿（新增 `SessionRulesTests`：带 `additions.speaker` 的豆包样例解析、编号按首现顺序、`daily/script/未知 → meeting`、会话状态流转与恢复、`scene` 由模式写死）；`node --test Tests/segment-sql.test.mjs` 8 项全过（含 `session_id` 列、去掉 daily 后的索引位移）。
+- 产物：`../dist/TaoSheng-v0.6.0.ipa`（未签名，`Info.plist` 为 XML，0.6.0 / 27）。
+
+十、这一版没有验证到的地方（如实写）
+
+- 没有真实豆包密钥，没有在真机跑过一次真实会议。以下都只能按官方 schema 与字段表实现，没有实测：`utterances[].additions.speaker` 的真实返回形态、长会议（>30 分钟）一次性送整场的耗时与超时、说话人编号在长音频里是否稳定、整场 m4a 拼接后的大小与内存占用。
+- 极速版接口本身有音频时长/大小限制，超过限制时会抛 `http(45000000…)`；本轮没有实现「超长自动切片再合并编号」的兜底，超长会议可能整场失败（失败会在英雄卡显示原因并提供重试）。
+- 声纹降级路径（拿不到标签时）沿用原来的阈值，多人会议仍可能并成一两个人，这是已知限制。
+
 0.5.4 第五轮修复（把「转写」和「整理」拆成两页，2026-11-14）
 
 版本号 0.5.4 (26)。0.5.1 删服务商入口时，把「整理用的大模型」和「什么时候整理」两张卡塞进了原话页；原话一多，整理设置就被顶到很远。本轮把这一页拆成两个入口，并修掉小屏上看到的截断与截图种子重复。
