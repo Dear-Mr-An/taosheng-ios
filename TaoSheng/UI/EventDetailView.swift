@@ -24,6 +24,7 @@ struct EventDetailView: View {
     @State private var confirmDelete = false
     /// 速记的三段：0 速记 / 1 原话 / 2 发言（只有按场整理出来的事件才有）
     @State private var detailTab = 0
+    @State private var shotTabbed = false
 
     private var current: MemoryEvent {
         app.todayEvents.first(where: { $0.id == event.id })
@@ -76,7 +77,12 @@ struct EventDetailView: View {
             }
             draftTitle = event.title
             draftSummary = event.summary
-            if ShotMode.screen == "speaker-rename", renameItem == nil {
+            if !shotTabbed, let s = ShotMode.screen {
+            shotTabbed = true
+            if s == "event-raw" { detailTab = 1 }
+            if s == "event-speakers" { detailTab = 2 }
+        }
+        if ShotMode.screen == "speaker-rename", renameItem == nil {
                 renameItem = RenamePayload(label: "说话人2", name: session?.name("说话人2") ?? "周工")
             }
         }

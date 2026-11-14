@@ -167,6 +167,7 @@ test('reorganized event keeps its identity and user star state', () => {
     // edited / session_id 都是 ensureColumn 加的列，CREATE TABLE 里没有，测试里补上
     db.exec('ALTER TABLE memory_event ADD COLUMN edited INTEGER DEFAULT 0');
     db.exec('ALTER TABLE memory_event ADD COLUMN session_id TEXT');
+    db.exec("ALTER TABLE memory_event ADD COLUMN quotes_json TEXT NOT NULL DEFAULT ''");
     const insert = db.prepare(sqlIn('Store+Memory.swift', 'upsertEvent'));
     const event = (id, title, starred, starredAt, edited = 0) => [id, '2026-11-12', 100, null, '其他', title,
       '', '[]', '[]', null, '平静', 3, 0, starred, starredAt, 'same-entity', 0, 1, 0, 100, edited, null];
@@ -183,7 +184,7 @@ test('reorganized event keeps its identity and user star state', () => {
     assert.match(body, /sqlite3_column_int\(q, 6\) == 1/);
     assert.match(body, /SELECT id,starred,starred_at,edited,title,summary,deleted FROM memory_event/);
     assert.match(body, /sqlite3_bind_int\(st, 21, keepEdited \? 1 : 0\)/);
-    assert.match(body, /session_id\)/);
+    assert.match(body, /session_id,quotes_json\)/);
     db.prepare("UPDATE memory_event SET edited=1, title='手改标题', summary='手改摘要' WHERE id='original'").run();
     const keep = db.prepare("SELECT edited,title FROM memory_event WHERE entity_id=? AND deleted=0 LIMIT 1").get("same-entity");
     insert.run(...event("original", keep.title, 1, 123, keep.edited));

@@ -19,11 +19,16 @@ enum ShotMode {
     /// 各画面落在哪个 Tab 上
     static func tab(for screen: String) -> Int? {
         switch screen {
-        case "today", "event-edit", "today-live", "today-done", "event-meeting", "speaker-rename": return 0
+        case "today", "event-edit", "today-live", "today-done", "event-meeting", "speaker-rename",
+             "today-hero", "today-justended", "today-timeline-asc", "timeline-rail", "timeline-meeting",
+             "today-timeline-parts", "event-summary", "event-raw", "event-speakers":
+            return 0
         case "ask": return 1
-        case "memory": return 2
-        case "todo": return 3
-        case "recording-bottom", "person-add", "transcribe", "llm": return 4
+        case "memory", "memory-filter-meeting", "memory-cards", "memory-week", "memory-timeline-rail",
+             "card-sheet-top", "card-sheet-bottom", "review-meetings":
+            return 2
+        case "todo", "todo-pending": return 3
+        case "recording-bottom", "person-add", "transcribe", "llm", "llm-interval": return 4
         default: return nil
         }
     }
@@ -193,6 +198,74 @@ enum ShotDemo {
             }
         }
     }
+    /// 时间线画面用：一天里散在 8 个不同小时上的事件，右侧时间轴才有内容
+    static func seedTimelineIfNeeded() {
+        guard let screen = ShotMode.screen else { return }
+        let railScreens = ["timeline-rail", "today-timeline-asc", "today-timeline-parts",
+                           "timeline-meeting", "memory-timeline-rail", "memory-cards",
+                           "card-sheet-top", "card-sheet-bottom", "review-meetings"]
+        guard railScreens.contains(screen) else { return }
+        let day = today
+        let existing = Set(Store.shared.events(day: day, limit: 200).map(\.id))
+        if existing.contains("shot-rail-1") { return }
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: Date())
+        let samples: [(Int, String, String, String)] = [
+            (7, "会议", "晨会 · 排今天的活", "接口联调和客户现场两件事先定时间。"),
+            (8, "备忘", "把周报模板换一版", "上周的模板字段太少，加上风险和依赖。"),
+            (10, "会议", "和周工过接口字段", "字段名统一成下划线，前端今天给一版。"),
+            (11, "灵感", "整理页可以按人筛选", "会议多的时候按人看谁说了什么更直观。"),
+            (13, "约定", "周五上午十点出发", "客户换了新园区，进门要找前台登记。"),
+            (15, "会议", "结算流程对齐", "先按老流程走，这版不要动。"),
+            (17, "备忘", "演示账号提前开好", "周工那边开三档权限的账号。"),
+            (19, "决定", "这一版先不做导出", "导出留到下个版本，先把记录做稳。"),
+            (20, "会议", "和周工收尾", "改动清单发群里，明天开始联调。"),
+            (21, "灵感", "速记卡可以分享成图片", "开会的人不用装 App 也能看。")
+        ]
+        for (i, s) in samples.enumerated() {
+            let at = cal.date(byAdding: .hour, value: s.0, to: start) ?? start
+            let ev = MemoryEvent(id: "shot-rail-\(i + 1)", day: day,
+                                 startAt: at, endAt: at.addingTimeInterval(600),
+                                 scene: s.1, title: s.2, summary: s.3,
+                                 points: [], people: ["我"], place: nil,
+                                 emotion: "平静", intensity: 2, important: false,
+                                 starred: false, starredAt: nil,
+                                 entityId: "shot-rail-entity-\(i + 1)",
+                                 lineFrom: 0, lineTo: 0, createdAt: at,
+                                 sessionId: s.1 == "会议" ? meetingSessionID : nil)
+            Store.shared.upsertEvent(ev)
+        }
+    }
+
+    /// 记忆页卡片区：三张速记卡
+    static func seedCardsIfNeeded() {
+        guard let screen = ShotMode.screen else { return }
+        guard ["memory-cards", "card-sheet-top", "card-sheet-bottom", "memory-timeline-rail"].contains(screen) else { return }
+        let day = today
+        let existing = Set(Store.shared.cards(day: day, limit: 50).map(\.id))
+        if existing.contains("shot-card-1") { return }
+        let now = Date()
+        let cards: [(String, String, [String])] = [
+            ("会议速记", "接口联调排期已定", ["结论先行：下周三之前联调完，周五去客户现场。", "要点：前端今天给一版，网关白名单明天配好。"]),
+            ("项目快讯", "客户换到新园区", ["要点：进门要找前台登记，我提前报备。", "要点：名单周五上午十点前确认。"]),
+            ("今日复盘", "两件事都按计划推进", ["要点：结算流程这版不动。", "要点：导出留到下个版本。"])
+        ]
+        for (i, c) in cards.enumerated() {
+            let card = SkillCard(id: "shot-card-\(i + 1)",
+                                 skillId: "shot-skill",
+                                 skillName: c.0,
+                                 day: day,
+                                 startAt: now.addingTimeInterval(Double(-i) * 3600),
+                                 endAt: nil,
+                                 entityId: nil,
+                                 fields: ["summary": c.1, "points": c.2.joined(separator: "\n")],
+                                 quotes: [],
+                                 nothingReason: nil,
+                                 createdAt: now.addingTimeInterval(Double(-i) * 600))
+            Store.shared.insertCard(card)
+        }
+    }
+
     static func event() -> MemoryEvent {
         Store.shared.events(day: today, limit: 20).first { $0.id == eventID }
             ?? MemoryEvent(id: eventID, day: today, startAt: Date(), endAt: nil,

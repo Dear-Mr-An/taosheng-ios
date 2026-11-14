@@ -44,6 +44,8 @@ struct TaoShengApp: App {
                     ShotDemo.seedIfNeeded()
                     ShotDemo.seedSegmentsIfNeeded()
                     ShotDemo.seedSessionsIfNeeded()
+        ShotDemo.seedTimelineIfNeeded()
+        ShotDemo.seedCardsIfNeeded()
                     app.refresh()
                     // 截图模式只在模拟器里跑，不去弹通知/定位这些系统弹窗，免得住画面
                     guard !ShotMode.active else {

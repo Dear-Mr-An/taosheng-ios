@@ -27,7 +27,7 @@ struct RootView: View {
                         NavigationStack { TranscribeOverviewView() }
                             .environmentObject(Settings.shared)
                             .environmentObject(AppState.shared)
-                    case "llm":
+                    case "llm", "llm-interval":
                         NavigationStack { LLMSettingsView() }
                             .environmentObject(Settings.shared)
                             .environmentObject(AppState.shared)

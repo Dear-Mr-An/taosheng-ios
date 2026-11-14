@@ -57,7 +57,14 @@ struct MemoryView: View {
         .tabBarClearance()
         .background(Theme.bg.ignoresSafeArea())
         .navigationBarHidden(true)
-        .task(id: "\(cat)|\(byDay)") { await loadCat() }
+        .task(id: "\(cat)|\(byDay)") {
+            await loadCat()
+            guard let s = ShotMode.screen else { return }
+            if s == "memory-filter-meeting" { kindFilter = 1 }
+            if (s == "card-sheet-top" || s == "card-sheet-bottom"), noteEvent == nil {
+                noteEvent = app.dayEvents.first { $0.sessionId != nil } ?? app.dayEvents.first
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .taoshengDataChanged)) { _ in
             Task { await loadCat() }
         }
