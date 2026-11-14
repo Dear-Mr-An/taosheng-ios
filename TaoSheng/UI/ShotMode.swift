@@ -154,6 +154,16 @@ enum ShotDemo {
             Store.shared.replaceUtterances(sessionId: meetingSessionID, utts)
         }
 
+        // 同一台模拟器会按顺序拍好几张，上一张留下的「正在录」的会话会一直挂在
+        // 英雄卡上（latestSession 就是它）。除了 today-live，其它画面先把它清掉，
+        // 让最新会话回到那场已结束的会议。段表直接删，避免 deleteSegment 顺带把
+        // 当天的整理结果一起清掉。
+        if screen != "today-live", Store.shared.session(id: liveSessionID) != nil {
+            _ = Store.shared.exec("DELETE FROM utterance WHERE session_id='\(liveSessionID)';")
+            _ = Store.shared.exec("DELETE FROM segment WHERE session_id='\(liveSessionID)';")
+            Store.shared.deleteSession(id: liveSessionID)
+        }
+
         if screen == "today-live", Store.shared.session(id: liveSessionID) == nil {
             let started = now.addingTimeInterval(-420)
             let s = ListenSession(id: liveSessionID,

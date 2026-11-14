@@ -675,7 +675,7 @@ extension Store {
     func undigestedSegments(day: String, limit: Int = 400) -> [Segment] {
         queue.sync { () -> [Segment] in
             var st: OpaquePointer?
-            let sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred FROM segment WHERE day=? AND digested=0 AND state='transcribed' AND transcript<>'' ORDER BY started_at ASC LIMIT \(limit);"
+            let sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred,session_id FROM segment WHERE day=? AND digested=0 AND state='transcribed' AND transcript<>'' ORDER BY started_at ASC LIMIT \(limit);"
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
             bind(st, 1, day)
             var out: [Segment] = []
@@ -704,7 +704,7 @@ extension Store {
     func transcriptRows(day: String, limit: Int = 600) -> [Segment] {
         queue.sync { () -> [Segment] in
             var st: OpaquePointer?
-            let sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred FROM segment WHERE day=? AND state='transcribed' AND transcript<>'' ORDER BY started_at ASC LIMIT \(limit);"
+            let sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred,session_id FROM segment WHERE day=? AND state='transcribed' AND transcript<>'' ORDER BY started_at ASC LIMIT \(limit);"
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
             bind(st, 1, day)
             var out: [Segment] = []

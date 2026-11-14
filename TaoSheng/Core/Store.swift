@@ -194,7 +194,7 @@ final class Store {
     func purgeableSegments(before date: Date, limit: Int = 4000) -> [Segment] {
         queue.sync { () -> [Segment] in
             let sql = """
-            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred
+            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred,session_id
             FROM segment
             WHERE started_at < ? AND starred = 0 AND file_name <> ''
             ORDER BY started_at ASC LIMIT \(limit);
@@ -266,7 +266,7 @@ final class Store {
 
     func segments(day: String? = nil, limit: Int = 500) -> [Segment] {
         queue.sync { () -> [Segment] in
-            var sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred FROM segment"
+            var sql = "SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred,session_id FROM segment"
             if day != nil { sql += " WHERE day=?" }
             sql += " ORDER BY started_at DESC LIMIT \(limit);"
             var st: OpaquePointer?
@@ -284,7 +284,7 @@ final class Store {
     func pendingSegments(limit: Int = 20) -> [Segment] {
         queue.sync { () -> [Segment] in
             let sql = """
-            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred
+            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred,session_id
             FROM segment WHERE state IN ('recorded','failed') ORDER BY started_at ASC LIMIT \(limit);
             """
             var st: OpaquePointer?
@@ -313,7 +313,7 @@ final class Store {
         let kw = "%\(q)%"
         return queue.sync { () -> [Segment] in
             let sql = """
-            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred
+            SELECT id,started_at,ended_at,duration,file_name,byte_size,transcript,speaker,state,day,created_at,capture_mode,starred,session_id
             FROM segment WHERE transcript LIKE ? ORDER BY started_at DESC LIMIT \(limit);
             """
             var st: OpaquePointer?
