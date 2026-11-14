@@ -737,7 +737,8 @@ struct TimelineFullView: View {
                 guard ShotMode.screen == "timeline-rail", !events.isEmpty else { return }
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 let mid = events[events.count / 2]
-                withAnimation(nil) { proxy.scrollTo("tl-\(mid.id)", anchor: .center) }
+                // 让中间那条正好停在列表顶部：截图里「顶部那条的时间」和小时轴高亮的格子对得上
+                withAnimation(nil) { proxy.scrollTo("tl-\(mid.id)", anchor: .top) }
             }
             .navigationTitle("时间线")
             .navigationBarTitleDisplayMode(.inline)
