@@ -255,25 +255,25 @@ jobs:
             shoot_dev "$DEV" "iphone16" "today-done" 7
             shoot_dev "$DEV" "iphone16" "event-meeting" 8
             shoot_dev "$DEV" "iphone16" "speaker-rename" 8
-    # 0.6.1：速记、时间轴、卡片抽屉
-    shoot_dev "$DEV" "iphone16" "today-hero" 7
-    shoot_dev "$DEV" "iphone16" "today-justended" 7
-    shoot_dev "$DEV" "iphone16" "today-timeline-asc" 8
-    shoot_dev "$DEV" "iphone16" "timeline-rail" 8
-    shoot_dev "$DEV" "iphone16" "timeline-meeting" 8
-    shoot_dev "$DEV" "iphone16" "today-timeline-parts" 8
-    shoot_dev "$DEV" "iphone16" "event-summary" 8
-    shoot_dev "$DEV" "iphone16" "event-raw" 8
-    shoot_dev "$DEV" "iphone16" "event-speakers" 8
-    shoot_dev "$DEV" "iphone16" "memory-filter-meeting" 8
-    shoot_dev "$DEV" "iphone16" "memory-cards" 8
-    shoot_dev "$DEV" "iphone16" "memory-week" 7
-    shoot_dev "$DEV" "iphone16" "memory-timeline-rail" 8
-    shoot_dev "$DEV" "iphone16" "card-sheet-top" 9
-    shoot_dev "$DEV" "iphone16" "card-sheet-bottom" 9
-    shoot_dev "$DEV" "iphone16" "review-meetings" 8
-    shoot_dev "$DEV" "iphone16" "todo-pending" 7
-    shoot_dev "$DEV" "iphone16" "llm-interval" 7
+            # 0.6.1：速记、时间轴、卡片抽屉
+            shoot_dev "$DEV" "iphone16" "today-hero" 7
+            shoot_dev "$DEV" "iphone16" "today-justended" 7
+            shoot_dev "$DEV" "iphone16" "today-timeline-asc" 8
+            shoot_dev "$DEV" "iphone16" "timeline-rail" 8
+            shoot_dev "$DEV" "iphone16" "timeline-meeting" 8
+            shoot_dev "$DEV" "iphone16" "today-timeline-parts" 8
+            shoot_dev "$DEV" "iphone16" "event-summary" 8
+            shoot_dev "$DEV" "iphone16" "event-raw" 8
+            shoot_dev "$DEV" "iphone16" "event-speakers" 8
+            shoot_dev "$DEV" "iphone16" "memory-filter-meeting" 8
+            shoot_dev "$DEV" "iphone16" "memory-cards" 8
+            shoot_dev "$DEV" "iphone16" "memory-week" 7
+            shoot_dev "$DEV" "iphone16" "memory-timeline-rail" 8
+            shoot_dev "$DEV" "iphone16" "card-sheet-top" 9
+            shoot_dev "$DEV" "iphone16" "card-sheet-bottom" 9
+            shoot_dev "$DEV" "iphone16" "review-meetings" 8
+            shoot_dev "$DEV" "iphone16" "todo-pending" 7
+            shoot_dev "$DEV" "iphone16" "llm-interval" 7
             tmo 60 xcrun simctl shutdown "$DEV" 2>/dev/null || true
           fi
           if [ -n "$SMALL" ]; then
@@ -290,11 +290,11 @@ jobs:
             shoot_dev "$DEVS" "iphonese" "today-done" 7
             shoot_dev "$DEVS" "iphonese" "event-meeting" 8
             shoot_dev "$DEVS" "iphonese" "speaker-rename" 8
-    shoot_dev "$DEVS" "iphonese" "today-hero" 7
-    shoot_dev "$DEVS" "iphonese" "today-timeline-asc" 8
-    shoot_dev "$DEVS" "iphonese" "todo-pending" 7
-    shoot_dev "$DEVS" "iphonese" "memory-cards" 8
-    shoot_dev "$DEVS" "iphonese" "card-sheet-top" 9
+            shoot_dev "$DEVS" "iphonese" "today-hero" 7
+            shoot_dev "$DEVS" "iphonese" "today-timeline-asc" 8
+            shoot_dev "$DEVS" "iphonese" "todo-pending" 7
+            shoot_dev "$DEVS" "iphonese" "memory-cards" 8
+            shoot_dev "$DEVS" "iphonese" "card-sheet-top" 9
             tmo 60 xcrun simctl shutdown "$DEVS" 2>/dev/null || true
           fi
 
