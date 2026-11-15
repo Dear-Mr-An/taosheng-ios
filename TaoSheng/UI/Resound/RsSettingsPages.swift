@@ -235,15 +235,16 @@ struct RsBtn: View {
     let text: String
     var filled: Bool = true
     var danger: Bool = false
+    var small: Bool = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Text(text)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: small ? 12.5 : 13, weight: .semibold))
                 .foregroundStyle(danger ? Rs.critical : (filled ? Color.white : Rs.accent))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, small ? 12 : 16)
+                .padding(.vertical, small ? 6 : 10)
                 .background(
                     Capsule().fill(danger ? Rs.critical.opacity(0.12) : (filled ? Rs.accent : Rs.accentSoft))
                 )
@@ -461,7 +462,7 @@ struct RsRecordingPage: View {
                     .font(Rs.caption)
                     .foregroundStyle(Rs.text3)
             }
-            Text(listening ? "安静中 · 已持续 \(uptimeText)" : "点了「开始聆听」才会录")
+            Text(listening ? "安静中 · 已持续 " + uptimeText : "点了「开始聆听」才会录")
                 .font(Rs.subhead)
                 .foregroundStyle(Rs.text2)
             RsDotLine(active: listening)
@@ -484,10 +485,12 @@ struct RsRecordingPage: View {
     }
 
     private var uptimeText: String {
-        guard let start = capture.startedAt else { return "0 分钟" }
+        // 截图里原版是「4小时32分」这种紧凑写法，模拟器没有麦克风时也用同一串
+        if ShotMode.active && capture.startedAt == nil { return "4小时32分" }
+        guard let start = capture.startedAt else { return "0分钟" }
         let m = Int(Date().timeIntervalSince(start) / 60)
-        if m < 60 { return "\(m) 分钟" }
-        return "\(m / 60) 小时 \(m % 60) 分"
+        if m < 60 { return "\(m)分钟" }
+        return "\(m / 60)小时\(m % 60)分"
     }
 
     // 停录时段
@@ -709,7 +712,7 @@ struct RsTranscriptPage: View {
             }
             .padding(18)
             RsRowDivider(inset: 18)
-            RsInfoRow(title: "云端转写", value: "今天 \(todayMinutes) 分 · 近 30 天 \(monthMinutes) 分 · 约 ¥\(costText)")
+            RsInfoRow(title: "云端转写", value: ShotMode.active ? "今天 29 分 · 近 30 天 314 分 · 约 ¥4.2" : "今天 \(todayMinutes) 分 · 近 30 天 \(monthMinutes) 分 · 约 ¥\(costText)")
             RsRowDivider(inset: 18)
             RsInfoRow(title: "原声", value: "保留 \(settings.keepAudioDays > 0 ? "\(settings.keepAudioDays) 天" : "一直留") · 重点长期保留 · 占用 \(audioSize)")
             RsRowDivider(inset: 18)
@@ -737,7 +740,7 @@ struct RsTranscriptPage: View {
             let mins = max(0, Int(next.timeIntervalSinceNow / 60))
             parts.append(mins == 0 ? "马上进行下一轮" : "约 \(mins) 分钟后下一轮")
         }
-        if parts.isEmpty { return "还没有转写过" }
+        if parts.isEmpty { return ShotMode.active ? "上次 今天 15:43 · 约 9 分钟后下一轮" : "还没有转写过" }
         return parts.joined(separator: " · ")
     }
 
@@ -772,8 +775,8 @@ struct RsTranscriptPage: View {
             HStack(spacing: 12) {
                 RsDotText(text: settings.asrReady ? "已填写" : "还没填")
                 Spacer(minLength: 0)
-                RsBtn(text: "更换", filled: false) { showKey = true }
-                RsBtn(text: "清除", filled: false) { settings.asrKey = "" }
+                RsBtn(text: "更换", filled: false, small: true) { showKey = true }
+                RsBtn(text: "清除", filled: false, small: true) { settings.asrKey = "" }
             }
             .padding(.horizontal, 18)
             .padding(.top, 10)
@@ -1167,7 +1170,7 @@ struct RsModelPage: View {
                 Text("一直在说，最多等多久").font(Rs.body).foregroundStyle(Rs.text)
                     .padding(.horizontal, 18).padding(.top, 12).padding(.bottom, 8)
                 HStack(spacing: 8) {
-                    ForEach(Array(["30 分钟", "60 分钟", "120 分钟"].enumerated()), id: \.offset) { i, label in
+                    ForEach(Array(["30 分钟", "1 小时", "2 小时"].enumerated()), id: \.offset) { i, label in
                         RsOptPill(text: label, on: maxGap == i, solid: true) { maxGap = i }
                     }
                     Spacer(minLength: 0)

@@ -115,6 +115,8 @@ enum ShotDemo {
     /// 记忆页「卡片」截图用：一张会议纪要卡 + 一张每周回顾卡
     static func seedCardsIfNeeded() {
         guard ShotMode.active else { return }
+        // 截图里原版是「已填写 + 都转完了」，模拟器没有真实密钥，这里补一个占位
+        if (Settings.shared.doubaoApiKey).isEmpty { Settings.shared.doubaoApiKey = "shot-placeholder-key" }
         let day = today
         guard Store.shared.cards(day: day, limit: 1).isEmpty else { return }
         let cal = Calendar.current

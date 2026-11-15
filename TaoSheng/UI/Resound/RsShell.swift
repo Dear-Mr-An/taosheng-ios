@@ -45,18 +45,18 @@ struct RsSettingsScreen: View {
                             symbol: "mappin", tint: Color(hex: "C4693C"))
                     }
                     group("整理") {
-                        row(RsModelPage(), title: "模型与整理时间", detail: modelLine,
+                        row(RsModelPage(), title: "模型与整理时间", detail: shotListening ? "DeepSeek · ¥12.84" : modelLine,
                             symbol: "sparkles", tint: Color(hex: "E0603A"))
                         line
-                        row(SkillsView(), title: "整理技能", detail: "开了 \(app.skills.filter { $0.enabled }.count) 个",
+                        row(SkillsView(), title: "整理技能", detail: shotListening ? "开了 3 个" : "开了 \(app.skills.filter { $0.enabled }.count) 个",
                             symbol: "square.grid.2x2.fill", tint: Color(hex: "8A7BE0"))
                         line
                         row(ChannelsView(), title: "推送通道", detail: app.channels.isEmpty ? "只发手机通知" : "\(app.channels.count) 个通道",
-                            symbol: "paperplane.fill", tint: Rs.good)
+                            symbol: "paperplane.fill", tint: Color(hex: "4F86C6"))
                     }
                     group("数据") {
                         row(BackupView(), title: "数据备份", detail: settings.backupKind == .none ? "未开启" : settings.backupKind.title,
-                            symbol: "externaldrive.fill", tint: Color(hex: "4F86C6"))
+                            symbol: "cloud.fill", tint: Color(hex: "34A853"))
                     }
                     group("通用") {
                         row(ReviewSettingsView(), title: "回顾与提醒", detail: "每天 \(settings.reviewHour):00",

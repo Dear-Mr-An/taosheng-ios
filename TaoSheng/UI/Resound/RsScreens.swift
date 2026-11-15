@@ -452,7 +452,10 @@ struct RsMemoryScreen: View {
     }
 
     private var skillCards: [SkillCard] {
-        app.dayCards.filter { !$0.isNothing }
+        // 原版按时间正序：先会议纪要，后每周回顾
+        app.dayCards
+            .filter { !$0.isNothing }
+            .sorted { ($0.startAt ?? .distantPast) < ($1.startAt ?? .distantPast) }
     }
 
     /// 原版 SkillVisuals.kt 的 SkillCardRow：图标方块 + 彩色技能名·时间 + 粗体标题 + 灰摘要

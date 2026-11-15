@@ -143,6 +143,36 @@ struct RsGlyph: View {
             rect(0.34, 0.04, 0.32, 0.54, 0.16)
             arc(0.18, 0.3, 0.64, 0.46, 0, 180)
             line(0.5, 0.76, 0.5, 0.94)
+        case "calendar_week":
+            // 原版 calendar_week：圆角外框 + 顶部两道挂扣 + 内部两行小格
+            rect(0.06, 0.14, 0.88, 0.8, 0.18)
+            line(0.06, 0.36, 0.94, 0.36)
+            line(0.3, 0.06, 0.3, 0.2)
+            line(0.7, 0.06, 0.7, 0.2)
+            for x in [0.28, 0.5, 0.72] {
+                for y in [0.5, 0.68] {
+                    ctx.fill(Path(ellipseIn: CGRect(x: W * x - w * 0.8, y: H * y - w * 0.8,
+                                                    width: w * 1.6, height: w * 1.6)), with: .color(ink))
+                }
+            }
+        case "review":
+            rect(0.12, 0.1, 0.76, 0.8, 0.16)
+            line(0.3, 0.36, 0.7, 0.36)
+            line(0.3, 0.54, 0.7, 0.54)
+            line(0.3, 0.72, 0.56, 0.72)
+        case "heart":
+            arc(0.06, 0.16, 0.46, 0.5, 150, 390)
+            arc(0.48, 0.16, 0.46, 0.5, 150, 390)
+            line(0.16, 0.4, 0.5, 0.92)
+            line(0.84, 0.4, 0.5, 0.92)
+        case "sunset":
+            circle(0.5, 0.44, 0.2)
+            for a in stride(from: 0.0, to: 360.0, by: 45.0) {
+                let r = a * .pi / 180
+                line(0.5 + CGFloat(cos(r)) * 0.3, 0.44 + CGFloat(sin(r)) * 0.3,
+                     0.5 + CGFloat(cos(r)) * 0.42, 0.44 + CGFloat(sin(r)) * 0.42)
+            }
+            line(0.1, 0.84, 0.9, 0.84)
         case "timeline":
             line(0.24, 0.08, 0.24, 0.92)
             for (i, y) in [0.2, 0.5, 0.8].enumerated() {
