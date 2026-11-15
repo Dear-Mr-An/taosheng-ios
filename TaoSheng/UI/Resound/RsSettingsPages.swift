@@ -428,7 +428,7 @@ struct RsModelPage: View {
                 RsGroup(title: "间隔") {
                     VStack(alignment: .leading, spacing: 10) {
                         RsFormLabel("多久整理一次")
-                        RsPillRow(options: [(5, "5 分"), (10, "10 分"), (30, "30 分"), (60, "1 小时")],
+                        RsPillRow(options: [("5 分", 5), ("10 分", 10), ("30 分", 30), ("1 小时", 60)],
                                   selected: Binding(get: { settings.digestIntervalMin }, set: { settings.digestIntervalMin = $0 }))
                     }
                     .padding(.horizontal, 16)

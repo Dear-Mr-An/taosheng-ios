@@ -220,7 +220,7 @@ struct RsMemoryScreen: View {
     @State private var filter = 0
     @State private var showMonth = false
     @State private var categorySel = 0
-    @State private var dayItems: [MemoryItem] = []
+    @State private var dayItems: [DigestItem] = []
 
     private var dayKey: String { DayKey.of(selectedDay) }
 
@@ -491,7 +491,7 @@ struct RsMemoryScreen: View {
 
     private var timelineSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            memSection(title: "时间线", trailing: "\(events.count) 件事", showsEarlyFirst: true) {
+            memSection(title: "时间线", trailing: "\(events.count) 件事") {
                 Text("↓ 早的在上")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Rs.text2)
@@ -530,7 +530,7 @@ struct RsMemoryScreen: View {
 
     private var categoryNames: [String] {
         var seen: [String] = []
-        for it in dayItems where !it.category.isEmpty && !seen.contains(it.category) { seen.append(it.category) }
+        for it in dayItems where !it.kind.title.isEmpty && !seen.contains(it.kind.title) { seen.append(it.kind.title) }
         return ["全部"] + seen
     }
 
@@ -556,12 +556,12 @@ struct RsMemoryScreen: View {
         }
     }
 
-    private var categoryGroups: [(String, [MemoryItem])] {
-        let all = categorySel == 0 ? dayItems : dayItems.filter { $0.category == categoryNames[categorySel] }
+    private var categoryGroups: [(String, [DigestItem])] {
+        let all = categorySel == 0 ? dayItems : dayItems.filter { $0.kind.title == categoryNames[categorySel] }
         var order: [String] = []
-        var buckets: [String: [MemoryItem]] = [:]
+        var buckets: [String: [DigestItem]] = [:]
         for it in all {
-            let key = it.category.isEmpty ? "其他" : it.category
+            let key = it.kind.title.isEmpty ? "其他" : it.kind.title
             if buckets[key] == nil { order.append(key); buckets[key] = [] }
             buckets[key]?.append(it)
         }
@@ -587,14 +587,14 @@ struct RsMemoryScreen: View {
                     RsCard(padding: EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0)) {
                         ForEach(Array(list.enumerated()), id: \.element.id) { i, it in
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(it.content)
+                                Text(it.title)
                                     .font(Rs.body)
                                     .foregroundStyle(Rs.text)
                                     .fixedSize(horizontal: false, vertical: true)
                                 HStack(spacing: 6) {
-                                    RsCategoryChip(category: it.category, kind: it.kind)
-                                    if let due = it.dueDisplay, !due.isEmpty {
-                                        Text(due).font(Rs.caption).foregroundStyle(Rs.accent)
+                                    RsCategoryChip(category: it.kind.title, kind: it.kind)
+                                    if !it.due.isEmpty {
+                                        Text(it.due).font(Rs.caption).foregroundStyle(Rs.accent)
                                     }
                                     Spacer(minLength: 0)
                                     Text(it.status == .done ? "已完成" : (it.status == .ignored ? "已忽略" : ""))
@@ -616,9 +616,9 @@ struct RsMemoryScreen: View {
     }
 
     /// 原版记忆页的小节标题：20 号粗体 + 灰色数量，右侧可放「早的在上」
-    private func memSection<Trailing: View>(title: String, trailing: String,
-                                            showsEarlyFirst: Bool = false,
-                                            @ViewBuilder content: () -> Trailing) -> some View {
+    private func memSection<Trailing: View, Content: View>(title: String, trailing: String,
+                                                           @ViewBuilder accent: () -> Trailing,
+                                                           @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title)
@@ -628,14 +628,7 @@ struct RsMemoryScreen: View {
                     .font(Rs.subhead)
                     .foregroundStyle(Rs.text3)
                 Spacer(minLength: 0)
-                if showsEarlyFirst {
-                    Text("↓ 早的在上")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Rs.text2)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Capsule(style: .continuous).fill(Rs.card))
-                }
+                accent()
             }
             .padding(.horizontal, 4)
             content()
