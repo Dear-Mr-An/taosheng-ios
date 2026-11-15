@@ -33,15 +33,22 @@ struct RsSubPage<Content: View>: View {
             .padding(.top, 6)
             .padding(.bottom, 2)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    content()
-                    Color.clear.frame(height: 28)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        content()
+                        Color.clear.frame(height: 28).id("page-bottom")
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
+                .scrollIndicators(.hidden)
+                .task {
+                    guard let s = ShotMode.screen, s.hasSuffix("-b") else { return }
+                    try? await Task.sleep(nanoseconds: 700_000_000)
+                    withAnimation(nil) { proxy.scrollTo("page-bottom", anchor: .bottom) }
+                }
             }
-            .scrollIndicators(.hidden)
         }
         .background(Rs.bg)
         .navigationBarBackButtonHidden(true)
@@ -118,7 +125,7 @@ struct RsFormLabel: View {
     init(_ text: String) { self.text = text }
     var body: some View {
         Text(text)
-            .font(.system(size: 12.5, weight: .medium))
+            .font(.system(size: 12, weight: .medium))
             .foregroundStyle(Rs.text3)
             .padding(.leading, 4)
             .padding(.top, 4)
@@ -169,146 +176,212 @@ struct RsPillRow: View {
     }
 }
 
-// MARK: - 录音与后台
+// MARK: - 子页公用件（照 SettingsScreen / TranscriptScreen 的卡内结构）
+
+/// 分段控件：浅灰 track + 白色滑块（原版 Segmented）
+struct RsSegControl: View {
+    let options: [String]
+    @Binding var index: Int
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(options.enumerated()), id: \.offset) { i, t in
+                Button {
+                    withAnimation(.easeOut(duration: 0.14)) { index = i }
+                } label: {
+                    Text(t)
+                        .font(.system(size: 15, weight: i == index ? .semibold : .regular))
+                        .foregroundStyle(i == index ? Rs.text : Rs.text2)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(i == index ? Rs.card : Color.clear))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(Capsule().fill(Color(hex: "EDE9E3")))
+    }
+}
+
+/// 选项胶囊：选中浅橙底橙字（原版 ChoicePill 的轻量版）
+struct RsOptPill: View {
+    let text: String
+    var on: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: 13, weight: on ? .semibold : .regular))
+                .foregroundStyle(on ? Rs.accent : Rs.text2)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(on ? Rs.accentSoft : Rs.fill))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 强调 / 次要按钮（现在转写 / 导入录音 …）
+struct RsBtn: View {
+    let text: String
+    var filled: Bool = true
+    var danger: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(danger ? Rs.critical : (filled ? Color.white : Rs.accent))
+                .padding(.horizontal, 18)
+                .padding(.vertical, 11)
+                .background(
+                    Capsule().fill(danger ? Rs.critical.opacity(0.12) : (filled ? Rs.accent : Rs.accentSoft))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 卡里的「标题 + 次要值 + ›」行（云端转写 / 原声 / 录音包 / 外接设备 …）
+struct RsInfoRow: View {
+    let title: String
+    let value: String
+    var action: (() -> Void)? = nil
+
+    var body: some View {
+        Button {
+            action?()
+        } label: {
+            HStack(spacing: 14) {
+                Text(title)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Rs.text2)
+                    .frame(width: 72, alignment: .leading)
+                Text(value)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Rs.text2)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                Text("›")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Rs.text3)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 13)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 卡标题（正文强调）
+struct RsCardTitle: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(Rs.body)
+            .foregroundStyle(Rs.text)
+            .padding(.horizontal, 18)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+    }
+}
+
+/// 卡内说明
+struct RsCardHint: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(Rs.caption)
+            .foregroundStyle(Rs.text3)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 18)
+            .padding(.bottom, 14)
+    }
+}
+
+/// 单选圆点
+struct RsRadio: View {
+    var on: Bool
+    var body: some View {
+        ZStack {
+            Circle().stroke(on ? Rs.accent : Rs.text3.opacity(0.5), lineWidth: 1.6)
+                .frame(width: 20, height: 20)
+            if on {
+                Circle().fill(Rs.accent).frame(width: 10, height: 10)
+            }
+        }
+    }
+}
+
+/// 小绿点 + 文字
+struct RsDotText: View {
+    let text: String
+    var color: Color = Rs.good
+    var body: some View {
+        HStack(spacing: 7) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(text).font(.system(size: 14)).foregroundStyle(Rs.text2)
+        }
+    }
+}
+
+// MARK: - 录音与后台（VerifyScreen.kt）
 
 struct RsRecordingPage: View {
     @ObservedObject private var settings = Settings.shared
     @ObservedObject private var capture = CaptureEngine.shared
+    @ObservedObject private var flow = ListenFlow.shared
     @AppStorage("captureWanted") private var captureWanted = true
+    @State private var inputAuto = false
+    @State private var voiceCtx = true
 
     var body: some View {
         RsSubPage(title: "录音与后台") {
             statusCard
-            RsGroup(title: "停录时段") {
-                RsToggleRow(title: "睡眠", note: "\(settings.silenceStartHour):00 – 次日 \(settings.silenceEndHour):00 · 每天",
-                            on: $settings.silenceWindowOn)
-                RsRowDivider()
-                Button {
-                    settings.silenceWindowOn = true
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 12, weight: .bold))
-                        Text("添加时段").font(Rs.subhead)
-                        Spacer(minLength: 0)
-                    }
-                    .foregroundStyle(Rs.accent)
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: 48)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-            Text("时段内不录音，到点自动恢复；时段内点「现在恢复」只对这一次有效。")
-                .font(Rs.caption).foregroundStyle(Rs.text3)
-                .padding(.horizontal, 4)
-            RsGroup(title: "录制") {
-                RsToggleRow(title: "一直在听", note: "关了就只在点「开始聆听」之后才录", on: $captureWanted)
-                RsRowDivider()
-                RsToggleRow(title: "别的应用出声时不录", note: "看视频、开会时有声音，就不重复录一遍", on: $settings.skipWhenOutput)
-            }
-            RsGroup(title: "保留") {
-                VStack(alignment: .leading, spacing: 10) {
-                    RsFormLabel("原录音保留多久")
-                    RsPillRow(options: [("7 天", 7), ("30 天", 30), ("90 天", 90), ("一直留", 0)],
-                              selected: Binding(get: { settings.keepAudioDays }, set: { settings.keepAudioDays = $0 }))
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                RsRowDivider(inset: 0)
-                RsToggleRow(title: "夜里自动停录", on: $settings.silenceWindowOn)
-                if settings.silenceWindowOn {
-                    RsRowDivider(inset: 0)
-                    Text("从 \(settings.silenceStartHour):00 到 \(settings.silenceEndHour):00 不录。")
-                        .font(Rs.caption).foregroundStyle(Rs.text3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                }
-            }
-            RsGroup(title: "切段") {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("多大声音算在说话").font(Rs.body).foregroundStyle(Rs.text)
-                        Spacer(minLength: 0)
-                        Text(String(format: "%.3f", settings.sensitivity))
-                            .font(Rs.subhead).foregroundStyle(Rs.text3)
-                    }
-                    Slider(value: $settings.sensitivity, in: 0.006...0.03)
-                        .tint(Rs.accent)
-                    Text("越小越灵敏。会议用 0.014，培训 0.018。")
-                        .font(Rs.caption).foregroundStyle(Rs.text3)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                RsRowDivider(inset: 0)
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("最短一段").font(Rs.body).foregroundStyle(Rs.text)
-                        Spacer(minLength: 0)
-                        Text("\(Int(settings.minSegment)) 秒").font(Rs.subhead).foregroundStyle(Rs.text3)
-                    }
-                    Slider(value: $settings.minSegment, in: 1...12, step: 1)
-                        .tint(Rs.accent)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-            }
+            stopWindowCard
+            inputCard
+            voiceInputCard
+            importCard
+            backendCard
         }
     }
 
-    /// 顶部状态卡：原版第一张卡
+    // 顶部状态卡
     private var statusCard: some View {
-        let listening = capture.isRunning || ShotMode.screen == "rs-recording"
+        let listening = capture.isRunning || ShotMode.screen?.hasPrefix("rs-recording") == true
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Circle()
-                    .fill(listening ? Rs.good : Rs.text3)
-                    .frame(width: 8, height: 8)
+                Circle().fill(listening ? Rs.good : Rs.text3).frame(width: 9, height: 9)
                 Text(listening ? (capture.isSpeaking ? "正在录音" : "正在聆听") : "没在聆听")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(Rs.headline)
                     .foregroundStyle(Rs.text)
                 Spacer(minLength: 0)
-                Text("内置麦克风")
-                    .font(Rs.subhead)
-                    .foregroundStyle(Rs.text3)
             }
             Text(listening ? "安静中 · 已持续 \(uptimeText)" : "点了「开始聆听」才会录")
                 .font(Rs.subhead)
-                .foregroundStyle(Rs.text3)
-            RsDotLine(active: listening)
-                .frame(height: 8)
+                .foregroundStyle(Rs.text2)
+            RsWaveDots(active: listening)
             HStack(spacing: 10) {
-                Button {
+                RsBtn(text: "暂停 1 小时", filled: false) {
                     RsQuiet.shared.pause(minutes: 60)
-                } label: {
-                    Text("暂停 1 小时")
-                        .font(Rs.subhead)
-                        .foregroundStyle(Rs.accent)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .background(Capsule().fill(Rs.accentSoft))
                 }
-                .buttonStyle(.plain)
-                Button {
-                    UserDefaults.standard.set(false, forKey: "captureWanted")
-                    CaptureEngine.shared.stop()
-                } label: {
-                    Text("停止")
-                        .font(Rs.subhead)
-                        .foregroundStyle(Rs.critical)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .background(Capsule().fill(Rs.critical.opacity(0.10)))
+                RsBtn(text: "停止", filled: false, danger: true) {
+                    captureWanted = false
+                    if flow.isRecording { flow.stop() }
                 }
-                .buttonStyle(.plain)
                 Spacer(minLength: 0)
             }
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card)
-        )
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
     }
 
     private var uptimeText: String {
@@ -317,220 +390,760 @@ struct RsRecordingPage: View {
         if m < 60 { return "\(m) 分钟" }
         return "\(m / 60) 小时 \(m % 60) 分"
     }
+
+    // 停录时段
+    private var stopWindowCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("停录时段").font(Rs.body).foregroundStyle(Rs.text)
+                    Text("\(settings.silenceStartHour):00 – 次日 \(settings.silenceEndHour):00 · 每天")
+                        .font(Rs.caption).foregroundStyle(Rs.text3)
+                }
+                Spacer(minLength: 0)
+                Toggle("", isOn: $settings.silenceWindowOn).labelsHidden().tint(Rs.accent)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+            RsRowDivider(inset: 18)
+            Button {
+                settings.silenceWindowOn = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus").font(.system(size: 11, weight: .bold))
+                    Text("添加时段").font(.system(size: 14))
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(Rs.accent)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 13)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            RsCardHint(text: "时段内不录音，到点自动恢复；时段内点「现在恢复」只对这一次有效。")
+        }
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+    }
+
+    // 录音输入
+    private var inputCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                inputAuto = false
+            } label: {
+                HStack(spacing: 12) {
+                    RsRadio(on: !inputAuto)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("手机麦克风").font(Rs.body).foregroundStyle(Rs.text)
+                        Text("用手机自己的麦克风录音").font(Rs.caption).foregroundStyle(Rs.text3)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 13)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            RsRowDivider(inset: 18)
+            Button {
+                inputAuto = true
+            } label: {
+                HStack(spacing: 12) {
+                    RsRadio(on: inputAuto)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("自动先外接").font(Rs.body).foregroundStyle(Rs.text)
+                        Text("插上 USB 或有线麦克风就用它，拔掉自动回到手机").font(Rs.caption).foregroundStyle(Rs.text3)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 13)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Divider().padding(.horizontal, 18)
+            HStack(spacing: 8) {
+                RsDotText(text: "正在用：手机麦克风")
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            RsCardHint(text: "插上 Type-C 麦克风或领夹麦接收器、连上蓝牙耳机后，会出现在这里。")
+            RsRowDivider(inset: 18)
+            RsInfoRow(title: "外接设备", value: "未连接")
+        }
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+    }
+
+    // 语音输入
+    private var voiceInputCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            RsToggleRow(title: "语音输入时记上下文", note: "说之前那几句一起发过去，听懂上下文；语音输入用来记事，不进原话。",
+                        on: Binding(get: { voiceCtx }, set: { voiceCtx = $0 }))
+        }
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+    }
+
+    // 自动导入文件夹
+    private var importCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("自动导入文件夹").font(Rs.body).foregroundStyle(Rs.text)
+                Spacer(minLength: 0)
+                RsBtn(text: "添加文件夹", filled: false) { }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+            RsCardHint(text: "录音笔 App、录音机把录音存在哪，就选哪个文件夹。新录音会自动导入转写，原文件不动、不删；同一个录音只导入一次。")
+            RsCardHint(text: "大约每 15 分钟看一次，打开涛声时也会看；录音写完一两分钟后才会导入。")
+        }
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+    }
+
+    // 后台设置
+    private var backendCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("后台设置").font(Rs.body).foregroundStyle(Rs.text)
+                Spacer(minLength: 0)
+                Text("3 / 4 已完成").font(Rs.caption).foregroundStyle(Rs.text3)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
+            backendItem("麦克风权限", "在应用权限里允许使用麦克风。", done: true)
+            backendItem("通知权限", "允许通知，并允许录音中断提醒显示。", done: true)
+            backendItem("忽略电池优化", "允许涛声不受电池优化限制。", done: true)
+            backendItem("最近任务锁定", "打开最近任务，长按涛声卡片并点锁定（不同手机叫法略有不同）；设置后请手动确认。", done: false)
+            RsBtn(text: "我已设置", filled: false) { }
+                .padding(.horizontal, 18)
+                .padding(.bottom, 16)
+        }
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+    }
+
+    private func backendItem(_ title: String, _ note: String, done: Bool) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 16))
+                .foregroundStyle(done ? Rs.good : Rs.text3.opacity(0.6))
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(Rs.body).foregroundStyle(Rs.text)
+                Text(note).font(Rs.caption).foregroundStyle(Rs.text3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 8)
+    }
 }
 
-// MARK: - 原话与转写
+// MARK: - 原话与转写（TranscriptScreen.kt）
 
 struct RsTranscriptPage: View {
     @ObservedObject private var settings = Settings.shared
     @ObservedObject private var queue = TranscribeQueue.shared
+    @ObservedObject private var net = NetWatcher.shared
+    @ObservedObject private var app = AppState.shared
+    @ObservedObject private var store = StoreStatsProxy.shared
 
-    private let intervalOptions = [(5, "5 分"), (10, "10 分"), (30, "30 分"), (60, "1 小时")]
+    @State private var source = 0
+    @State private var cadence = 2
+    @State private var showKey = false
+    @State private var keyDraft = ""
 
     var body: some View {
         RsSubPage(title: "原话与转写") {
-            RsGroup(title: "服务商") {
-                VStack(alignment: .leading, spacing: 10) {
-                    RsPillRow(options: [(ASRKind.doubao.title, 0), (ASRKind.openAICompatible.title, 1), (ASRKind.appleSpeech.title, 2)],
-                              selected: Binding(get: {
-                                  switch settings.asrKind {
-                                  case .doubao: return 0
-                                  case .openAICompatible: return 1
-                                  default: return 2
-                                  }
-                              }, set: { v in
-                                  settings.asrKind = v == 0 ? .doubao : (v == 1 ? .openAICompatible : .appleSpeech)
-                              }))
+            queueCard
+            transcribeCard
+            cadenceCard
+            switchCard
+            speakerCard
+            testCard
+            hotwordCard
+            rawCard
+        }
+    }
+
+    // 队列状态卡
+    private var queueCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Circle().fill(queueDot).frame(width: 9, height: 9)
+                    Text(queueTitle).font(Rs.headline).foregroundStyle(Rs.text)
+                    Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                if settings.asrKind == .openAICompatible {
-                    RsRowDivider(inset: 0)
-                    RsFieldRow(title: "地址", placeholder: "https://…", text: $settings.asrBaseURL)
-                    RsRowDivider(inset: 0)
-                    RsFieldRow(title: "模型", placeholder: "whisper-1", text: $settings.asrModel)
-                    RsRowDivider(inset: 0)
-                    RsFieldRow(title: "密钥", placeholder: "sk-…", text: $settings.asrKey, secure: true)
+                Text(queueNote).font(Rs.subhead).foregroundStyle(Rs.text2)
+                HStack(spacing: 10) {
+                    RsBtn(text: "现在转写") { queue.transcribeNow() }
+                    RsBtn(text: "导入录音", filled: false) { }
+                    Spacer(minLength: 0)
                 }
-                if settings.asrKind == .doubao {
-                    RsRowDivider(inset: 0)
-                    RsFieldRow(title: "API Key", placeholder: "豆包语音的 Key", text: $settings.doubaoApiKey, secure: true)
+                .padding(.top, 4)
+            }
+            .padding(18)
+            RsRowDivider(inset: 18)
+            RsInfoRow(title: "云端转写", value: "今天 \(todayMinutes) 分 · 近 30 天 \(monthMinutes) 分 · 约 ¥\(costText)")
+            RsRowDivider(inset: 18)
+            RsInfoRow(title: "原声", value: "保留 \(settings.keepAudioDays > 0 ? "\(settings.keepAudioDays) 天" : "一直留") · 重点长期保留 · 占用 \(audioSize)")
+            RsRowDivider(inset: 18)
+            RsInfoRow(title: "录音包", value: "把手机里的原始录音打包导出")
+        }
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+    }
+
+    private var queueDot: Color {
+        if !settings.asrReady { return Rs.warning }
+        if queue.busy { return Rs.accent }
+        return queue.pendingCount > 0 ? Rs.accent : Rs.good
+    }
+
+    private var queueTitle: String {
+        if !settings.asrReady { return "转写尚未就绪" }
+        if queue.busy { return "正在转写…" }
+        return queue.pendingCount > 0 ? "还有 \(queue.pendingCount) 段等着转" : "都转完了"
+    }
+
+    private var queueNote: String {
+        var parts: [String] = []
+        if let last = queue.lastRunAt { parts.append("上次 \(Fmt.hm.string(from: last))") }
+        if let next = queue.nextRunAt {
+            let mins = max(0, Int(next.timeIntervalSinceNow / 60))
+            parts.append(mins == 0 ? "马上进行下一轮" : "约 \(mins) 分钟后下一轮")
+        }
+        if parts.isEmpty { return "还没有转写过" }
+        return parts.joined(separator: " · ")
+    }
+
+    private var todayMinutes: Int { max(0, Int(store.todaySeconds / 60)) }
+    private var monthMinutes: Int { max(0, Int(store.monthSeconds / 60)) }
+    private var costText: String { String(format: "%.1f", Double(monthMinutes) * 0.012) }
+    private var audioSize: String { ByteCountFormatter.string(fromByteCount: Int64(store.audioBytes), countStyle: .file) }
+
+    // 语音转写
+    private var transcribeCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            RsCardTitle(text: "语音转写")
+            HStack { RsSegControl(options: ["豆包", "本地", "自定义"], index: $source) }
+                .padding(.horizontal, 18)
+            Divider().padding(.horizontal, 18).padding(.top, 12)
+            Button { } label: {
+                HStack {
+                    Text("自定义请求头（可选）").font(.system(size: 14)).foregroundStyle(Rs.accent)
+                    Text("›").font(.system(size: 15)).foregroundStyle(Rs.accent)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 14)
+                .padding(.bottom, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Text(source == 2 ? "自定义服务密钥" : "豆包语音密钥")
+                .font(Rs.body).foregroundStyle(Rs.text)
+                .padding(.horizontal, 18)
+                .padding(.top, 2)
+            HStack(spacing: 12) {
+                RsDotText(text: settings.asrReady ? "已填写" : "还没填")
+                Spacer(minLength: 0)
+                RsBtn(text: "更换", filled: false) { showKey = true }
+                RsBtn(text: "清除", filled: false) { settings.asrKey = "" }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 10)
+            RsCardHint(text: "只存在这台手机里，填好后任何地方都不再显示。")
+        }
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+        .sheet(isPresented: $showKey) {
+            keySheet
+        }
+    }
+
+    private var keySheet: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("填密钥").font(Rs.title).foregroundStyle(Rs.text)
+            TextField("粘贴密钥", text: $keyDraft)
+                .font(Rs.subhead)
+                .textInputAutocapitalization(.never)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Rs.fill))
+            HStack(spacing: 10) {
+                RsBtn(text: "保存") {
+                    settings.asrKey = keyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    showKey = false
+                }
+                RsBtn(text: "取消", filled: false) { showKey = false }
+                Spacer(minLength: 0)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(20)
+        .presentationDetents([.height(260)])
+        .background(Rs.bg)
+    }
+
+    // 多久转写一次
+    private var cadenceCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("多久转写一次").font(Rs.body).foregroundStyle(Rs.text)
+                .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 10)
+            RsFlowLayout(spacing: 8, lineSpacing: 8) {
+                ForEach(Array(["实时", "15 分钟", "30 分钟", "自定义"].enumerated()), id: \.offset) { i, t in
+                    RsOptPill(text: t, on: cadence == i) { cadence = i }
                 }
             }
-            RsGroup(title: "节奏") {
-                VStack(alignment: .leading, spacing: 10) {
-                    RsFormLabel("多久转写一次")
-                    RsPillRow(options: intervalOptions.map { ($0.1, $0.0) },
-                              selected: Binding(get: { settings.transcribeIntervalMin }, set: { settings.transcribeIntervalMin = $0 }))
+            .padding(.horizontal, 18)
+            .padding(.bottom, 12)
+            RsCardHint(text: "每 30 分钟把攒下的录音转写一次。整理成事件另在「模型与整理时间」里设置。")
+        }
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+    }
+
+    // 两个开关
+    private var switchCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            RsToggleRow(title: "只在 WiFi 下转写", note: "关掉后用流量也会上传，每小时录音约 10 MB",
+                        on: $settings.wifiOnlyTranscribe)
+            RsRowDivider(inset: 18)
+            RsToggleRow(title: "外放声音时不转写", note: "手机扬声器在放视频、音乐时录到的先不转写，原话里可单段「仍然转写」；戴耳机不受影响",
+                        on: Binding(get: { settings.skipWhenOutput }, set: { settings.skipWhenOutput = $0 }))
+            RsRowDivider(inset: 18)
+            RsToggleRow(title: "区分说话人与认人", note: "原话标出谁在说，认出「我」和已命名的人",
+                        on: Binding(get: { settings.speakerSplitOn }, set: { settings.speakerSplitOn = $0 }))
+        }
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+    }
+
+    // 培训专题入口
+    private var speakerCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button { } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("临时不区分说话人").font(Rs.body).foregroundStyle(Rs.text)
+                        Text("一人讲、多人听时用，结束后出培训笔记").font(Rs.caption).foregroundStyle(Rs.text3)
+                    }
+                    Spacer(minLength: 0)
+                    Text("开始培训专题 ›").font(.system(size: 14)).foregroundStyle(Rs.accent)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                RsRowDivider(inset: 0)
-                RsToggleRow(title: "只在 WiFi 下转写", note: "打开后，用流量时不转写，连上 WiFi 再补。默认关：蜂窝也照转。", on: $settings.wifiOnlyTranscribe)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .contentShape(Rectangle())
             }
-            RsGroup(title: "现在") {
-                RsNoteRow(text: queue.pendingCount > 0 ? "还有 \(queue.pendingCount) 段没转写，可以点下面马上转。" : "没有待转写的片段。")
-                RsRowDivider(inset: 0)
-                Button {
-                    queue.transcribeNow()
-                } label: {
-                    Text("马上转写")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Rs.accent)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 13)
+            .buttonStyle(.plain)
+        }
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+    }
+
+    // 测试一下
+    private var testCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("测试一下").font(Rs.body).foregroundStyle(Rs.text)
+                    Text("发一小段测试音频，确认密钥和服务可用").font(Rs.caption).foregroundStyle(Rs.text3)
                 }
-                .buttonStyle(.plain)
+                Spacer(minLength: 0)
+                RsBtn(text: "测试", filled: false) { }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+        }
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+    }
+
+    // 热词
+    private var hotwordCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            RsCardTitle(text: "热词")
+            HStack(spacing: 10) {
+                TextField("输入词语，多个用逗号隔开", text: .constant(""))
+                    .font(Rs.subhead)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Rs.fill))
+                RsBtn(text: "添加", filled: false) { }
+            }
+            .padding(.horizontal, 18)
+            RsCardHint(text: "豆包云端转写、手机本地转写和整理都会用到热词。")
+        }
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+    }
+
+    // 录音原话
+    private var rawCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("录音原话").font(Rs.body).foregroundStyle(Rs.text)
+                Spacer(minLength: 0)
+                Text("\(app.todaySegments.count) 段 · 已转 \(app.todaySegments.filter { $0.state == .transcribed }.count)")
+                    .font(Rs.caption).foregroundStyle(Rs.text3)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
+            ForEach(Array(app.todaySegments.prefix(6))) { seg in
+                HStack(alignment: .top, spacing: 12) {
+                    Text(Fmt.hm.string(from: seg.startedAt))
+                        .font(.subheadline).foregroundStyle(Rs.text2)
+                        .frame(width: 52, alignment: .leading)
+                    Text(seg.transcript.isEmpty ? "没有文字" : seg.transcript)
+                        .font(Rs.body).foregroundStyle(Rs.text)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("· \(Int(seg.duration))秒").font(Rs.caption).foregroundStyle(Rs.text3)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+                RsRowDivider(inset: 18)
             }
         }
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
     }
 }
 
-// MARK: - 声纹与人物
+// MARK: - 声纹与人物（VoiceprintUi.kt）
 
 struct RsVoicePage: View {
     @ObservedObject private var app = AppState.shared
-
-    private var samples: Int { app.persons.reduce(0) { $0 + $1.sampleCount } }
+    @State private var localSplit = false
 
     var body: some View {
         RsSubPage(title: "声纹与人物") {
-            RsGroup(title: "进度") {
-                RsNoteRow(text: samples >= 3
-                          ? "够了，已经能认出你；会议里再按声音区分其他说话人。"
-                          : "还差 \(3 - samples) 段样本。录几段自己的原话，认人就更准。")
+            HStack(alignment: .firstTextBaseline) {
+                Text("人物 · \(app.persons.count)").font(Rs.body).foregroundStyle(Rs.text2)
+                Spacer(minLength: 0)
+                RsBtn(text: "添加人物", filled: false) { }
             }
-            RsGroup(title: "人物") {
-                if app.persons.isEmpty {
-                    RsNoteRow(text: "还没有人物。分过说话人之后，这里会列出每场会议出现过的人。")
-                } else {
-                    ForEach(Array(app.persons.enumerated()), id: \.element.id) { i, p in
-                        HStack(spacing: 12) {
+            .padding(.horizontal, 4)
+
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(app.persons) { p in
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle().fill(Theme.personColor(p.name).opacity(0.18)).frame(width: 40, height: 40)
                             Text(String(p.name.prefix(1)))
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 30, height: 30)
-                                .background(Circle().fill(Theme.personColor(p.name)))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(p.name).font(Rs.body).foregroundStyle(Rs.text)
-                                Text("\(p.sampleCount) 段样本").font(Rs.caption).foregroundStyle(Rs.text3)
-                            }
-                            Spacer(minLength: 0)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(Theme.personColor(p.name))
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 11)
-                        if i < app.persons.count - 1 { RsRowDivider() }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(p.name).font(Rs.body).foregroundStyle(Rs.text)
+                            Text(p.sampleCount > 0 ? "\(p.sampleCount) 段样本" : "还没有声音")
+                                .font(Rs.caption).foregroundStyle(Rs.text3)
+                        }
+                        Spacer(minLength: 0)
+                        Text("›").font(.system(size: 15)).foregroundStyle(Rs.text3)
                     }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                    RsRowDivider(inset: 18)
                 }
+                RsCardHint(text: "在原话里长按一句，选「这是谁」，就能指定人物并学习声音。")
             }
+            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("本地多人分段").font(Rs.body).foregroundStyle(Rs.text)
+                    }
+                    Spacer(minLength: 0)
+                    Text("试用").font(.caption).foregroundStyle(Rs.accent)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Capsule().fill(Rs.accentSoft))
+                    Toggle("", isOn: $localSplit).labelsHidden().tint(Rs.accent)
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 14)
+                RsCardHint(text: "本地转写时先分出不同的人。人多嘈杂时可能分错，长按原话可纠正。")
+            }
+            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+
+            VStack(alignment: .leading, spacing: 0) {
+                RsCardTitle(text: "样本声音")
+                Text("暂无").font(Rs.body).foregroundStyle(Rs.text2)
+                    .padding(.horizontal, 18)
+                RsCardHint(text: "用来在人物详情里回放样本。清除后仍能照常认人，已有样本不能再回放。")
+            }
+            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+
+            Text("还有 \(max(0, app.todaySegments.count)) 段等着匹配声音")
+                .font(Rs.caption).foregroundStyle(Rs.text3)
+                .padding(.horizontal, 4)
         }
     }
 }
 
-// MARK: - 环境音识别
+// MARK: - 环境音识别（EnvSoundViews.kt）
 
 struct RsEnvPage: View {
     @ObservedObject private var settings = Settings.shared
 
     var body: some View {
         RsSubPage(title: "环境音识别") {
-            RsGroup(title: "开关") {
-                RsToggleRow(title: "认一下当时的环境", note: "把雨声、咖啡馆、电视这些写进原话旁边，整理时能当参考。", on: $settings.envSoundOn)
+            Text("只分析已经录下的人声片段，在转写前判断一次；录音方式不变，旧录音不补算。全部在手机上完成，不上传。")
+                .font(Rs.caption).foregroundStyle(Rs.text3)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("环境音识别").font(Rs.body).foregroundStyle(Rs.text)
+                        Text("打开后下载约 27 MB 的识别模型").font(Rs.caption).foregroundStyle(Rs.text3)
+                    }
+                    Spacer(minLength: 0)
+                    Toggle("", isOn: Binding(get: { settings.envSoundOn }, set: { settings.envSoundOn = $0 }))
+                        .labelsHidden().tint(Rs.accent)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 16)
             }
-            RsGroup(title: "说明") {
-                RsNoteRow(text: "只在本机判断，不外传音频。关掉也不影响录音和转写。")
-            }
+            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
         }
     }
 }
 
-// MARK: - 足迹
+// MARK: - 足迹（LocationPage.kt）
 
 struct RsLocationPage: View {
     @ObservedObject private var settings = Settings.shared
+    @State private var tab = 0
 
     var body: some View {
         RsSubPage(title: "足迹") {
-            RsGroup(title: "开关") {
-                RsToggleRow(title: "记录全天位置", note: "低频记录去过哪，整理时标一句「在公司」「在外地」。", on: $settings.locationOn)
-                RsRowDivider()
-                RsToggleRow(title: "整理时参考地点", on: $settings.usePlaceInDigest)
+            VStack(alignment: .leading, spacing: 0) {
+                RsToggleRow(title: "记录全天位置",
+                            note: "跟随收音服务，约每 5 分钟记一个点；位置记录只存手机本地。",
+                            on: Binding(get: { settings.locationOn }, set: { settings.locationOn = $0 }))
             }
-            RsGroup(title: "说明") {
-                RsNoteRow(text: "位置只存在这台手机上，可以随时删。关掉后不再记录新的位置。")
+            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+
+            HStack(spacing: 10) {
+                Button { } label: {
+                    Text("‹").font(.system(size: 16, weight: .semibold)).foregroundStyle(Rs.accent)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(Rs.card))
+                }
+                .buttonStyle(.plain)
+                Text(Fmt.df("M月d日 EEE").string(from: Date()) + " · 今天")
+                    .font(Rs.body).foregroundStyle(Rs.text)
+                Button { } label: {
+                    Text("›").font(.system(size: 16, weight: .semibold)).foregroundStyle(Rs.accent)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(Rs.card))
+                }
+                .buttonStyle(.plain)
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, 4)
+
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("这一天").font(Rs.body).foregroundStyle(Rs.text)
+                    Spacer(minLength: 0)
+                    RsSegControl(options: ["时间轴", "路线"], index: $tab)
+                        .frame(width: 150)
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 14)
+                Text("这一天没有位置记录")
+                    .font(Rs.subhead).foregroundStyle(Rs.text3)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 26)
+                Divider().padding(.horizontal, 18)
+                HStack(spacing: 0) {
+                    locStat("0 分", "在家")
+                    locStat("0 分", "外出")
+                    locStat("0.0 km", "移动距离")
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 14)
+            }
+            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+
+            VStack(alignment: .leading, spacing: 0) {
+                RsCardTitle(text: "显示地名")
+                RsCardHint(text: "把停留处的坐标发给手机系统的地理服务查地址；查过的地方存在本机，不重复查。")
+                RsRowDivider(inset: 18)
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("高德 Key（可选）").font(Rs.body).foregroundStyle(Rs.text)
+                        Text("不填用系统地理服务；国内建议填高德 Web 服务 Key").font(Rs.caption).foregroundStyle(Rs.text3)
+                    }
+                    Spacer(minLength: 0)
+                    RsBtn(text: "填写", filled: false) { }
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+            }
+            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
         }
+    }
+
+    private func locStat(_ value: String, _ label: String) -> some View {
+        VStack(spacing: 3) {
+            Text(value).font(.system(size: 20, weight: .semibold)).foregroundStyle(Rs.text)
+            Text(label).font(Rs.caption).foregroundStyle(Rs.text3)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
-// MARK: - 模型与整理时间
+// MARK: - 模型与整理时间（ProvidersCard.kt + DigestTimingCard.kt）
 
 struct RsModelPage: View {
     @ObservedObject private var settings = Settings.shared
-    @ObservedObject private var digest = DigestEngine.shared
+    @State private var timing = 0
+    @State private var interval = 1
+    @State private var idleGap = 1
 
     var body: some View {
         RsSubPage(title: "模型与整理时间") {
-            RsGroup(title: "大模型") {
-                RsFieldRow(title: "地址", placeholder: "https://api.deepseek.com", text: $settings.llmBaseURL)
-                RsRowDivider(inset: 0)
-                RsFieldRow(title: "模型", placeholder: "deepseek-chat", text: $settings.llmModel)
-                RsRowDivider(inset: 0)
-                RsFieldRow(title: "密钥", placeholder: "sk-…", text: $settings.llmKey, secure: true)
-                RsRowDivider(inset: 0)
-                RsToggleRow(title: "整理前先思考", note: "慢一点，结论更稳", on: $settings.deepThinking)
-            }
-            RsGroup(title: "什么时候整理") {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(DigestTiming.allCases) { t in
-                        Button {
-                            withAnimation(.easeOut(duration: 0.16)) { settings.digestTiming = t }
-                        } label: {
-                            HStack(alignment: .top, spacing: 10) {
-                                Image(systemName: settings.digestTiming == t ? "largecircle.fill.circle" : "circle")
-                                    .font(.system(size: 17))
-                                    .foregroundStyle(settings.digestTiming == t ? Rs.accent : Rs.text3)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(t.title).font(Rs.body).foregroundStyle(Rs.text)
-                                    Text(t.detail).font(Rs.caption).foregroundStyle(Rs.text3)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 11)
-                            .background(settings.digestTiming == t ? Rs.accentSoft.opacity(0.6) : Color.clear)
+            providersCard
+            VStack(alignment: .leading, spacing: 0) {
+                RsCardTitle(text: "什么时候整理")
+                RsCardHint(text: "把转写好的原话整理成一件件事。转写在「原话与转写」里单独设置。")
+                RsSegControl(options: ["按间隔", "按时间点"], index: $timing)
+                    .padding(.horizontal, 18)
+                if timing == 0 {
+                    Text("多久整理一次").font(Rs.body).foregroundStyle(Rs.text)
+                        .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 8)
+                    RsFlowLayout(spacing: 8, lineSpacing: 8) {
+                        ForEach(Array(["15 分钟", "30 分钟", "60 分钟", "自定义"].enumerated()), id: \.offset) { i, t in
+                            RsOptPill(text: t, on: interval == i) { interval = i }
                         }
-                        .buttonStyle(.plain)
-                        if t != DigestTiming.allCases.last { RsRowDivider() }
+                    }
+                    .padding(.horizontal, 18)
+                    RsCardHint(text: "整理要等转写完成；转写间隔比整理长时，以转写为准。")
+                } else {
+                    Text("每天整理").font(Rs.body).foregroundStyle(Rs.text)
+                        .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 8)
+                    RsFlowLayout(spacing: 8, lineSpacing: 8) {
+                        ForEach(Array(["21:00", "22:00", "23:00"].enumerated()), id: \.offset) { i, t in
+                            RsOptPill(text: t, on: interval == i) { interval = i }
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    RsCardHint(text: "到点整理当天剩下的原话。")
+                }
+                RsRowDivider(inset: 18)
+                Text("停多久算说完了").font(Rs.body).foregroundStyle(Rs.text)
+                    .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 8)
+                RsFlowLayout(spacing: 8, lineSpacing: 8) {
+                    ForEach(Array(["5 分钟", "10 分钟", "20 分钟"].enumerated()), id: \.offset) { i, t in
+                        RsOptPill(text: t, on: idleGap == i) { idleGap = i }
                     }
                 }
+                .padding(.horizontal, 18)
+                RsCardHint(text: "两句话之间停了 10 分钟以上，就算前面那段对话结束。")
+                RsRowDivider(inset: 18)
+                RsToggleRow(title: "整理前先思考",
+                            note: "分条更准，一件事一条，不容易切碎；费用约为原来的 3～5 倍，整理也慢一些。",
+                            on: Binding(get: { settings.deepThinking }, set: { settings.deepThinking = $0 }))
+                RsRowDivider(inset: 18)
+                RsToggleRow(title: "整理时参考地点和环境音",
+                            note: "每段对话附上当时在哪（来自足迹）、周围有什么声音；地点会一起发给整理用的大模型服务。",
+                            on: Binding(get: { settings.usePlaceInDigest }, set: { settings.usePlaceInDigest = $0 }))
+                RsCardHint(text: "支持 DeepSeek、火山方舟、硅基流动；其他服务按它自己的默认。")
             }
-            if settings.digestTiming == .interval {
-                RsGroup(title: "间隔") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        RsFormLabel("多久整理一次")
-                        RsPillRow(options: [("5 分", 5), ("10 分", 10), ("30 分", 30), ("1 小时", 60)],
-                                  selected: Binding(get: { settings.digestIntervalMin }, set: { settings.digestIntervalMin = $0 }))
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+        }
+    }
+
+    // 整理用的大模型
+    private var providersCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            RsCardTitle(text: "整理用的大模型")
+            RsCardHint(text: "点一下切换；整理、问问、回顾都用当前这个，技能可以另选。")
+            providerRow(name: "DeepSeek", model: settings.llmModel.isEmpty ? "deepseek-chat" : settings.llmModel,
+                        selected: true, balance: "余额 ¥12.88 · 含赠送 ¥0.00")
+            RsRowDivider(inset: 18)
+            RsToggleRow(title: "出问题时自动换备用",
+                        note: "再添加一个服务商并填好密钥，就能当备用",
+                        on: .constant(false))
+            RsRowDivider(inset: 18)
+            Button { } label: {
+                HStack {
+                    Image(systemName: "plus").font(.system(size: 12, weight: .bold))
+                    Text("添加服务商").font(.system(size: 15, weight: .semibold))
                 }
+                .foregroundStyle(Rs.accent)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+                .background(Capsule().fill(Rs.accentSoft))
+                .padding(18)
+                .contentShape(Rectangle())
             }
-            if settings.digestTiming == .clock {
-                RsGroup(title: "时间点") {
-                    Stepper(value: $settings.digestHour, in: 0...23) {
-                        Text("每天 \(settings.digestHour):00").font(Rs.body).foregroundStyle(Rs.text)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+            .buttonStyle(.plain)
+            RsRowDivider(inset: 18)
+            RsInfoRow(title: "余额提醒", value: "低于 ¥10 时提醒")
+            RsCardHint(text: "密钥分开保存在手机里，不会显示。")
+        }
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+    }
+
+    private func providerRow(name: String, model: String, selected: Bool, balance: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+                RsRadio(on: selected)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name).font(Rs.body).foregroundStyle(Rs.text)
+                    Text(model).font(Rs.caption).foregroundStyle(Rs.text3)
                 }
+                Spacer(minLength: 0)
+                Text("编辑").font(.system(size: 13)).foregroundStyle(Rs.text3)
             }
-            RsGroup(title: "状态") {
-                RsNoteRow(text: settings.llmReady
-                          ? (digest.running ? "正在整理…" : (digest.lastError.map { "上次出错：\($0)" } ?? "模型已就绪。"))
-                          : "还没填密钥：可以先录音、转写，填好后回来点「现在整理」。")
+            if selected {
+                Text(balance).font(Rs.subhead).foregroundStyle(Rs.text3)
+                    .padding(.leading, 32)
+                HStack(spacing: 8) {
+                    RsOptPill(text: "检测", on: false) { }
+                    RsOptPill(text: "刷新余额", on: false) { }
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, 32)
             }
         }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+    }
+}
+
+struct RsWaveDots: View {
+    var active: Bool
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<14, id: \.self) { i in
+                Capsule()
+                    .fill((active ? Rs.card : Rs.text3).opacity(0.85))
+                    .frame(width: 2.5, height: 3 + CGFloat((i * 7) % 9))
+            }
+        }
+        .frame(height: 12)
+    }
+}
+
+// MARK: - 存储统计（子页里复用）
+
+final class StoreStatsProxy: ObservableObject {
+    static let shared = StoreStatsProxy()
+
+    var todaySeconds: Double {
+        AppState.shared.todaySegments.reduce(0) { $0 + $1.duration }
+    }
+
+    var monthSeconds: Double {
+        let start = Calendar.current.date(byAdding: .day, value: -30, to: Calendar.current.startOfDay(for: Date())) ?? Date()
+        let rows = Store.shared.segments(day: nil, limit: 5000)
+        return rows.filter { $0.startedAt >= start }.reduce(0) { $0 + $1.duration }
+    }
+
+    var audioBytes: Int {
+        AppState.shared.todaySegments.reduce(0) { $0 + $1.byteSize }
     }
 }

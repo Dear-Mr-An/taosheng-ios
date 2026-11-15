@@ -159,24 +159,24 @@ struct RsSettingsScreen: View {
     private var statusCard: some View {
         HStack(spacing: 12) {
             ZStack {
-                Circle().fill(Rs.good.opacity(0.14)).frame(width: 44, height: 44)
+                Circle().fill(Rs.good.opacity(0.14)).frame(width: 28, height: 28)
                 Image(systemName: "checkmark")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Rs.good)
             }
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("一切正常")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(Rs.text)
                 Text(stabilityText)
-                    .font(.system(size: 15))
+                    .font(.system(size: 13))
                     .foregroundStyle(Rs.text3)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 Spacer(minLength: 0)
             }
         }
-        .padding(EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14))
+        .padding(EdgeInsets(top: 11, leading: 14, bottom: 11, trailing: 14))
         .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card)
             .shadow(color: Rs.shadow, radius: 10, x: 0, y: 4))
     }
@@ -306,7 +306,7 @@ struct RsShell: View {
     static func tabIndex(for shot: String?) -> Int {
         switch shot ?? "" {
         case "rs-ask": return 1
-        case "rs-memory", "rs-memory-class": return 2
+        case "rs-memory", "rs-memory-class", "rs-all": return 2`n        case "rs-event": return 0
         case "rs-todo": return 3
         case "rs-settings", "rs-recording", "rs-transcript", "rs-voice",
              "rs-env", "rs-location", "rs-llm": return 4

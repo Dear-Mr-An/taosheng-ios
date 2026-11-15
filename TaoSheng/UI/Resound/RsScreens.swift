@@ -225,6 +225,7 @@ struct RsMemoryScreen: View {
     private var dayKey: String { DayKey.of(selectedDay) }
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
@@ -232,7 +233,7 @@ struct RsMemoryScreen: View {
                     calendarCard
                     reviewCard
                     cardsSection
-                    timelineSection
+                    timelineSection.id("timeline")
                 } else {
                     categoryCapsules
                     categoryCards
@@ -244,6 +245,12 @@ struct RsMemoryScreen: View {
         }
         .background(Rs.bg)
         .scrollIndicators(.hidden)
+        .task {
+            guard ShotMode.screen == "rs-all" else { return }
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            withAnimation(nil) { proxy.scrollTo("timeline", anchor: .top) }
+        }
+        }
         .onAppear {
             if ShotMode.screen == "rs-memory-class" { byDay = false }
             load()
@@ -258,6 +265,7 @@ struct RsMemoryScreen: View {
                 .font(Rs.largeTitle)
                 .foregroundStyle(Rs.text)
             Spacer(minLength: 0)
+            if byDay {
             Button {
                 let md = app.exportMarkdown(day: dayKey)
                 UIPasteboard.general.string = md
@@ -270,6 +278,7 @@ struct RsMemoryScreen: View {
                     .background(Capsule(style: .continuous).fill(Rs.accentSoft))
             }
             .buttonStyle(RsSpringButtonStyle())
+            }
             HStack(spacing: 0) {
                 seg("按天", on: byDay) { byDay = true }
                 seg("按类", on: !byDay) { byDay = false }
@@ -513,7 +522,11 @@ struct RsMemoryScreen: View {
                             .padding(.leading, 4)
                         RsCard(padding: EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0)) {
                             ForEach(Array(g.items.enumerated()), id: \.element.id) { i, e in
-                                RsTimelineLine(event: e)
+                                RsStarSwipe(starred: e.starred) {
+                                    app.starEvent(e.id, starred: !e.starred)
+                                } content: {
+                                    RsTimelineLine(event: e)
+                                }
                                 if i < g.items.count - 1 {
                                     Rectangle().fill(Rs.separator).frame(height: 0.5)
                                         .padding(.leading, 76).padding(.trailing, 18)
@@ -534,7 +547,7 @@ struct RsMemoryScreen: View {
     private var categoryNames: [String] {
         var seen = RsMemoryScreen.baseCategories
         for it in dayItems where !it.kind.title.isEmpty && !seen.contains(it.kind.title) { seen.append(it.kind.title) }
-        return ["全部"] + seen
+        return seen
     }
 
     private var categoryCapsules: some View {
@@ -560,7 +573,7 @@ struct RsMemoryScreen: View {
     }
 
     private var categoryGroups: [(String, [DigestItem])] {
-        let all = categorySel == 0 ? dayItems : dayItems.filter { $0.kind.title == categoryNames[categorySel] }
+        let all = dayItems.filter { $0.kind.title == categoryNames[max(0, min(categorySel, categoryNames.count - 1))] }
         var order: [String] = []
         var buckets: [String: [DigestItem]] = [:]
         for it in all {
@@ -571,15 +584,24 @@ struct RsMemoryScreen: View {
         return order.map { ($0, buckets[$0] ?? []) }
     }
 
+    private var categoryEmptyText: String {
+        let name = categoryNames.isEmpty ? "重点" : categoryNames[max(0, min(categorySel, categoryNames.count - 1))]
+        if name == "重点" {
+            return "在时间线上把一件事往左滑，就能标成重点。标过的事会集中放在这里，问问能查，每日和每周回顾也会跟进"
+        }
+        return "「\(name)」这一类还没有内容。整理出这一类的事以后，会归到这里"
+    }
+
     private var categoryCards: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if dayItems.isEmpty {
-                Text("这天还没有整理出内容。录了音、整理过，就会按类别归到这里。")
+            if categoryGroups.isEmpty {
+                Text(categoryEmptyText)
                     .font(Rs.subhead)
                     .foregroundStyle(Rs.text3)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
-                    .padding(.top, 40)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 60)
             }
             ForEach(categoryGroups, id: \.0) { pair in
                 categoryGroup(name: pair.0, list: pair.1)
@@ -799,7 +821,7 @@ struct RsTodoScreen: View {
             } label: {
                 Text("全部忽略")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Rs.accent)
+                    .foregroundStyle(Rs.text2)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .background(Capsule(style: .continuous).fill(Rs.card))

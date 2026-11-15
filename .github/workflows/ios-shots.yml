@@ -272,6 +272,12 @@ jobs:
           shoot_dev "$DEV" "iphone16" "rs-env" 7
           shoot_dev "$DEV" "iphone16" "rs-location" 7
           shoot_dev "$DEV" "iphone16" "rs-llm" 8
+  shoot_dev "$DEV" "iphone16" "rs-recording-b" 9
+  shoot_dev "$DEV" "iphone16" "rs-transcript-b" 9
+  shoot_dev "$DEV" "iphone16" "rs-llm-b" 9
+  shoot_dev "$DEV" "iphone16" "rs-location-b" 9
+  shoot_dev "$DEV" "iphone16" "rs-event" 7
+  shoot_dev "$DEV" "iphone16" "rs-all" 7
             shoot_dev "$DEV" "iphone16" "review-meetings" 8
             shoot_dev "$DEV" "iphone16" "todo-pending" 7
             shoot_dev "$DEV" "iphone16" "llm-interval" 7
@@ -306,7 +312,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shots-071
+          name: shots-072
           path: ${{ github.workspace }}/shots
           retention-days: 30
           if-no-files-found: warn

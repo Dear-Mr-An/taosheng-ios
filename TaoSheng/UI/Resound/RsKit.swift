@@ -22,14 +22,14 @@ enum Rs {
     static let hairline = Color.black.opacity(0.04)
 
     // MARK: - 字号（RsType）
-    static let largeTitle = Font.system(size: 34, weight: .bold)
-    static let title = Font.system(size: 21, weight: .semibold)
-    static let headline = Font.system(size: 17, weight: .semibold)
-    static let body = Font.system(size: 16, weight: .regular)
-    static let subhead = Font.system(size: 14, weight: .regular)
-    static let caption = Font.system(size: 12.5, weight: .regular)
-    static let section = Font.system(size: 13.5, weight: .medium)
-    static let number = Font.system(size: 28, weight: .semibold).monospacedDigit()
+    static let largeTitle = Font.system(size: 32, weight: .bold)
+    static let title = Font.system(size: 20, weight: .semibold)
+    static let headline = Font.system(size: 16, weight: .semibold)
+    static let body = Font.system(size: 15, weight: .regular)
+    static let subhead = Font.system(size: 13, weight: .regular)
+    static let caption = Font.system(size: 12, weight: .regular)
+    static let section = Font.system(size: 13, weight: .medium)
+    static let number = Font.system(size: 26, weight: .semibold).monospacedDigit()
 
     // MARK: - 卡片圆角与内容宽度
     static let cardRadius: CGFloat = 22
@@ -558,5 +558,50 @@ struct RsDotLine: View {
             }
             .frame(width: geo.size.width, alignment: .leading)
         }
+    }
+}
+
+/// 时间线一行左滑标重点（ItemsScreens.kt 里 star 手势）：右滑出 84 宽的动作区
+struct RsStarSwipe<Content: View>: View {
+    var starred: Bool = false
+    let onStar: () -> Void
+    @ViewBuilder var content: () -> Content
+    @State private var dx: CGFloat = 0
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            Button {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { dx = 0 }
+                onStar()
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: starred ? "star.slash" : "star.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text(starred ? "取消重点" : "标重点")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundStyle(Rs.accent)
+                .frame(width: 84)
+                .frame(maxHeight: .infinity)
+            }
+            .buttonStyle(.plain)
+            .background(Rs.accentSoft)
+
+            content()
+                .background(Rs.card)
+                .offset(x: dx)
+                .gesture(
+                    DragGesture(minimumDistance: 14)
+                        .onChanged { g in
+                            if g.translation.width < 0 { dx = max(-84, g.translation.width) }
+                        }
+                        .onEnded { g in
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                                dx = g.translation.width < -44 ? -84 : 0
+                            }
+                        }
+                )
+        }
+        .clipped()
     }
 }

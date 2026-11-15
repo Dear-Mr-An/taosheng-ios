@@ -190,18 +190,14 @@ struct RsTodayScreen: View {
                     .font(Rs.section)
                     .foregroundStyle(Rs.text3)
             } content: {
-                GeometryReader { geo in
-                    let cardWidth = max(150, (geo.size.width - 12) / 2)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(pending) { it in
-                                RsPendingCard(item: it)
-                                    .frame(width: cardWidth)
-                            }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(pending) { it in
+                            RsPendingCard(item: it)
+                                .frame(width: pendingCardWidth)
                         }
                     }
                 }
-                .frame(height: 176)
             }
         }
     }
@@ -308,11 +304,11 @@ struct RsOverviewCard: View {
             Rectangle()
                 .fill(Color.white.opacity(0.3))
                 .frame(height: 0.5)
-                .padding(.top, 12)
+                .padding(.top, 10)
             digestRow
-                .padding(.top, 8)
+                .padding(.top, 6)
         }
-        .padding(EdgeInsets(top: 16, leading: 18, bottom: 14, trailing: 18))
+        .padding(EdgeInsets(top: 14, leading: 18, bottom: 12, trailing: 18))
         .background(cardBackground)
         .shadow(color: Color(hex: "E2632A").opacity(0.28), radius: 14, x: 0, y: 8)
     }
@@ -428,7 +424,11 @@ struct RsOverviewCard: View {
             stat("\(app.eventCount)", "件") {}
             stat("\(app.pendingItems.count)", "条") { onPending() }
         }
-        .padding(.top, 10)
+        .padding(.top, 8)
+    }
+
+    private var pendingCardWidth: CGFloat {
+        max(150, (UIScreen.main.bounds.width - 32 - 12) / 2)
     }
 
     private func stat(_ number: String, _ unit: String, action: @escaping () -> Void) -> some View {
@@ -576,6 +576,7 @@ struct RsTimelineLine: View {
     let event: MemoryEvent
     var onStar: (() -> Void)? = nil
     @State private var detail: MemoryEvent?
+    @State private var shotOpened = false
 
     private var quietRow: Bool { event.scene == "媒体" }
 
@@ -613,6 +614,12 @@ struct RsTimelineLine: View {
             .opacity(quietRow ? 0.55 : 1)
         }
         .buttonStyle(.plain)
+        .onAppear {
+            if ShotMode.screen == "rs-event", !shotOpened {
+                shotOpened = true
+                detail = event
+            }
+        }
         .sheet(item: $detail) { e in
             NavigationStack {
                 EventDetailView(event: e)

@@ -337,8 +337,8 @@ struct RsTopicSheet: View {
                 onClose()
             }
             HStack(spacing: 10) {
-                entry("预约专题", "到点自动开始", "clock")
-                entry("忘了点开始", "事后选一段时间", "arrow.uturn.backward")
+                RsSideEntry(title: "预约专题", note: "到点自动开始") { }
+                RsSideEntry(title: "忘了点开始", note: "事后选一段时间") { }
             }
         }
     }
