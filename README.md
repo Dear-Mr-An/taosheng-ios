@@ -31,7 +31,7 @@
 - 0.7.4（build 38）。
 - `build-ipa` 第 137 次运行（`b310eef`）通过：Swift 编译 0 warning，`swift test` 36 项全过，SQL 回归 8 项通过；产物 `dist/TaoSheng-v0.7.4.ipa`（2 129 974 字节，未签名，0.7.4 / 38）。
 - 中间 `build-ipa` 第 135 次失败过一次（`ShotMode.swift` 里新写的 `seedCardsIfNeeded()` 与文件末尾同名旧函数冲突），删掉旧函数后第 136 次通过。
-- `shots` 第 80 次运行（`b310eef`）出 74 张，其中 iPhone 16 的 `rs-*` 27 张；拼图 `.tmp/compare-0.7.4/` 共 28 张，已逐张对照。
+- `shots` 第 80 次运行（`b310eef`）出 74 张，其中 iPhone 16 的 `rs-*` 27 张；拼图 `.tmp/compare-0.7.4/` 共 27 张，已逐张对照。
 
 ### 四、还没做到 / 没验证
 
