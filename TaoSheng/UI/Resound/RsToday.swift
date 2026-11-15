@@ -299,10 +299,11 @@ struct RsOverviewCard: View {
             Rectangle()
                 .fill(Color.white.opacity(0.3))
                 .frame(height: 0.5)
-                .padding(.top, 10)
+                .padding(.top, 12)
             digestRow
+                .padding(.top, 8)
         }
-        .padding(EdgeInsets(top: 14, leading: 18, bottom: 12, trailing: 18))
+        .padding(EdgeInsets(top: 16, leading: 18, bottom: 14, trailing: 18))
         .background(cardBackground)
         .shadow(color: Color(hex: "E2632A").opacity(0.28), radius: 14, x: 0, y: 8)
     }
