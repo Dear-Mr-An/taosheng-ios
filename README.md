@@ -32,9 +32,9 @@ Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 Swift
 版本与验证：
 
 - `project.yml`：`MARKETING_VERSION 0.6.5` / `CURRENT_PROJECT_VERSION 32`。
-- 新增单测 `Tests/Policies/DigestTimingTests.swift` 六组：默认落到「转写完就整理」、老键迁移（nil / true / false）、`usesTimer`、`DigestTrigger` 四个条件缺一不可、第一档定时器永不触发、间隔与时间点两档行为与 0.6.4 一致。
-- CI `build-ipa` 0 warning 0 error、`swift test` 全绿；`dist/TaoSheng-v0.6.5.ipa` 为未签名产物，版本号 0.6.5 (32)。
-- 截图 `.tmp/shots-0.6.5/`：`iphone16-today-live` / `iphonese-today-live` 拍新的录音中英雄卡（有已录时长与段数，没有转写行、没有网络字样），`iphone16-llm` / `iphonese-llm` 拍「什么时候整理」三档（第一档「转写完就整理」为默认选中）。
+- 新增单测 `Tests/Policies/DigestTimingTests.swift` 五组：默认落到「转写完就整理」、老键迁移（nil / true / false）、`usesTimer`、`DigestTrigger` 四个条件缺一不可、第一档定时器永不触发、间隔与时间点两档行为与 0.6.4 一致。
+- CI `build-ipa #105`（提交 `2215b2f`）success：warning count 0，`swift test` 执行 36 个用例 0 失败。`dist/TaoSheng-v0.6.5.ipa` 未签名、1 681 578 字节，`Info.plist` 为 XML、3495 字节，`CFBundleShortVersionString 0.6.5`、`CFBundleVersion 32`、`CFBundleIdentifier app.taosheng.TaoSheng`、`MinimumOSVersion 16.0`。
+- `shots #47`（提交 `4106141`）success：47 张（iPhone 16 32 张、iPhone SE 15 张）。截图 `.tmp/shots-0.6.5/`：`iphone16-today-live` / `iphonese-today-live` 拍新的录音中英雄卡（有已录时长与段数，没有转写行、没有网络字样），`iphone16-llm` / `iphonese-llm` 拍「什么时候整理」三档（第一档「转写完就整理」为默认选中）。
 
 没做到 / 没验证：
 
