@@ -306,7 +306,8 @@ struct RsShell: View {
     static func tabIndex(for shot: String?) -> Int {
         switch shot ?? "" {
         case "rs-ask": return 1
-        case "rs-memory", "rs-memory-class", "rs-all": return 2`n        case "rs-event": return 0
+        case "rs-memory", "rs-memory-class", "rs-all": return 2
+        case "rs-event": return 0
         case "rs-todo": return 3
         case "rs-settings", "rs-recording", "rs-transcript", "rs-voice",
              "rs-env", "rs-location", "rs-llm": return 4

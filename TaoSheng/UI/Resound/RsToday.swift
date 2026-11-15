@@ -86,6 +86,10 @@ struct RsTodayScreen: View {
     private var events: [MemoryEvent] { dayOffset == 0 ? app.todayEvents : cachedEvents }
     private var pending: [MemoryItem] { dayOffset == 0 ? app.pendingItems : [] }
 
+    private var pendingCardWidth: CGFloat {
+        max(150, (UIScreen.main.bounds.width - 32 - 12) / 2)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -427,9 +431,6 @@ struct RsOverviewCard: View {
         .padding(.top, 8)
     }
 
-    private var pendingCardWidth: CGFloat {
-        max(150, (UIScreen.main.bounds.width - 32 - 12) / 2)
-    }
 
     private func stat(_ number: String, _ unit: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
