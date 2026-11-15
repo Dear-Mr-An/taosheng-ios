@@ -43,7 +43,7 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           if [ -f project.yml ]; then ROOT="."; else ROOT="ios"; fi
           cd "$ROOT"
-          swift test 2>&1 | tail -n 40
+          swift test 2>&1 | tail -n 120
 
       - name: 生成 Xcode 工程
         run: |

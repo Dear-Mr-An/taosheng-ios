@@ -73,9 +73,11 @@ final class DigestTimingTests: XCTestCase {
         XCTAssertTrue(DigestSchedule.shouldRun(enabled: true, timing: .clock,
                                                intervalMinutes: 5, hour: 21, now: now,
                                                lastRun: nil, calendar: calendar))
+        // 21:00 之后已经跑过一次：今天不再跑
         XCTAssertFalse(DigestSchedule.shouldRun(enabled: true, timing: .clock,
                                                 intervalMinutes: 5, hour: 21, now: now,
-                                                lastRun: now.addingTimeInterval(-60), calendar: calendar))
+                                                lastRun: now.addingTimeInterval(60), calendar: calendar))
+        // 还没到 21:00：不跑
         XCTAssertFalse(DigestSchedule.shouldRun(enabled: true, timing: .clock,
                                                 intervalMinutes: 5, hour: 21,
                                                 now: now.addingTimeInterval(-120), lastRun: nil,
