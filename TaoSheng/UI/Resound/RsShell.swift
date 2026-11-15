@@ -8,6 +8,7 @@ struct RsSettingsScreen: View {
     @ObservedObject private var app = AppState.shared
     @ObservedObject private var capture = CaptureEngine.shared
     @ObservedObject private var queue = TranscribeQueue.shared
+    @ObservedObject private var flow = ListenFlow.shared
 
     @AppStorage("appearance") private var appearance = "auto"
     @State private var query = ""
@@ -23,51 +24,52 @@ struct RsSettingsScreen: View {
                     searchBar
                     statusCard
                     group("记录") {
-                        row(RecordingSettingsView(), title: "录音与后台", detail: capture.isRunning ? "正在聆听" : "已暂停",
-                            symbol: "mic.fill", tint: Rs.accent)
+                        row(RsRecordingPage(), title: "录音与后台", detail: captureLine,
+                            symbol: "mic.fill", tint: Rs.accent, alert: captureStopped ? Rs.critical : nil)
                         line
                         row(AudioRouteInfoView(), title: "外接设备", detail: audioRouteDetail,
-                            symbol: "iphone.radiowaves.left.and.right", tint: Color(hex: "D9822B"))
+                            symbol: "iphone", tint: Color(hex: "D9822B"))
                         line
-                        row(TranscribeOverviewView(), title: "原话与转写", detail: asrDetail,
-                            symbol: "list.bullet", tint: Color(hex: "D9A02B"))
-
+                        row(RsTranscriptPage(), title: "原话与转写", detail: asrDetail,
+                            symbol: "list.bullet", tint: Color(hex: "D9A02B"), alert: settings.asrReady ? nil : Rs.warning)
                         line
-                        row(PersonsView(), title: "声纹与人物", detail: voiceDetail,
-                            symbol: "person.2.fill", tint: Color(hex: "D9534F"))
+                        row(RsVoicePage(), title: "声纹与人物", detail: voiceDetail,
+                            symbol: "person.2.fill", tint: Color(hex: "D9534F"), alert: voiceReady ? nil : Rs.warning)
                         line
-                        row(EnvironmentSoundView(), title: "环境音识别", detail: settings.envSoundOn ? "已开启" : "未开启",
+                        row(RsEnvPage(), title: "环境音识别", detail: settings.envSoundOn ? "已开启" : "未开启",
                             symbol: "waveform", tint: Color(hex: "C99A0E"))
                         line
-                        row(FootprintView(), title: "足迹", detail: settings.locationOn ? "记录全天位置" : "未开启",
+                        row(RsLocationPage(), title: "足迹", detail: settings.locationOn ? "记录全天位置" : "未开启",
                             symbol: "mappin", tint: Color(hex: "C4693C"))
                     }
                     group("整理") {
-                        row(LLMSettingsView(), title: "模型与整理时间", detail: settings.llmReady ? settings.llmModel : "未填密钥",
-                            symbol: "brain", tint: Color(hex: "E0603A"))
+                        row(RsModelPage(), title: "模型与整理时间", detail: modelLine,
+                            symbol: "sparkles", tint: Color(hex: "E0603A"), alert: settings.llmReady ? nil : Rs.critical)
                         line
                         row(SkillsView(), title: "整理技能", detail: "开了 \(app.skills.filter { $0.enabled }.count) 个",
-                            symbol: "wand.and.stars", tint: Color(hex: "8A7BE0"))
-                        line
-                        row(HotwordView(), title: "热词识别", detail: app.hotwords.isEmpty ? "未添加" : "\(app.hotwords.count) 个词",
-                            symbol: "character.book.closed.fill", tint: Color(hex: "4F86C6"))
+                            symbol: "square.grid.2x2.fill", tint: Color(hex: "8A7BE0"))
                         line
                         row(ChannelsView(), title: "推送通道", detail: app.channels.isEmpty ? "只发手机通知" : "\(app.channels.count) 个通道",
                             symbol: "paperplane.fill", tint: Rs.good)
                     }
                     group("数据") {
                         row(BackupView(), title: "数据备份", detail: settings.backupKind == .none ? "未开启" : settings.backupKind.title,
-                            symbol: "externaldrive.fill", tint: Color(hex: "6B8E23"))
+                            symbol: "externaldrive.fill", tint: Color(hex: "4F86C6"))
+                    }
+                    group("通用") {
+                        row(ReviewSettingsView(), title: "回顾与提醒", detail: "每天 \(settings.reviewHour):00",
+                            symbol: "text.badge.checkmark", tint: Color(hex: "D9A02B"))
+                        line
+                        row(AboutView(), title: "关于涛声", detail: version, symbol: "info.circle.fill", tint: Color(hex: "8A847C"))
+                    }
+                    group("高级与诊断") {
+                        row(HotwordView(), title: "热词识别", detail: app.hotwords.isEmpty ? "未添加" : "\(app.hotwords.count) 个词",
+                            symbol: "character.book.closed.fill", tint: Color(hex: "6E5FA6"))
                         line
                         row(PrivacyView(), title: "隐私与数据", detail: "原录音保留 \(settings.keepAudioDays) 天",
-                            symbol: "lock.shield.fill", tint: Rs.text2)
+                            symbol: "lock.shield.fill", tint: Color(hex: "8C7652"))
                     }
-                    group("关于") {
-                        row(ReviewSettingsView(), title: "回顾与提醒", detail: "每天 \(settings.reviewHour):00",
-                            symbol: "text.badge.checkmark", tint: Color(hex: "B4762E"))
-                        line
-                        row(AboutView(), title: "关于涛声", detail: version, symbol: "info.circle.fill", tint: Rs.text2)
-                    }
+
                     Text("录音、转写和整理结果都只存在这台手机上，没有账号，也没有我们的服务器。")
                         .font(Rs.caption)
                         .foregroundStyle(Rs.text3)
@@ -98,11 +100,28 @@ struct RsSettingsScreen: View {
         return "\(asrProvider) · \(every)"
     }
 
-    /// 原版写「● 还差 3 段样本」
+    /// 原版写「还差 3 段样本」，前面亮一个橙色点（靠 alert 传色）
     private var voiceDetail: String {
         let total = app.persons.reduce(0) { $0 + $1.sampleCount }
-        if total < 3 { return "● 还差 \(3 - total) 段样本" }
+        if total < 3 { return "还差 \(3 - total) 段样本" }
         return "人物 · \(app.persons.count)"
+    }
+
+    private var voiceReady: Bool { app.persons.reduce(0) { $0 + $1.sampleCount } >= 3 }
+
+    private var captureLine: String {
+        if capture.isRunning { return "正在聆听" }
+        if flow.isRecording { return "正在录音" }
+        return "已暂停"
+    }
+
+    private var captureStopped: Bool { !capture.isRunning && !flow.isRecording }
+
+    /// 原版写「DeepSeek · 每 30 分钟」/「未设置」
+    private var modelLine: String {
+        if !settings.llmReady { return "未设置" }
+        let m = settings.digestTiming == .clock ? "每天 \(settings.digestHour) 点" : (settings.digestIntervalMin < 60 ? "每 \(settings.digestIntervalMin) 分钟" : "每 \(settings.digestIntervalMin / 60) 小时")
+        return "\(settings.llmModel) · \(m)"
     }
 
     /// 原版这一行显示外接麦克风状态；iOS 走系统输入路由
@@ -162,57 +181,69 @@ struct RsSettingsScreen: View {
             .shadow(color: Rs.shadow, radius: 10, x: 0, y: 4))
     }
 
-    private var line: some View {
-        Rectangle()
-            .fill(Rs.separator)
-            .frame(height: 0.5)
-            .padding(.leading, 70)
-    }
-
-    private func group<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(Rs.section)
-                .foregroundStyle(Rs.text3)
-                .padding(.leading, 4)
-            VStack(spacing: 0) { content() }
-                .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card)
-                    .shadow(color: Rs.shadow, radius: 10, x: 0, y: 4))
-        }
-    }
-
-    private func row<D: View>(_ dest: D, title: String, detail: String, symbol: String, tint: Color) -> some View {
+    /// 一行：彩色圆角方块图标 + 标题 + 右侧状态 + ›（SettingsHome.kt SRow）
+    private func row<D: View>(_ dest: D, title: String, detail: String,
+                              symbol: String, tint: Color, alert: Color? = nil) -> some View {
         NavigationLink {
             dest
         } label: {
             HStack(spacing: 12) {
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(tint)
-                    .frame(width: 40, height: 40)
-                    .overlay(Image(systemName: symbol)
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(Color.white))
+                    .frame(width: 28, height: 28)
+                    .overlay(
+                        Image(systemName: symbol)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                    )
                 Text(title)
-                    .font(Rs.headline)
+                    .font(Rs.body)
                     .foregroundStyle(Rs.text)
-                Spacer(minLength: 8)
-                Text(detail)
-                    .font(Rs.subhead)
-                    .foregroundStyle(Rs.text3)
                     .lineLimit(1)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .fixedSize()
+                Spacer(minLength: 8)
+                HStack(spacing: 6) {
+                    if alert != nil, !detail.isEmpty {
+                        Circle().fill(alert!).frame(width: 7, height: 7)
+                    }
+                    Text(detail)
+                        .font(Rs.subhead)
+                        .foregroundStyle(alert ?? Rs.text3)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .layoutPriority(1)
+                Text("›")
+                    .font(.system(size: 17))
                     .foregroundStyle(Rs.text3)
             }
-            .padding(EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14))
+            .frame(minHeight: 50)
+            .padding(.leading, 14)
+            .padding(.trailing, 16)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
+
+    private func group<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(Rs.section)
+                .foregroundStyle(Rs.text3)
+                .padding(.leading, 4)
+            RsCard(padding: EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0)) {
+                content()
+            }
+        }
+    }
+
+    private var line: some View {
+        Rectangle()
+            .fill(Rs.separator)
+            .frame(height: 0.5)
+            .padding(.leading, 54)
+    }
 }
-
-// MARK: - 底部 TabBar（AppShell.kt TabBar）
-
 struct RsTabBar: View {
     @Binding var tab: Int
     private let titles = ["今天", "问问", "记忆", "待办", "设置"]

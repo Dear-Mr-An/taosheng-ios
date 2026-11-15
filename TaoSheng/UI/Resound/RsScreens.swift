@@ -131,52 +131,28 @@ struct RsAskScreen: View {
 }
 
 /// 建议胶囊：自动换行（原版是 FlowRow）
+/// 问问页的建议问题：原版是 FlowRow，一行能放两个
 struct FlowChips: View {
     let items: [String]
     let onTap: (String) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(rows, id: \.self) { row in
-                HStack(spacing: 8) {
-                    ForEach(row, id: \.self) { s in
-                        Button { onTap(s) } label: {
-                            Text(s)
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(Rs.accent)
-                                .padding(.horizontal, 17)
-                                .padding(.vertical, 11)
-                                .background(Capsule(style: .continuous).fill(Rs.accentSoft))
-                        }
-                        .buttonStyle(RsSpringButtonStyle())
-                    }
-                    Spacer(minLength: 0)
+        RsFlowLayout(spacing: 8, lineSpacing: 8) {
+            ForEach(items, id: \.self) { s in
+                Button { onTap(s) } label: {
+                    Text(s)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Rs.accent)
+                        .lineLimit(1)
+                        .padding(.horizontal, 17)
+                        .padding(.vertical, 11)
+                        .background(Capsule(style: .continuous).fill(Rs.accentSoft))
                 }
+                .buttonStyle(RsSpringButtonStyle())
             }
         }
-    }
-
-    /// 按字数粗估两列，够用且不引入布局依赖
-    private var rows: [[String]] {
-        var out: [[String]] = []
-        var cur: [String] = []
-        var width = 0
-        for s in items {
-            let w = s.count * 15 + 40
-            if width + w > 356, !cur.isEmpty {
-                out.append(cur)
-                cur = [s]
-                width = w
-            } else {
-                cur.append(s)
-                width += w + 8
-            }
-        }
-        if !cur.isEmpty { out.append(cur) }
-        return out
     }
 }
-
 struct RsAskBubble: View {
     let message: AskMessage
 
@@ -243,6 +219,8 @@ struct RsMemoryScreen: View {
     @State private var notes: [MemoryEvent] = []
     @State private var filter = 0
     @State private var showMonth = false
+    @State private var categorySel = 0
+    @State private var dayItems: [MemoryItem] = []
 
     private var dayKey: String { DayKey.of(selectedDay) }
 
@@ -250,10 +228,15 @@ struct RsMemoryScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
-                calendarCard
-                reviewCard
-                cardsSection
-                timelineSection
+                if byDay {
+                    calendarCard
+                    reviewCard
+                    cardsSection
+                    timelineSection
+                } else {
+                    categoryCapsules
+                    categoryCards
+                }
                 Color.clear.frame(height: Rs.shellBottom + 24)
             }
             .padding(.horizontal, 16)
@@ -261,7 +244,10 @@ struct RsMemoryScreen: View {
         }
         .background(Rs.bg)
         .scrollIndicators(.hidden)
-        .onAppear { load() }
+        .onAppear {
+            if ShotMode.screen == "rs-memory-class" { byDay = false }
+            load()
+        }
         .onChange(of: selectedDay) { _ in load() }
         .onReceive(NotificationCenter.default.publisher(for: .taoshengDataChanged)) { _ in load() }
     }
@@ -289,19 +275,20 @@ struct RsMemoryScreen: View {
                 seg("按类", on: !byDay) { byDay = false }
             }
             .padding(3)
-            .background(Capsule(style: .continuous).fill(Rs.track))
+            .background(Capsule(style: .continuous).fill(Rs.card))
         }
         .padding(.horizontal, 4)
     }
 
+    /// 按天 / 按类（ItemsScreens.kt ModeSwitch：选中浅橙底橙字）
     private func seg(_ t: String, on: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(t)
-                .font(.system(size: 14, weight: on ? .semibold : .regular))
-                .foregroundStyle(on ? Rs.text : Rs.text2)
-                .padding(.horizontal, 14)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(on ? Rs.accent : Rs.text2)
+                .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(Capsule(style: .continuous).fill(on ? Rs.card : Color.clear))
+                .background(Capsule(style: .continuous).fill(on ? Rs.accentSoft : Color.clear))
         }
         .buttonStyle(.plain)
     }
@@ -454,7 +441,7 @@ struct RsMemoryScreen: View {
 
     private var cardsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            RsSection(title: "卡片") {
+            memSection(title: "卡片", trailing: "\(skillCards.count) 张") {
                 Button {
                     generateCard()
                 } label: {
@@ -504,7 +491,7 @@ struct RsMemoryScreen: View {
 
     private var timelineSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            RsSection(title: "时间线 · \(events.count) 件事") {
+            memSection(title: "时间线", trailing: "\(events.count) 件事", showsEarlyFirst: true) {
                 Text("↓ 早的在上")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Rs.text2)
@@ -539,6 +526,122 @@ struct RsMemoryScreen: View {
         }
     }
 
+    // MARK: 按类（ItemsScreens.kt 的分类胶囊 + 分组列表）
+
+    private var categoryNames: [String] {
+        var seen: [String] = []
+        for it in dayItems where !it.category.isEmpty && !seen.contains(it.category) { seen.append(it.category) }
+        return ["全部"] + seen
+    }
+
+    private var categoryCapsules: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Array(categoryNames.enumerated()), id: \.offset) { i, name in
+                    let on = categorySel == i
+                    Button {
+                        withAnimation(.easeOut(duration: 0.14)) { categorySel = i }
+                    } label: {
+                        Text(name)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(on ? Color.white : Rs.text2)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Capsule(style: .continuous).fill(on ? Rs.accent : Rs.card))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+
+    private var categoryGroups: [(String, [MemoryItem])] {
+        let all = categorySel == 0 ? dayItems : dayItems.filter { $0.category == categoryNames[categorySel] }
+        var order: [String] = []
+        var buckets: [String: [MemoryItem]] = [:]
+        for it in all {
+            let key = it.category.isEmpty ? "其他" : it.category
+            if buckets[key] == nil { order.append(key); buckets[key] = [] }
+            buckets[key]?.append(it)
+        }
+        return order.map { ($0, buckets[$0] ?? []) }
+    }
+
+    private var categoryCards: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if dayItems.isEmpty {
+                Text("这天还没有整理出内容。录了音、整理过，就会按类别归到这里。")
+                    .font(Rs.subhead)
+                    .foregroundStyle(Rs.text3)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 40)
+            }
+            ForEach(categoryGroups, id: \.0) { name, list in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("\(name) · \(list.count) 条")
+                        .font(Rs.caption)
+                        .foregroundStyle(Rs.text3)
+                        .padding(.leading, 4)
+                    RsCard(padding: EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0)) {
+                        ForEach(Array(list.enumerated()), id: \.element.id) { i, it in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(it.content)
+                                    .font(Rs.body)
+                                    .foregroundStyle(Rs.text)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                HStack(spacing: 6) {
+                                    RsCategoryChip(category: it.category, kind: it.kind)
+                                    if let due = it.dueDisplay, !due.isEmpty {
+                                        Text(due).font(Rs.caption).foregroundStyle(Rs.accent)
+                                    }
+                                    Spacer(minLength: 0)
+                                    Text(it.status == .done ? "已完成" : (it.status == .ignored ? "已忽略" : ""))
+                                        .font(Rs.caption)
+                                        .foregroundStyle(Rs.text3)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            if i < list.count - 1 {
+                                Rectangle().fill(Rs.separator).frame(height: 0.5).padding(.leading, 16)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// 原版记忆页的小节标题：20 号粗体 + 灰色数量，右侧可放「早的在上」
+    private func memSection<Trailing: View>(title: String, trailing: String,
+                                            showsEarlyFirst: Bool = false,
+                                            @ViewBuilder content: () -> Trailing) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(Rs.text)
+                Text(trailing)
+                    .font(Rs.subhead)
+                    .foregroundStyle(Rs.text3)
+                Spacer(minLength: 0)
+                if showsEarlyFirst {
+                    Text("↓ 早的在上")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Rs.text2)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Capsule(style: .continuous).fill(Rs.card))
+                }
+            }
+            .padding(.horizontal, 4)
+            content()
+        }
+    }
+
     private var mediaCount: Int { events.filter { $0.scene == "媒体" }.count }
 
     private struct Group { let name: String; let items: [MemoryEvent] }
@@ -565,6 +668,7 @@ struct RsMemoryScreen: View {
     private func load() {
         events = Store.shared.events(day: dayKey, limit: 400)
         notes = events.filter { $0.isNote }
+        dayItems = Store.shared.items(day: dayKey, openOnly: false)
         app.refreshDay(dayKey)
     }
 

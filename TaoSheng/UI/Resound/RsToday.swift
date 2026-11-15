@@ -101,18 +101,22 @@ struct RsTodayScreen: View {
         }
         .background(Rs.bg)
         .scrollIndicators(.hidden)
-        .sheet(isPresented: $showListen) {
-            RsListenSheet()
-                .presentationDetents([.large])
-        }
-        .sheet(isPresented: $showTopic) {
-            RsTopicSheet()
-                .presentationDetents([.large])
-                .presentationDragIndicator(.hidden)
-        }
-        .sheet(isPresented: $showSearch) {
-            RsRecordSearchSheet()
-                .presentationDetents([.large])
+        .overlay {
+            if showListen {
+                RsBottomSheet(tall: true, onClose: { showListen = false }) {
+                    RsListenSheet(onClose: { showListen = false })
+                }
+            }
+            if showTopic {
+                RsBottomSheet(tall: true, onClose: { showTopic = false }) {
+                    RsTopicSheet(onClose: { showTopic = false })
+                }
+            }
+            if showSearch {
+                RsBottomSheet(onClose: { showSearch = false }) {
+                    RsRecordSearchSheet(onClose: { showSearch = false })
+                }
+            }
         }
         .onAppear {
             load()
@@ -509,12 +513,13 @@ struct RsPendingCard: View {
                 }
             }
             Text(item.content)
-                .font(.system(size: 13)).lineSpacing(4)
+                .font(.system(size: 13))
+                .lineSpacing(5)
                 .foregroundStyle(Rs.text)
-                .lineLimit(2)
+                .lineLimit(2, reservesSpace: true)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 8)
-            Spacer(minLength: 6)
+                .padding(.top, 7)
             HStack(spacing: 8) {
                 SmallPill(text: "忽略", filled: false) {
                     app.setItemStatus(item.id, status: .ignored)
@@ -523,9 +528,10 @@ struct RsPendingCard: View {
                     app.setItemStatus(item.id, status: .accepted)
                 }
             }
+            .padding(.top, 9)
         }
         .padding(EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14))
-        .frame(maxHeight: .infinity, alignment: .top)
+        .fixedSize(horizontal: false, vertical: true)
         .background(
             RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous)
                 .fill(Rs.accentSoft)

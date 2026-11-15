@@ -438,43 +438,89 @@ struct RsBreathingWave: View {
     }
 }
 
+/// 实心选择胶囊（ListenSheet.kt Choice：选中橙底白字，未选浅底灰字）
+struct RsSolidPill: View {
+    let text: String
+    var on: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(on ? Color.white : Rs.text2)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(on ? Rs.accent : Rs.fill)
+                )
+        }
+        .buttonStyle(RsSpringButtonStyle())
+    }
+}
+
+/// 抽屉底部的次要入口（TopicUi.kt SideEntry：没有图标，只有标题 + 说明 + ›）
+struct RsSideEntry: View {
+    let title: String
+    let note: String
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Rs.text)
+                        .lineLimit(1)
+                    Text(note)
+                        .font(Rs.caption)
+                        .foregroundStyle(Rs.text3)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Text("›")
+                    .font(.system(size: 17))
+                    .foregroundStyle(Rs.text3)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Rs.fill)
+            )
+        }
+        .buttonStyle(RsSpringButtonStyle())
+    }
+}
+
 // MARK: - 底部抽屉
 
-/// 原版 RsSheet：顶部圆角、抓手、大标题 + 一句说明，内容自己滚
+/// 抽屉里的内容区（原版 RsSheet：标题 20/26 SemiBold、副标题 13 灰、段间 12、内边距 20/28）
 struct RsSheetBody<Content: View>: View {
     let title: String
     var subtitle: String? = nil
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Capsule()
-                .fill(Rs.track)
-                .frame(width: 54, height: 5)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 10)
-                .padding(.bottom, 14)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(title)
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundStyle(Rs.text)
-                    if let s = subtitle, !s.isEmpty {
-                        Text(s)
-                            .font(.system(size: 15))
-                            .foregroundStyle(Rs.text2)
-                    }
-                    content()
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 30)
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(Rs.text)
+            if let s = subtitle, !s.isEmpty {
+                Text(s)
+                    .font(Rs.subhead)
+                    .foregroundStyle(Rs.text2)
             }
+            Color.clear.frame(height: 2)
+            content()
         }
-        .background(Rs.card)
-        .presentationDragIndicator(.hidden)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 28)
     }
 }
-
 /// 小号灰色标签（TopicUi.kt Label / ListenSheet.kt Label）
 struct RsLabel: View {
     let text: String

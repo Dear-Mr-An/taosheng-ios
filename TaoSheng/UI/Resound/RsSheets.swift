@@ -27,6 +27,17 @@ enum RsTopicKind: String, CaseIterable, Identifiable {
         }
     }
 
+    /// 原版 kindIcon()：meeting / bulb / chat / mic / timeline
+    var glyph: String {
+        switch self {
+        case .meeting: return "meeting"
+        case .training: return "bulb"
+        case .call: return "chat"
+        case .script: return "mic"
+        case .normal: return "timeline"
+        }
+    }
+
     var hint: String {
         switch self {
         case .meeting: return "多人讨论，结束后出会议纪要"
@@ -60,21 +71,19 @@ struct RsTopicKindPicker: View {
             ForEach(RsTopicKind.allCases) { k in
                 let on = k == kind
                 Button {
-                    withAnimation(.easeOut(duration: 0.16)) { kind = k }
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { kind = k }
                 } label: {
-                    VStack(spacing: 6) {
-                        Image(systemName: k.symbol)
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundStyle(on ? Rs.accent : Rs.text2)
-                            .frame(height: 22)
-                        Text(k.title)
-                            .font(Rs.caption)
+                    VStack(spacing: 7) {
+                        RsSkillIcon(icon: k.glyph, size: 30)
+                        Text(k.title.replacingOccurrences(of: " / ", with: "·"))
+                            .font(.system(size: 12.5, weight: on ? .semibold : .medium))
                             .foregroundStyle(on ? Rs.text : Rs.text2)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.8)
+                            .fixedSize()
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+                    .padding(.top, 12)
+                    .padding(.bottom, 10)
                     .background(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .fill(on ? Rs.accentSoft : Rs.fill)
@@ -89,7 +98,6 @@ struct RsTopicKindPicker: View {
         }
     }
 }
-
 /// 名字输入（TopicUi.kt NameInput）
 struct RsNameInput: View {
     @Binding var text: String
@@ -132,13 +140,17 @@ struct RsListenSheet: View {
     @ObservedObject private var quiet = RsQuiet.shared
     @ObservedObject private var flow = ListenFlow.shared
 
-    @Environment(\.dismiss) private var dismiss
 
     @State private var pauseMinutes = RsQuiet.shared.lastPauseMinutes
     @State private var kind: RsTopicKind = .meeting
     @State private var name = ""
     @State private var endChoice = 0
     @State private var eraseMinutes = 10
+
+    /// 关掉抽屉（换成自定义抽屉后不再用环境 dismiss）
+    var onClose: () -> Void = {}
+
+    @State private var sideNote: String?
 
     private let pauseChoices = [15, 30, 60, 120]
     private let eraseChoices = [10, 30, 60]
@@ -163,7 +175,7 @@ struct RsListenSheet: View {
                     RsLabel("暂停多久")
                     HStack(spacing: 8) {
                         ForEach(pauseChoices, id: \.self) { m in
-                            RsChoicePill(text: m < 60 ? "\(m) 分钟" : "\(m / 60) 小时", on: pauseMinutes == m) {
+                            RsSolidPill(text: m < 60 ? "\(m) 分钟" : "\(m / 60) 小时", on: pauseMinutes == m) {
                                 pauseMinutes = m
                             }
                         }
@@ -174,7 +186,7 @@ struct RsListenSheet: View {
                         } else {
                             quiet.pause(minutes: pauseMinutes)
                         }
-                        dismiss()
+                        onClose()
                     }
                 }
                 divider
@@ -205,8 +217,14 @@ struct RsListenSheet: View {
                 start()
             }
             HStack(spacing: 10) {
-                sideEntry("预约专题", "到点自动开始", symbol: "clock")
-                sideEntry("忘了点开始", "事后选一段时间", symbol: "arrow.uturn.backward")
+                RsSideEntry(title: "预约专题", note: "到点自动开始") { sideNote = "预约专题要按日历排时间，这一版还没做。" }
+                RsSideEntry(title: "忘了点开始", note: "事后选一段时间") { sideNote = "事后补选要挑时间段重录，这一版还没做。" }
+            }
+            if let sideNote {
+                Text(sideNote)
+                    .font(Rs.caption)
+                    .foregroundStyle(Rs.text3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -225,30 +243,12 @@ struct RsListenSheet: View {
             }
             RsActionButton(title: "结束这一场", kind: .primary) {
                 flow.stop()
-                dismiss()
+                onClose()
             }
             Text("结束后整场分说话人，再整理成速记。")
                 .font(Rs.subhead)
                 .foregroundStyle(Rs.text2)
         }
-    }
-
-    private func sideEntry(_ title: String, _ detail: String, symbol: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: symbol)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Rs.text3)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(Rs.subhead).foregroundStyle(Rs.text)
-                Text(detail).font(Rs.caption).foregroundStyle(Rs.text3)
-            }
-            Spacer(minLength: 0)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Rs.text3)
-        }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Rs.fill))
     }
 
     // 删掉哪段时间
@@ -257,7 +257,7 @@ struct RsListenSheet: View {
             RsLabel("不想留的话：删掉哪段时间")
             HStack(spacing: 8) {
                 ForEach(eraseChoices, id: \.self) { m in
-                    RsChoicePill(text: "\(m) 分钟", on: eraseMinutes == m) { eraseMinutes = m }
+                    RsSolidPill(text: "\(m) 分钟", on: eraseMinutes == m) { eraseMinutes = m }
                 }
             }
             RsActionButton(title: "删掉最近 \(eraseMinutes) 分钟的录音", kind: .danger) {
@@ -279,7 +279,7 @@ struct RsListenSheet: View {
         }
         if quiet.isQuiet { quiet.resume() }
         flow.start(mode: kind.mode)
-        dismiss()
+        onClose()
     }
 }
 
@@ -289,7 +289,7 @@ struct RsTopicSheet: View {
     @ObservedObject private var flow = ListenFlow.shared
     @ObservedObject private var app = AppState.shared
 
-    @Environment(\.dismiss) private var dismiss
+    var onClose: () -> Void = {}
 
     @State private var tab = 0
     @State private var kind: RsTopicKind = .meeting
@@ -334,7 +334,7 @@ struct RsTopicSheet: View {
             RsEndChoices(choice: $endChoice)
             RsActionButton(title: kind.buttonTitle, enabled: !flow.working) {
                 flow.start(mode: kind.mode)
-                dismiss()
+                onClose()
             }
             HStack(spacing: 10) {
                 entry("预约专题", "到点自动开始", "clock")
@@ -402,7 +402,7 @@ struct RsTopicSheet: View {
 // MARK: - 搜索记录（RecordSearchSheet.kt）
 
 struct RsRecordSearchSheet: View {
-    @Environment(\.dismiss) private var dismiss
+    var onClose: () -> Void = {}
 
     @State private var query = ""
     @State private var segments: [Segment] = []
@@ -411,7 +411,6 @@ struct RsRecordSearchSheet: View {
     var body: some View {
         RsSheetBody(title: "搜索记录") {
             HStack(spacing: 9) {
-                RsMagnifier(ink: Rs.text3).frame(width: 18, height: 18)
                 TextField("搜原话或事件，空格分开多个词", text: $query)
                     .font(Rs.body)
                     .foregroundStyle(Rs.text)
