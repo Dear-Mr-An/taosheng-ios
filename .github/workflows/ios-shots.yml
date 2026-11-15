@@ -265,23 +265,23 @@ jobs:
             shoot_dev "$DEV" "iphone16" "rs-listen" 8
             shoot_dev "$DEV" "iphone16" "rs-topic" 8
             shoot_dev "$DEV" "iphone16" "rs-search" 7
-          shoot_dev "$DEV" "iphone16" "rs-memory-class" 8
-          shoot_dev "$DEV" "iphone16" "rs-recording" 7
-          shoot_dev "$DEV" "iphone16" "rs-transcript" 7
-          shoot_dev "$DEV" "iphone16" "rs-voice" 7
-          shoot_dev "$DEV" "iphone16" "rs-env" 7
-          shoot_dev "$DEV" "iphone16" "rs-location" 7
-          shoot_dev "$DEV" "iphone16" "rs-llm" 8
-  shoot_dev "$DEV" "iphone16" "rs-recording-b" 9
-  shoot_dev "$DEV" "iphone16" "rs-transcript-b" 9
-  shoot_dev "$DEV" "iphone16" "rs-llm-b" 9
-  shoot_dev "$DEV" "iphone16" "rs-location-b" 9
-  shoot_dev "$DEV" "iphone16" "rs-event" 7
-  shoot_dev "$DEV" "iphone16" "rs-all" 7
+            shoot_dev "$DEV" "iphone16" "rs-memory-class" 8
+            shoot_dev "$DEV" "iphone16" "rs-recording" 7
+            shoot_dev "$DEV" "iphone16" "rs-transcript" 7
+            shoot_dev "$DEV" "iphone16" "rs-voice" 7
+            shoot_dev "$DEV" "iphone16" "rs-env" 7
+            shoot_dev "$DEV" "iphone16" "rs-location" 7
+            shoot_dev "$DEV" "iphone16" "rs-llm" 8
+            shoot_dev "$DEV" "iphone16" "rs-recording-b" 9
+            shoot_dev "$DEV" "iphone16" "rs-transcript-b" 9
+            shoot_dev "$DEV" "iphone16" "rs-llm-b" 9
+            shoot_dev "$DEV" "iphone16" "rs-location-b" 9
+            shoot_dev "$DEV" "iphone16" "rs-event" 7
+            shoot_dev "$DEV" "iphone16" "rs-all" 7
             shoot_dev "$DEV" "iphone16" "review-meetings" 8
             shoot_dev "$DEV" "iphone16" "todo-pending" 7
             shoot_dev "$DEV" "iphone16" "llm-interval" 7
-          shoot_dev "$DEV" "iphone16" "about" 7
+            shoot_dev "$DEV" "iphone16" "about" 7
             tmo 60 xcrun simctl shutdown "$DEV" 2>/dev/null || true
           fi
           if [ -n "$SMALL" ]; then
