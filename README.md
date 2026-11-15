@@ -1,7 +1,46 @@
-﻿# 涛声 iOS
+# 涛声 iOS
 
 Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 SwiftUI 重写，iOS 16+，无第三方运行依赖。
 全天收音 → 人声切片 → 转写 → DeepSeek 整理事件、待办和记忆。数据使用本机 SQLite。
+
+
+0.6.5 第十一轮（真机反馈：点「开始聆听」一直等网络，改成点开就录、后台转、转出字就整理，2026-11-15）
+
+真机上装 0.6.4 后，点「开始聆听」英雄卡一直显示「等网络后转写」，录音转不出文字，等于用不了。
+
+原因有三处，都在代码里核过：
+
+- 设置里 `wifiOnlyTranscribe` 默认是 `true`，蜂窝网络下 `NetWatcher.canUpload` 永远是 `false`，`TranscribeQueue` 的每一轮都被这句 guard 挡回去。
+- `NetWatcher` 不是 `ObservableObject`，界面拿不到链路变化，网络恢复了界面也不知道。
+- 会话里的切段被单独提速到「停顿 0.8 秒 / 最长 20 秒」，而且每落一段就 `tick(live: true)` 催一次转写；段又碎又多，配合上面那条「等 WiFi」，英雄卡就一直停在「等网络」。
+
+董事长要的其实很简单：点聆听就开始录，后台按设置里的「多久转写一次」转文字，转出文字就整理。实时转写这一套不要了。这一版按这个改：
+
+1. 去掉实时转写。英雄卡录音中只显示「正在聆听 · 会议/培训」、已录时长（每秒走）、「已录 N 段，后台每 X 分钟转写一次」，以及「结束」按钮；`liveTranscript`、「转写中…」「等网络后转写」全部删掉，界面上不再出现任何网络等待字样。
+2. 会话里的段不再特殊。`CaptureEngine` 删掉 0.8 秒 / 20 秒的实时阈值，切段按这一场锁定的模式走（会议 2.5 秒静音断句、单段上限 300 秒），最短时长也用设置里的值；段落地不再调 `tick(live:)`。`TranscribeQueue` 的 `live` 参数、`CaptureMode.liveSilenceGap` / `liveMaxSegment` 一起删掉。
+3. `wifiOnlyTranscribe` 默认改成 `false`：蜂窝也照转。开关保留，文案写清「打开后，用流量时不转写，连上 WiFi 再补」。
+4. 点「结束」后的收尾（整场分说话人 → 整理 → 推送）保留，而且不受「只在 WiFi 下转写」限制——收尾走的是 `SessionTranscriber`，不看 `NetWatcher`。真没网时英雄卡显示「没有网络，联网后自动继续」：`NetWatcher` 加了 `.taoshengNetworkRestored` 通知（只在「断→通」那一刻发），`ListenFlow` 订阅后自动接着做失败的那一步，用户不用回来点重试。
+5. 「什么时候整理」多了一档「转写完就整理」，放在第一个并作为默认（新增 `TaoSheng/Core/Policies/DigestTiming.swift`，纯逻辑好单测）。选它时 `TranscribeQueue` 每轮转完，只要真转出了新文字，就调 `DigestEngine.afterTranscribeRound` 立刻整理零散段；会话里的段仍然留到点「结束」时整场整理（`performDigest` 里那句 `session_id` 过滤没动）。另外两档（按间隔、按时间点）行为和 0.6.4 完全一样。第一档不跑定时器，所以另外加了开机补一次（`catchUpAfterLaunch`），上次没整理完的零散段不会漏。
+6. 老数据迁移：0.6.4 之前只存了 `digestByInterval`。`true` 是老版本的默认值（等于没选过），升级后落到「转写完就整理」；`false` 说明用户主动切过「按时间点」，保留。全新安装直接就是「转写完就整理」。
+7. 「转写与原话」页的状态行也改了：按设置现在不能上传时写「当前网络按设置不转，连上 WiFi 自动继续」，能转时照旧写「约 N 分钟后下一轮」。`NetWatcher` 变成 `ObservableObject` 后这页会跟着网络变化刷新。
+
+回归检查：
+
+- 卡在 `recording` 的老会话：启动时 `ListenFlow.resumeAfterLaunch()` 会把它改成 `finalizing` 并按已有段收尾；收尾失败会落到 `failed`，英雄卡给「重试」，网络恢复也会自动重试，不会一直卡在「正在聆听」。
+- 「转写与原话」页的待转写数量来自 `Store.pendingSegments`，下一轮时间来自 `lastRunAt + transcribeIntervalMin`，没有待转写或现在传不出去时给 `nil`，不会写出「约 0 分钟后」这种不会发生的时刻。
+
+版本与验证：
+
+- `project.yml`：`MARKETING_VERSION 0.6.5` / `CURRENT_PROJECT_VERSION 32`。
+- 新增单测 `Tests/Policies/DigestTimingTests.swift` 六组：默认落到「转写完就整理」、老键迁移（nil / true / false）、`usesTimer`、`DigestTrigger` 四个条件缺一不可、第一档定时器永不触发、间隔与时间点两档行为与 0.6.4 一致。
+- CI `build-ipa` 0 warning 0 error、`swift test` 全绿；`dist/TaoSheng-v0.6.5.ipa` 为未签名产物，版本号 0.6.5 (32)。
+- 截图 `.tmp/shots-0.6.5/`：`iphone16-today-live` / `iphonese-today-live` 拍新的录音中英雄卡（有已录时长与段数，没有转写行、没有网络字样），`iphone16-llm` / `iphonese-llm` 拍「什么时候整理」三档（第一档「转写完就整理」为默认选中）。
+
+没做到 / 没验证：
+
+- 没上真机跑过：本轮只在模拟器上验证界面与流程，真机上的后台音频、蜂窝网络切换、锁屏后的转写节奏都没实测。董事长真机上的复验是下一步。
+- 没有真实的豆包 / DeepSeek 密钥，所以「转出文字立刻整理」在真实接口下的延迟、费用没测；逻辑与单测覆盖的是触发条件，不是真实时延。
+- 打开「只在 WiFi 下转写」后从蜂窝切到 WiFi 的自动补转，靠的是 30 秒定时器轮询 `canUpload`，不是链路一恢复就立刻转，最多晚半分钟。
 
 
 0.6.4 第十轮（时间轴高亮跟着列表顶部走，2026-11-15）
