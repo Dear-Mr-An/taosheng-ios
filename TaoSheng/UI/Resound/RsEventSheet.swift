@@ -56,6 +56,7 @@ struct RsEventSheet: View {
             .padding(.top, 18)
         }
         .background(Rs.bg)
+        .presentationBackground(Rs.bg)
         .task { await load() }
     }
 
@@ -108,8 +109,8 @@ struct RsEventSheet: View {
                     .font(.system(size: 14))
                     .foregroundStyle(Rs.text3)
                 Spacer(minLength: 0)
-                pill("▶ 播放这件事", filled: false) { playAll() }
-                pill("导出", filled: false) {
+                compactPill("▶ 播放这件事") { playAll() }
+                compactPill("导出") {
                     UIPasteboard.general.string = lines.map { $0.transcript }.joined(separator: "\n")
                 }
             }
@@ -203,6 +204,18 @@ struct RsEventSheet: View {
             }
         }
         .padding(.top, 6)
+    }
+
+    private func compactPill(_ text: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundStyle(Rs.accent)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Capsule(style: .continuous).fill(Rs.accentSoft))
+        }
+        .buttonStyle(.plain)
     }
 
     private func pill(_ text: String, filled: Bool, danger: Bool = false, action: @escaping () -> Void) -> some View {
