@@ -293,10 +293,24 @@ struct RsShell: View {
     static func tabIndex(for shot: String?) -> Int {
         switch shot ?? "" {
         case "rs-ask": return 1
-        case "rs-memory": return 2
+        case "rs-memory", "rs-memory-class": return 2
         case "rs-todo": return 3
-        case "rs-settings": return 4
+        case "rs-settings", "rs-recording", "rs-transcript", "rs-voice",
+             "rs-env", "rs-location", "rs-llm": return 4
         default: return 0
+        }
+    }
+
+    /// 截图模式要直接打开哪个设置子页
+    private var settingsShotPage: String? {
+        switch shot ?? "" {
+        case "rs-recording": return "recording"
+        case "rs-transcript": return "transcript"
+        case "rs-voice": return "voice"
+        case "rs-env": return "env"
+        case "rs-location": return "location"
+        case "rs-llm": return "llm"
+        default: return nil
         }
     }
 
@@ -317,7 +331,18 @@ struct RsShell: View {
                 case 1: RsAskScreen()
                 case 2: RsMemoryScreen()
                 case 3: RsTodoScreen()
-                default: RsSettingsScreen()
+                default:
+                    NavigationStack {
+                        switch settingsShotPage ?? "" {
+                        case "recording": RsRecordingPage()
+                        case "transcript": RsTranscriptPage()
+                        case "voice": RsVoicePage()
+                        case "env": RsEnvPage()
+                        case "location": RsLocationPage()
+                        case "llm": RsModelPage()
+                        default: RsSettingsScreen()
+                        }
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
