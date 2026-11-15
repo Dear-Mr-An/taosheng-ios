@@ -266,6 +266,7 @@ jobs:
             shoot_dev "$DEV" "iphone16" "rs-topic" 8
             shoot_dev "$DEV" "iphone16" "rs-search" 7
             shoot_dev "$DEV" "iphone16" "rs-memory-class" 8
+          shoot_dev "$DEV" "iphone16" "rs-memory-cards" 9
             shoot_dev "$DEV" "iphone16" "rs-recording" 7
             shoot_dev "$DEV" "iphone16" "rs-transcript" 7
             shoot_dev "$DEV" "iphone16" "rs-voice" 7
@@ -317,7 +318,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shots-073
+          name: shots-074
           path: ${{ github.workspace }}/shots
           retention-days: 30
           if-no-files-found: warn

@@ -285,6 +285,35 @@ struct RsInfoRow: View {
     }
 }
 
+/// 单行：左边黑色正常字号标题，右边右对齐的值 + ›（原版「外接设备」这类行）
+struct RsValueRow: View {
+    let title: String
+    let value: String
+    var action: () -> Void = {}
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text(title)
+                    .font(Rs.body)
+                    .foregroundStyle(Rs.text)
+                Spacer(minLength: 8)
+                Text(value)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Rs.text3)
+                    .lineLimit(1)
+                Text("›")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Rs.text3)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 /// 卡标题（正文强调）
 struct RsCardTitle: View {
     let text: String
@@ -344,6 +373,7 @@ struct RsDotText: View {
 struct RsSectionLabel: View {
     let title: String
     var trailing: String? = nil
+    var trailingColor: Color? = nil
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(title)
@@ -353,7 +383,7 @@ struct RsSectionLabel: View {
             if let t = trailing {
                 Text(t)
                     .font(Rs.caption)
-                    .foregroundStyle(Rs.text3)
+                    .foregroundStyle(trailingColor ?? Rs.text3)
             }
         }
         .padding(.horizontal, 4)
@@ -539,7 +569,7 @@ struct RsRecordingPage: View {
     // 外接设备单独一张卡
     private var externalCard: some View {
         VStack(spacing: 0) {
-            RsInfoRow(title: "外接设备", value: "未连接")
+            RsValueRow(title: "外接设备", value: "未连接")
         }
         .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
     }
@@ -553,61 +583,60 @@ struct RsRecordingPage: View {
         .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
     }
 
-    // 自动导入文件夹（原版：一张只有「＋ 添加文件夹」的浅橙卡，说明在卡外）
+    // 自动导入文件夹（原版：卡外小标题，卡里只有一行「＋ 添加文件夹」，说明在卡外灰字）
     private var importCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             RsSectionLabel(title: "自动导入文件夹")
             Button { } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 13, weight: .bold))
-                    Text("添加文件夹").font(.system(size: 15, weight: .semibold))
+                HStack(spacing: 10) {
+                    ZStack {
+                        Circle().fill(Rs.accentSoft).frame(width: 24, height: 24)
+                        Image(systemName: "plus")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Rs.accent)
+                    }
+                    Text("添加文件夹").font(.system(size: 15)).foregroundStyle(Rs.accent)
+                    Spacer(minLength: 0)
                 }
-                .foregroundStyle(Rs.accent)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 17)
-                .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.accentSoft.opacity(0.55)))
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+
             RsFootNote(text: "录音笔 App、录音机把录音存在哪，就选哪个文件夹。新录音会自动导入转写，原文件不动、不删；同一个录音只导入一次。")
             RsFootNote(text: "大约每 15 分钟看一次，打开涛声时也会看；录音写完一两分钟后才会导入。")
         }
     }
 
-    // 后台设置
+    // 后台设置（原版：小标题在卡外，右侧橙色完成数；完成项浅绿方块 ✓，未完成项数字方块，按钮在该行右侧）
     private var backendCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("后台设置").font(Rs.body).foregroundStyle(Rs.text)
-                Spacer(minLength: 0)
-                Text("3 / 4 已完成").font(Rs.caption).foregroundStyle(Rs.text3)
+        VStack(alignment: .leading, spacing: 8) {
+            RsSectionLabel(title: "后台设置", trailing: "3 / 4 已完成", trailingColor: Rs.accent)
+            VStack(alignment: .leading, spacing: 0) {
+                backendItem("麦克风权限", "在应用权限里允许使用麦克风。", done: true)
+                backendItem("通知权限", "允许通知，并允许录音中断提醒显示。", done: true)
+                backendItem("锁屏继续录音", "使用后台音频，锁屏后仍会继续录音。", done: true)
+                backendItem("低电量模式", "低电量模式下系统可能挂起后台录音，录音前先关掉。", done: false,
+                            action: "我已设置") { }
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 14)
-            .padding(.bottom, 10)
-            backendItem("麦克风权限", "在应用权限里允许使用麦克风。", done: true)
-            backendItem("通知权限", "允许通知，并允许录音中断提醒显示。", done: true)
-            backendItem("忽略电池优化", "允许涛声不受电池优化限制。", done: true)
-            backendItem("最近任务锁定", "打开最近任务，长按涛声卡片并点锁定（不同手机叫法略有不同）；设置后请手动确认。", done: false)
-            RsBtn(text: "我已设置", filled: false) { }
-                .padding(.horizontal, 18)
-                .padding(.bottom, 16)
+            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
         }
-        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
     }
 
-    private func backendItem(_ title: String, _ note: String, done: Bool) -> some View {
+    private func backendItem(_ title: String, _ note: String, done: Bool,
+                             action: String? = nil, onAction: @escaping () -> Void = {}) -> some View {
         HStack(alignment: .top, spacing: 10) {
             ZStack {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(done ? Rs.good.opacity(0.14) : Rs.fill)
+                    .fill(done ? Color(hex: "E4F3E8") : Rs.fill)
                 if done {
                     Image(systemName: "checkmark")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(Rs.good)
                 } else {
-                    Circle().stroke(Rs.text3.opacity(0.5), lineWidth: 1.2)
-                        .frame(width: 9, height: 9)
+                    Text("4").font(.system(size: 12, weight: .semibold)).foregroundStyle(Rs.text3)
                 }
             }
             .frame(width: 24, height: 24)
@@ -616,10 +645,21 @@ struct RsRecordingPage: View {
                 Text(note).font(Rs.caption).foregroundStyle(Rs.text3)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            if let action {
+                Button(action: onAction) {
+                    Text(action)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Rs.accent)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(Rs.accentSoft))
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 8)
+        .padding(.vertical, 10)
     }
 }
 
@@ -889,7 +929,7 @@ struct RsTranscriptPage: View {
 
 struct RsVoicePage: View {
     @ObservedObject private var app = AppState.shared
-    @State private var localSplit = false
+    @State private var localSplit = true   // 原版 local-asr「speakers-enabled」默认 true
 
     var body: some View {
         RsSubPage(title: "声纹与人物") {
@@ -1001,26 +1041,29 @@ struct RsLocationPage: View {
             }
             .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
 
-            HStack(spacing: 12) {
+            HStack(spacing: 0) {
                 Button { } label: {
-                    Text("‹").font(.system(size: 18, weight: .semibold)).foregroundStyle(Rs.text3)
-                        .frame(width: 26, height: 30)
-                }
-                .buttonStyle(.plain)
-                Text(Fmt.df("M月d日 EEE").string(from: Date()) + " · 今天")
-                    .font(.system(size: 16, weight: .semibold)).foregroundStyle(Rs.text)
-                Button { } label: {
-                    Text("›").font(.system(size: 18, weight: .semibold)).foregroundStyle(Rs.text3)
-                        .frame(width: 26, height: 30)
+                    Text("‹").font(.system(size: 20, weight: .semibold)).foregroundStyle(Rs.text3)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 Spacer(minLength: 0)
+                Text(Fmt.df("M月d日 EEE").string(from: Date()) + " · 今天")
+                    .font(.system(size: 16, weight: .semibold)).foregroundStyle(Rs.text)
+                Spacer(minLength: 0)
+                Button { } label: {
+                    Text("›").font(.system(size: 20, weight: .semibold)).foregroundStyle(Rs.text3)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 4)
 
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
-                    Text("这一天").font(Rs.body).foregroundStyle(Rs.text)
+                    Text("这一天").font(.system(size: 15, weight: .semibold)).foregroundStyle(Rs.text)
                     Spacer(minLength: 0)
                     RsSegControl(options: ["时间轴", "路线"], index: $tab)
                         .frame(width: 150)
@@ -1030,17 +1073,17 @@ struct RsLocationPage: View {
                 Text("这一天没有位置记录")
                     .font(Rs.subhead).foregroundStyle(Rs.text3)
                     .frame(maxWidth: .infinity)
-                    .padding(.top, 46)
-                    .padding(.bottom, 40)
-                Divider().padding(.horizontal, 18)
+                    .padding(.top, 78)
+                Spacer(minLength: 0)
                 HStack(spacing: 0) {
                     locStat("0 分", "在家")
                     locStat("0 分", "外出")
                     locStat("0.0 km", "移动距离")
                 }
                 .padding(.horizontal, 10)
-                .padding(.vertical, 14)
+                .padding(.bottom, 18)
             }
+            .frame(minHeight: 260, alignment: .top)
             .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
 
             VStack(alignment: .leading, spacing: 0) {
@@ -1095,13 +1138,8 @@ struct RsModelPage: View {
                 if timing == 0 {
                     Text("多久整理一次").font(Rs.body).foregroundStyle(Rs.text)
                         .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 8)
-                    HStack(spacing: 8) {
-                        ForEach(Array(["15 分钟", "30 分钟", "60 分钟", "自定义"].enumerated()), id: \.offset) { i, label in
-                            RsOptPill(text: label, on: interval == i, solid: true) { interval = i }
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 18)
+                    RsSegControl(options: ["15 分钟", "30 分钟", "60 分钟", "自定义"], index: $interval)
+                        .padding(.horizontal, 18)
                     RsCardHint(text: "整理要等转写完成；转写间隔比整理长时，以转写为准。")
                 } else {
                     Text("每天整理").font(Rs.body).foregroundStyle(Rs.text)
@@ -1176,7 +1214,7 @@ struct RsModelPage: View {
             }
             .buttonStyle(.plain)
             RsRowDivider(inset: 18)
-            RsInfoRow(title: "余额提醒", value: "低于 ¥10 时提醒")
+            RsValueRow(title: "余额提醒", value: "低于 ¥10 时提醒")
             RsCardHint(text: "密钥分开保存在手机里，不会显示。")
         }
         .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))

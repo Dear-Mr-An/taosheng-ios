@@ -232,7 +232,7 @@ struct RsMemoryScreen: View {
                 if byDay {
                     calendarCard
                     reviewCard
-                    cardsSection
+                    cardsSection.id("cards")
                     timelineSection.id("timeline")
                 } else {
                     categoryCapsules
@@ -246,9 +246,16 @@ struct RsMemoryScreen: View {
         .background(Rs.bg)
         .scrollIndicators(.hidden)
         .task {
-            guard ShotMode.screen == "rs-all" else { return }
-            try? await Task.sleep(nanoseconds: 800_000_000)
-            withAnimation(nil) { proxy.scrollTo("timeline", anchor: .top) }
+            switch ShotMode.screen {
+            case "rs-all":
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                withAnimation(nil) { proxy.scrollTo("timeline", anchor: .top) }
+            case "rs-memory-cards":
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                withAnimation(nil) { proxy.scrollTo("cards", anchor: .top) }
+            default:
+                break
+            }
         }
         }
         .onAppear {
@@ -448,9 +455,66 @@ struct RsMemoryScreen: View {
         app.dayCards.filter { !$0.isNothing }
     }
 
+    /// 原版 SkillVisuals.kt 的 SkillCardRow：图标方块 + 彩色技能名·时间 + 粗体标题 + 灰摘要
+    private func cardIcon(_ c: SkillCard) -> String {
+        let id = c.skillId.lowercased()
+        if id.contains("weekly") { return "calendar_week" }
+        if id.contains("meeting") { return "meeting" }
+        if id.contains("review") { return "review" }
+        if id.contains("timeline") { return "timeline" }
+        if id.contains("mic") { return "mic" }
+        if id.contains("heart") { return "heart" }
+        if id.contains("bulb") { return "bulb" }
+        if id.contains("sunset") { return "sunset" }
+        return "star"
+    }
+
+    private func cardTimeText(_ c: SkillCard) -> String {
+        guard let start = c.startAt else { return "" }
+        let dayPart = c.day == dayKey ? "今天" : Fmt.df("M月d日").string(from: start)
+        var s = dayPart + " " + Fmt.hm.string(from: start)
+        if let end = c.endAt { s += "–" + Fmt.hm.string(from: end) }
+        return s
+    }
+
+    private func cardRow(_ c: SkillCard) -> some View {
+        let weekly = c.skillId.lowercased().contains("weekly")
+        let icon = cardIcon(c)
+        let ink = RsIconTint.fg(icon)
+        return HStack(alignment: .top, spacing: 12) {
+            RsSkillIcon(icon: icon, size: 36)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 0) {
+                    Text(c.skillName)
+                        .font(Rs.caption)
+                        .foregroundStyle(ink)
+                    Text(" · " + cardTimeText(c))
+                        .font(Rs.caption)
+                        .foregroundStyle(weekly ? Rs.text2 : Rs.text3)
+                }
+                .lineLimit(2)
+                Text(c.fields["title"]?.isEmpty == false ? c.fields["title"]! : c.skillName)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Rs.text)
+                    .lineLimit(2)
+                if let line = c.fields["summary"], !line.isEmpty {
+                    Text(line)
+                        .font(Rs.subhead)
+                        .foregroundStyle(Rs.text2)
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(weekly ? Color(hex: "E7E4F8") : Color.clear)
+    }
+
     private var cardsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            memSection(title: "卡片", trailing: "") {
+            memSection(title: "卡片", trailing: skillCards.isEmpty ? "" : "\(skillCards.count) 张") {
                 Button {
                     generateCard()
                 } label: {
@@ -463,36 +527,22 @@ struct RsMemoryScreen: View {
                 }
                 .buttonStyle(RsSpringButtonStyle())
             } content: {
-                Text("会议、收工打卡这些技能卡会出现在这里，也可以点「+ 生成」手动给这天做一张。")
-                    .font(Rs.subhead)
-                    .foregroundStyle(Rs.text2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, 10)
                 if skillCards.isEmpty {
-                    EmptyView()
+                    Text("开了技能以后，会议、收工打卡这些卡片会出现在这里")
+                        .font(Rs.subhead)
+                        .foregroundStyle(Rs.text3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 4)
+                        .padding(.bottom, 6)
                 } else {
-                    VStack(spacing: 8) {
-                        ForEach(skillCards) { c in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("\(c.skillName) · \(c.startAt.map { Fmt.hm.string(from: $0) } ?? "")")
-                                    .font(Rs.caption)
-                                    .foregroundStyle(Rs.text3)
-                                Text(c.fields["title"] ?? c.skillName)
-                                    .font(Rs.headline)
-                                    .foregroundStyle(Rs.text)
-                                if let line = c.fields["summary"], !line.isEmpty {
-                                    Text(line)
-                                        .font(Rs.subhead)
-                                        .foregroundStyle(Rs.text2)
-                                        .lineLimit(3)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(14)
-                            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card)
-                                .shadow(color: Rs.shadow, radius: 10, x: 0, y: 4))
+                    VStack(spacing: 0) {
+                        ForEach(Array(skillCards.enumerated()), id: \.element.id) { i, c in
+                            if i > 0 { RsRowDivider(inset: 64) }
+                            cardRow(c)
                         }
                     }
+                    .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+                    .clipShape(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous))
                 }
             }
         }

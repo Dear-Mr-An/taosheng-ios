@@ -108,6 +108,31 @@ enum ShotDemo {
                            createdAt: now, updatedAt: now)
             ])
         }
+
+        seedCardsIfNeeded()
+    }
+
+    /// 记忆页「卡片」截图用：一张会议纪要卡 + 一张每周回顾卡
+    static func seedCardsIfNeeded() {
+        guard ShotMode.active else { return }
+        let day = today
+        guard Store.shared.cards(day: day, limit: 1).isEmpty else { return }
+        let cal = Calendar.current
+        let start = cal.date(bySettingHour: 15, minute: 41, second: 0, of: Date()) ?? Date()
+        let end = cal.date(bySettingHour: 15, minute: 43, second: 0, of: Date()) ?? start
+        Store.shared.insertCard(SkillCard(
+            id: "shot-card-meeting", skillId: "meeting", skillName: "会议纪要", day: day,
+            startAt: start, endAt: end, entityId: nil,
+            fields: ["title": "产品讨论会：先把内测版发出去",
+                     "summary": "定了 12 月 3 日先发内测版，重点看录音转写和纪要生成的稳定性。"],
+            quotes: [], nothingReason: nil, createdAt: start))
+        let week = cal.date(bySettingHour: 21, minute: 0, second: 0, of: Date()) ?? Date()
+        Store.shared.insertCard(SkillCard(
+            id: "shot-card-weekly", skillId: "weekly", skillName: "每周回顾", day: day,
+            startAt: week, endAt: nil, entityId: nil,
+            fields: ["title": "这一周开了 6 场会，最常提到的是「发布节奏」",
+                     "summary": "6 场会、3 件答应的事还没落地；「发布节奏」这一周被提到 14 次。"],
+            quotes: [], nothingReason: nil, createdAt: week))
     }
 
     /// 「转写与原话」截图用：造 8 段今天的原话，验证卡片只列 3 段 + 「看全部 8 段」。

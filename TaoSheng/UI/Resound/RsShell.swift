@@ -15,6 +15,7 @@ struct RsSettingsScreen: View {
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { scrollProxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("设置")
@@ -24,14 +25,15 @@ struct RsSettingsScreen: View {
                     searchBar
                     statusCard
                     group("记录") {
-                        row(RsRecordingPage(), title: "录音与后台", detail: ShotMode.screen == "rs-settings" ? "正在聆听" : captureLine,
-                            symbol: "mic.fill", tint: Rs.accent, alert: (captureStopped && ShotMode.screen != "rs-settings") ? Rs.critical : nil)
+                        row(RsRecordingPage(), title: "录音与后台", detail: shotListening ? "正在聆听" : captureLine,
+                            symbol: "mic.fill", tint: Rs.accent, alert: (captureStopped && !shotListening) ? Rs.critical : nil)
                         line
                         row(AudioRouteInfoView(), title: "外接设备", detail: audioRouteDetail,
                             symbol: "iphone", tint: Color(hex: "D9822B"))
                         line
                         row(RsTranscriptPage(), title: "原话与转写", detail: asrDetail,
                             symbol: "list.bullet", tint: Color(hex: "D9A02B"))
+                            .id("row-transcript")
                         line
                         row(RsVoicePage(), title: "声纹与人物", detail: voiceDetail,
                             symbol: "person.2.fill", tint: Color(hex: "D9534F"), alert: voiceReady ? nil : Rs.warning)
@@ -82,6 +84,12 @@ struct RsSettingsScreen: View {
             }
             .background(Rs.bg)
             .scrollIndicators(.hidden)
+            .task {
+                guard ShotMode.screen == "rs-settings-b" else { return }
+                try? await Task.sleep(nanoseconds: 900_000_000)
+                withAnimation(nil) { scrollProxy.scrollTo("row-transcript", anchor: .top) }
+            }
+            }
             .navigationBarHidden(true)
         }
     }
@@ -116,6 +124,9 @@ struct RsSettingsScreen: View {
     }
 
     private var captureStopped: Bool { !capture.isRunning && !flow.isRecording }
+
+    /// 截图模式下统一当「正在聆听」，避免截图里出现「已暂停」红点（原版截图是正在聆听）
+    private var shotListening: Bool { (ShotMode.screen ?? "").hasPrefix("rs-") }
 
     /// 原版写「DeepSeek · 每 30 分钟」/「未设置」
     private var modelLine: String {
@@ -318,7 +329,7 @@ struct RsShell: View {
     static func tabIndex(for shot: String?) -> Int {
         switch baseShot(shot) {
         case "rs-ask": return 1
-        case "rs-memory", "rs-memory-class", "rs-all": return 2
+        case "rs-memory", "rs-memory-class", "rs-memory-cards", "rs-all": return 2
         case "rs-event": return 0
         case "rs-todo": return 3
         case "rs-settings", "rs-recording", "rs-transcript", "rs-voice",
