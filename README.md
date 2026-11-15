@@ -16,8 +16,8 @@ Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 Swift
 版本与验证：
 
 - `project.yml`：`MARKETING_VERSION 0.6.6` / `CURRENT_PROJECT_VERSION 33`。
-- CI `build-ipa #__IPA__`（提交 `__SHA__`）success：warning count 0，`swift test` 36 个用例 0 失败。`dist/TaoSheng-v0.6.6.ipa` 未签名、__SIZE__ 字节，`Info.plist` 为 XML，`CFBundleShortVersionString 0.6.6`、`CFBundleVersion 33`。
-- `shots #__SHOTS__`（提交 `__SSHA__`）success，截图 `.tmp/shots-0.6.6/`：`iphone16-today-live`（录音中的英雄卡：时长、段数、结束按钮，没有「转出文字就自动整理」）、`iphone16-llm`（「什么时候整理」三档，第一档说明改成新口径）。
+- CI `build-ipa #106`（提交 `2c64723`）success：warning count 0，`swift test` 36 个用例 0 失败。`dist/TaoSheng-v0.6.6.ipa` 未签名、1 681 143 字节，`Info.plist` 为 XML，`CFBundleShortVersionString 0.6.6`、`CFBundleVersion 33`。
+- `shots #48`（提交 `2c64723`）success，截图 `.tmp/shots-0.6.6/`：`iphone16-today-live`（录音中的英雄卡：时长、段数、结束按钮，没有「转出文字就自动整理」）、`iphone16-llm`（「什么时候整理」三档，第一档说明改成新口径）。
 
 没做到 / 没验证：
 
