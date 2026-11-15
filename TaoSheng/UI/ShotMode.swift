@@ -294,35 +294,6 @@ enum ShotDemo {
         }
     }
 
-    /// 记忆页卡片区：三张速记卡
-    static func seedCardsIfNeeded() {
-        guard let screen = ShotMode.screen else { return }
-        guard ["memory-cards", "card-sheet-top", "card-sheet-bottom", "memory-timeline-rail"].contains(screen) else { return }
-        let day = today
-        let existing = Set(Store.shared.cards(day: day, limit: 50).map(\.id))
-        if existing.contains("shot-card-1") { return }
-        let now = Date()
-        let cards: [(String, String, [String])] = [
-            ("会议速记", "接口联调排期已定", ["结论先行：下周三之前联调完，周五去客户现场。", "要点：前端今天给一版，网关白名单明天配好。"]),
-            ("项目快讯", "客户换到新园区", ["要点：进门要找前台登记，我提前报备。", "要点：名单周五上午十点前确认。"]),
-            ("今日复盘", "两件事都按计划推进", ["要点：结算流程这版不动。", "要点：导出留到下个版本。"])
-        ]
-        for (i, c) in cards.enumerated() {
-            let card = SkillCard(id: "shot-card-\(i + 1)",
-                                 skillId: "shot-skill",
-                                 skillName: c.0,
-                                 day: day,
-                                 startAt: now.addingTimeInterval(Double(-i) * 3600),
-                                 endAt: nil,
-                                 entityId: nil,
-                                 fields: ["summary": c.1, "points": c.2.joined(separator: "\n")],
-                                 quotes: [],
-                                 nothingReason: nil,
-                                 createdAt: now.addingTimeInterval(Double(-i) * 600))
-            Store.shared.insertCard(card)
-        }
-    }
-
     static func event() -> MemoryEvent {
         Store.shared.events(day: today, limit: 20).first { $0.id == eventID }
             ?? MemoryEvent(id: eventID, day: today, startAt: Date(), endAt: nil,
