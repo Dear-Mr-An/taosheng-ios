@@ -25,13 +25,13 @@ struct RsSettingsScreen: View {
                     statusCard
                     group("记录") {
                         row(RsRecordingPage(), title: "录音与后台", detail: ShotMode.screen == "rs-settings" ? "正在聆听" : captureLine,
-                            symbol: "mic.fill", tint: Rs.accent, alert: captureStopped ? Rs.critical : nil)
+                            symbol: "mic.fill", tint: Rs.accent, alert: (captureStopped && ShotMode.screen != "rs-settings") ? Rs.critical : nil)
                         line
                         row(AudioRouteInfoView(), title: "外接设备", detail: audioRouteDetail,
                             symbol: "iphone", tint: Color(hex: "D9822B"))
                         line
                         row(RsTranscriptPage(), title: "原话与转写", detail: asrDetail,
-                            symbol: "list.bullet", tint: Color(hex: "D9A02B"), alert: settings.asrReady ? nil : Rs.warning)
+                            symbol: "list.bullet", tint: Color(hex: "D9A02B"))
                         line
                         row(RsVoicePage(), title: "声纹与人物", detail: voiceDetail,
                             symbol: "person.2.fill", tint: Color(hex: "D9534F"), alert: voiceReady ? nil : Rs.warning)
@@ -44,7 +44,7 @@ struct RsSettingsScreen: View {
                     }
                     group("整理") {
                         row(RsModelPage(), title: "模型与整理时间", detail: modelLine,
-                            symbol: "sparkles", tint: Color(hex: "E0603A"), alert: settings.llmReady ? nil : Rs.critical)
+                            symbol: "sparkles", tint: Color(hex: "E0603A"))
                         line
                         row(SkillsView(), title: "整理技能", detail: "开了 \(app.skills.filter { $0.enabled }.count) 个",
                             symbol: "square.grid.2x2.fill", tint: Color(hex: "8A7BE0"))
