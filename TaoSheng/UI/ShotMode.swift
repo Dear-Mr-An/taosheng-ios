@@ -93,6 +93,18 @@ enum ShotDemo {
                 MemoryItem(id: "shot-item-3", eventId: eventID, day: day, category: "备忘",
                            kind: nil, content: "客户换到新地址，进门找前台登记", status: .pending,
                            dueText: nil, dueAt: nil, who: nil, sourceText: nil,
+                           createdAt: now, updatedAt: now),
+                MemoryItem(id: "shot-item-4", eventId: eventID, day: day, category: "约定",
+                           kind: "别人答应我", content: "周工明天中午前把网关白名单配好", status: .pending,
+                           dueText: "明天中午", dueAt: now.addingTimeInterval(86400),
+                           who: "周工", sourceText: nil, createdAt: now, updatedAt: now),
+                MemoryItem(id: "shot-item-5", eventId: eventID, day: day, category: "待办",
+                           kind: "我要做", content: "把改动清单发到群里", status: .accepted,
+                           dueText: "今晚 9 点", dueAt: now.addingTimeInterval(7200),
+                           who: "我", sourceText: nil, createdAt: now, updatedAt: now),
+                MemoryItem(id: "shot-item-6", eventId: eventID, day: day, category: "待办",
+                           kind: "我要做", content: "准备演示用的三档权限账号", status: .done,
+                           dueText: nil, dueAt: nil, who: "我", sourceText: nil,
                            createdAt: now, updatedAt: now)
             ])
         }
@@ -213,7 +225,9 @@ enum ShotDemo {
         guard let screen = ShotMode.screen else { return }
         let railScreens = ["timeline-rail", "today-timeline-asc", "today-timeline-parts",
                            "timeline-meeting", "memory-timeline-rail", "memory-cards",
-                           "card-sheet-top", "card-sheet-bottom", "review-meetings"]
+                           "card-sheet-top", "card-sheet-bottom", "review-meetings",
+                           "rs-today", "rs-listen", "rs-search", "rs-topic", "rs-memory",
+                           "rs-todo", "rs-settings", "rs-ask"]
         guard railScreens.contains(screen) else { return }
         let day = today
         let existing = Set(Store.shared.events(day: day, limit: 200).map(\.id))

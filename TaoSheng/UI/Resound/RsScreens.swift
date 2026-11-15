@@ -1,0 +1,806 @@
+import SwiftUI
+
+// MARK: - 问问（AskScreen.kt）
+
+struct RsAskScreen: View {
+    @ObservedObject private var app = AppState.shared
+
+    @State private var input = ""
+    @State private var showHistory = false
+
+    private let suggestions = ["游戏音效提到什么？", "短剧重复播放哪些内容？", "绝密图纸面临什么风险？", "佣兵为何去夏国？"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            if app.askMessages.isEmpty && !app.askSending {
+                emptyState
+            } else {
+                conversation
+            }
+            composer
+        }
+        .background(Rs.bg)
+        .sheet(isPresented: $showHistory) {
+            RsAskHistorySheet()
+                .presentationDetents([.large])
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 0) {
+            Text("问问")
+                .font(Rs.largeTitle)
+                .foregroundStyle(Rs.text)
+            Spacer(minLength: 0)
+            Button { showHistory = true } label: {
+                ZStack {
+                    Circle().fill(Rs.card)
+                    Image(systemName: "clock")
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundStyle(Rs.text2)
+                }
+                .frame(width: 40, height: 40)
+            }
+            .buttonStyle(RsSpringButtonStyle())
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+    }
+
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Spacer(minLength: 0)
+            Text("想问点什么？")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundStyle(Rs.text)
+            Text("哪天谁说过什么、答应过什么、定过什么，都可以问。\n回答会附上原话出处。")
+                .font(.system(size: 15))
+                .foregroundStyle(Rs.text2)
+                .fixedSize(horizontal: false, vertical: true)
+            FlowChips(items: suggestions) { s in
+                input = s
+                app.ask(s)
+            }
+            .padding(.top, 6)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var conversation: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(app.askMessages) { m in
+                        RsAskBubble(message: m)
+                            .id(m.id)
+                    }
+                    if app.askSending {
+                        Text("正在翻原话…")
+                            .font(Rs.subhead)
+                            .foregroundStyle(Rs.text3)
+                    }
+                    if let e = app.askError {
+                        Text(e)
+                            .font(Rs.subhead)
+                            .foregroundStyle(Rs.critical)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+            }
+            .onChange(of: app.askMessages.count) { _ in
+                if let last = app.askMessages.last {
+                    withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                }
+            }
+        }
+    }
+
+    private var composer: some View {
+        HStack(spacing: 10) {
+            TextField("念念不忘，必有回响...", text: $input, axis: .vertical)
+                .font(Rs.body)
+                .lineLimit(1...4)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 13)
+                .background(Capsule(style: .continuous).fill(Rs.card))
+            Button {
+                let q = input.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !q.isEmpty else { return }
+                input = ""
+                app.ask(q)
+            } label: {
+                ZStack {
+                    Circle().fill(Rs.accentSoft)
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Rs.accent)
+                }
+                .frame(width: 46, height: 46)
+            }
+            .buttonStyle(RsSpringButtonStyle())
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+        .padding(.bottom, Rs.shellBottom + 4)
+    }
+}
+
+/// 建议胶囊：自动换行（原版是 FlowRow）
+struct FlowChips: View {
+    let items: [String]
+    let onTap: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(rows, id: \.self) { row in
+                HStack(spacing: 8) {
+                    ForEach(row, id: \.self) { s in
+                        Button { onTap(s) } label: {
+                            Text(s)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(Rs.accent)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                                .background(Capsule(style: .continuous).fill(Rs.accentSoft))
+                        }
+                        .buttonStyle(RsSpringButtonStyle())
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+
+    /// 按字数粗估两列，够用且不引入布局依赖
+    private var rows: [[String]] {
+        var out: [[String]] = []
+        var cur: [String] = []
+        var width = 0
+        for s in items {
+            let w = s.count * 14 + 34
+            if width + w > 330, !cur.isEmpty {
+                out.append(cur)
+                cur = [s]
+                width = w
+            } else {
+                cur.append(s)
+                width += w + 8
+            }
+        }
+        if !cur.isEmpty { out.append(cur) }
+        return out
+    }
+}
+
+struct RsAskBubble: View {
+    let message: AskMessage
+
+    var body: some View {
+        VStack(alignment: message.role == .me ? .trailing : .leading, spacing: 4) {
+            Text(message.text)
+                .font(Rs.body)
+                .foregroundStyle(Rs.text)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(message.role == .me ? Rs.accentSoft : Rs.card)
+                )
+            if !message.citations.isEmpty {
+                Text("附 \(message.citations.count) 条原话出处")
+                    .font(Rs.caption)
+                    .foregroundStyle(Rs.text3)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: message.role == .me ? .trailing : .leading)
+    }
+}
+
+struct RsAskHistorySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var rows: [AskMessage] = []
+
+    var body: some View {
+        RsSheetBody(title: "问过的") {
+            if rows.isEmpty {
+                Text("还没有问过。")
+                    .font(Rs.body)
+                    .foregroundStyle(Rs.text2)
+            }
+            ForEach(rows) { m in
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(m.text)
+                        .font(Rs.body)
+                        .foregroundStyle(Rs.text)
+                        .lineLimit(3)
+                    Text(m.role == .me ? "我问的" : "答的")
+                        .font(Rs.caption)
+                        .foregroundStyle(Rs.text3)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Rs.fill))
+            }
+        }
+        .onAppear { rows = Array(Store.shared.askMessages(limit: 60).reversed()) }
+    }
+}
+
+// MARK: - 记忆（MemoryScreen.kt）
+
+struct RsMemoryScreen: View {
+    @ObservedObject private var app = AppState.shared
+
+    @State private var byDay = true
+    @State private var monthAnchor = Date()
+    @State private var selectedDay = Date()
+    @State private var events: [MemoryEvent] = []
+    @State private var notes: [MemoryEvent] = []
+    @State private var filter = 0
+    @State private var showMonth = false
+
+    private var dayKey: String { DayKey.of(selectedDay) }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                header
+                calendarCard
+                reviewCard
+                cardsSection
+                timelineSection
+                Color.clear.frame(height: Rs.shellBottom + 24)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+        }
+        .background(Rs.bg)
+        .scrollIndicators(.hidden)
+        .onAppear { load() }
+        .onChange(of: selectedDay) { _ in load() }
+        .onReceive(NotificationCenter.default.publisher(for: .taoshengDataChanged)) { _ in load() }
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Text("记忆")
+                .font(Rs.largeTitle)
+                .foregroundStyle(Rs.text)
+            Spacer(minLength: 0)
+            Button {
+                let md = app.exportMarkdown(day: dayKey)
+                UIPasteboard.general.string = md
+            } label: {
+                Text("导出")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Rs.accent)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(Capsule(style: .continuous).fill(Rs.accentSoft))
+            }
+            .buttonStyle(RsSpringButtonStyle())
+            HStack(spacing: 0) {
+                seg("按天", on: byDay) { byDay = true }
+                seg("按类", on: !byDay) { byDay = false }
+            }
+            .padding(3)
+            .background(Capsule(style: .continuous).fill(Rs.track))
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private func seg(_ t: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(t)
+                .font(.system(size: 14, weight: on ? .semibold : .regular))
+                .foregroundStyle(on ? Rs.text : Rs.text2)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(Capsule(style: .continuous).fill(on ? Rs.card : Color.clear))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // 日历：一个月一张卡，一次显示一周（与截图一致）
+    private var calendarCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Button { showMonth = true } label: {
+                    HStack(spacing: 4) {
+                        Text(monthTitle)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(Rs.text)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Rs.text3)
+                    }
+                }
+                .buttonStyle(.plain)
+                Spacer(minLength: 0)
+                Button { shiftWeek(-1) } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Rs.text2)
+                }
+                .buttonStyle(.plain)
+                Button { shiftWeek(1) } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Rs.text3)
+                }
+                .buttonStyle(.plain)
+            }
+            HStack(spacing: 0) {
+                ForEach(["一", "二", "三", "四", "五", "六", "日"], id: \.self) { w in
+                    Text(w)
+                        .font(Rs.caption)
+                        .foregroundStyle(Rs.text3)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            HStack(spacing: 0) {
+                ForEach(weekDays, id: \.self) { d in
+                    dayCell(d)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.top, 4)
+        }
+        .padding(EdgeInsets(top: 16, leading: 16, bottom: 12, trailing: 16))
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card)
+            .shadow(color: Rs.shadow, radius: 10, x: 0, y: 4))
+        .sheet(isPresented: $showMonth) {
+            RsMonthSheet(anchor: $monthAnchor) {
+                selectedDay = monthAnchor
+                load()
+            }
+            .presentationDetents([.medium])
+        }
+    }
+
+    private var monthTitle: String {
+        Fmt.df("yyyy年M月").string(from: monthAnchor)
+    }
+
+    private var weekDays: [Date] {
+        let cal = Calendar.current
+        var comp = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: monthAnchor)
+        comp.weekday = 2     // 周一开头
+        let monday = cal.date(from: comp) ?? monthAnchor
+        return (0..<7).compactMap { cal.date(byAdding: .day, value: $0, to: monday) }
+    }
+
+    private func shiftWeek(_ delta: Int) {
+        if let d = Calendar.current.date(byAdding: .weekOfYear, value: 7 * delta, to: monthAnchor) {
+            monthAnchor = d
+            selectedDay = d
+        }
+    }
+
+    private func dayCell(_ d: Date) -> some View {
+        let cal = Calendar.current
+        let on = cal.isDate(d, inSameDayAs: selectedDay)
+        let hasData = app.days.contains(DayKey.of(d))
+        return Button {
+            selectedDay = d
+        } label: {
+            VStack(spacing: 3) {
+                Text("\(cal.component(.day, from: d))")
+                    .font(.system(size: 17, weight: on ? .bold : .regular))
+                    .foregroundStyle(on ? Color.white : Rs.text)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(on ? Rs.accent : Color.clear))
+                Circle()
+                    .fill(hasData ? Rs.accent : Color.clear)
+                    .frame(width: 4, height: 4)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var reviewCard: some View {
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(app.dayReview == nil ? "这天还没有回顾" : "这天的回顾")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(Rs.text)
+                Text(app.dayReview == nil ? "每晚会自动生成，也可以现在先生成一版" : "已经生成，点右边再看一遍")
+                    .font(Rs.subhead)
+                    .foregroundStyle(Rs.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Button {
+                Task { _ = try? await ReviewEngine.shared.generateDaily(day: dayKey); app.refresh() }
+            } label: {
+                Text(app.dayReview == nil ? "生成回顾" : "再看")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 9)
+                    .background(Capsule(style: .continuous).fill(Rs.accent))
+            }
+            .buttonStyle(RsSpringButtonStyle())
+        }
+        .padding(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 14))
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.accentSoft))
+    }
+
+    private var cardsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            RsSection(title: "卡片") {
+                Button {
+                    generateCard()
+                } label: {
+                    Text("+ 生成")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Rs.accent)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Capsule(style: .continuous).fill(Rs.accentSoft))
+                }
+                .buttonStyle(RsSpringButtonStyle())
+            } content: {
+                Text("会议、收工打卡这些技能卡会出现在这里，也可以点「+ 生成」手动给这天做一张。")
+                    .font(Rs.subhead)
+                    .foregroundStyle(Rs.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 10)
+                if notes.isEmpty {
+                    EmptyView()
+                } else {
+                    VStack(spacing: 8) {
+                        ForEach(notes) { e in
+                            HStack(alignment: .top, spacing: 10) {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Rs.accentSoft)
+                                    .frame(width: 36, height: 36)
+                                    .overlay(Image(systemName: e.scene == "培训" ? "lightbulb" : "person.2.wave.2")
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundStyle(Rs.accent))
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("\(e.noteTag) · \(e.timeText)")
+                                        .font(Rs.caption)
+                                        .foregroundStyle(Rs.text3)
+                                    Text(e.title)
+                                        .font(Rs.headline)
+                                        .foregroundStyle(Rs.text)
+                                        .lineLimit(2)
+                                    Text(e.conclusion)
+                                        .font(Rs.caption)
+                                        .foregroundStyle(Rs.text2)
+                                        .lineLimit(2)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Rs.card)
+                                .shadow(color: Rs.shadow, radius: 8, x: 0, y: 3))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var timelineSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            RsSection(title: "时间线 · \(events.count) 件事") {
+                Text("↓ 早的在上")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Rs.text2)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Capsule(style: .continuous).fill(Rs.card))
+            } content: {
+                HStack(spacing: 8) {
+                    RsChip(text: "全部", on: filter == 0) { filter = 0 }
+                    RsChip(text: "媒体", count: mediaCount, on: filter == 1, dot: Rs.text3) { filter = 1 }
+                    Spacer(minLength: 0)
+                }
+                .padding(.bottom, 12)
+                ForEach(groups, id: \.name) { g in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("\(g.name) · \(g.items.count) 件")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Rs.text3)
+                            .padding(.leading, 4)
+                        RsCard(padding: EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0)) {
+                            ForEach(Array(g.items.enumerated()), id: \.element.id) { i, e in
+                                RsTimelineLine(event: e)
+                                if i < g.items.count - 1 {
+                                    Rectangle().fill(Rs.separator).frame(height: 0.5)
+                                        .padding(.leading, 76).padding(.trailing, 18)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var mediaCount: Int { events.filter { $0.scene == "媒体" }.count }
+
+    private struct Group { let name: String; let items: [MemoryEvent] }
+
+    private var groups: [Group] {
+        let base = filter == 1 ? events.filter { $0.scene == "媒体" } : events
+        let sorted = base.sorted { $0.startAt < $1.startAt }
+        var out: [Group] = []
+        for name in ["凌晨", "上午", "下午", "晚上"] {
+            let items = sorted.filter { partOfDay($0.startAt) == name }
+            if !items.isEmpty { out.append(Group(name: name, items: items)) }
+        }
+        return out
+    }
+
+    private func partOfDay(_ d: Date) -> String {
+        let h = Calendar.current.component(.hour, from: d)
+        if h < 6 { return "凌晨" }
+        if h < 12 { return "上午" }
+        if h < 18 { return "下午" }
+        return "晚上"
+    }
+
+    private func load() {
+        events = Store.shared.events(day: dayKey, limit: 400)
+        notes = events.filter { $0.isNote }
+        app.refreshDay(dayKey)
+    }
+
+    /// 「+ 生成」：用第一个开着的整理技能给这一天做一张卡
+    private func generateCard() {
+        guard let sk = app.skills.first(where: { $0.enabled }) else { return }
+        Task {
+            _ = try? await SkillEngine.shared.run(sk, day: dayKey)
+            app.refresh()
+        }
+    }
+}
+
+struct RsMonthSheet: View {
+    @Binding var anchor: Date
+    var onPick: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private var months: [Date] {
+        let cal = Calendar.current
+        let start = cal.date(from: cal.dateComponents([.year, .month], from: Date())) ?? Date()
+        return (0..<12).compactMap { cal.date(byAdding: .month, value: -$0, to: start) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(months, id: \.self) { m in
+                Button {
+                    anchor = m
+                    onPick()
+                    dismiss()
+                } label: {
+                    Text(Fmt.df("yyyy年M月").string(from: m))
+                        .font(Rs.body)
+                        .foregroundStyle(Rs.text)
+                }
+            }
+            .navigationTitle("选月份")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+// MARK: - 待办（TodoScreen.kt）
+
+struct RsTodoScreen: View {
+    @ObservedObject private var app = AppState.shared
+
+    @State private var tab = 0        // 0 待确认 / 1 进行中 / 2 已完成
+    @State private var showAdd = false
+    @State private var addText = ""
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("待办")
+                        .font(Rs.largeTitle)
+                        .foregroundStyle(Rs.text)
+                        .padding(.leading, 4)
+                    tabs
+                    if tab == 0 && !app.pendingItems.isEmpty { bulkRow }
+                    groupedCards
+                    Color.clear.frame(height: Rs.shellBottom + 40)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+            }
+            .background(Rs.bg)
+            .scrollIndicators(.hidden)
+
+            Button { showAdd = true } label: {
+                ZStack {
+                    Circle().fill(Rs.accent).frame(width: 56, height: 56)
+                    Image(systemName: "plus")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(Color.white)
+                }
+                .shadow(color: Rs.accent.opacity(0.35), radius: 12, x: 0, y: 6)
+            }
+            .buttonStyle(RsSpringButtonStyle())
+            .padding(.trailing, 18)
+            .padding(.bottom, Rs.shellBottom + 6)
+        }
+        .sheet(isPresented: $showAdd) {
+            RsAddTodoSheet(text: $addText) {
+                app.addItem(content: addText)
+                addText = ""
+                tab = 1
+            }
+            .presentationDetents([.medium])
+        }
+    }
+
+    private var tabs: some View {
+        HStack(spacing: 8) {
+            RsChip(text: "待确认", count: app.pendingItems.count, on: tab == 0) { tab = 0 }
+            RsChip(text: "进行中", count: app.activeItems.count, on: tab == 1) { tab = 1 }
+            RsChip(text: "已完成", on: tab == 2) { tab = 2 }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var bulkRow: some View {
+        HStack(spacing: 8) {
+            Button {
+                for it in app.pendingItems { app.setItemStatus(it.id, status: .accepted) }
+            } label: {
+                Text("全部接受 \(app.pendingItems.count) 条")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Capsule(style: .continuous).fill(Rs.accent))
+            }
+            .buttonStyle(RsSpringButtonStyle())
+            Button {
+                for it in app.pendingItems { app.setItemStatus(it.id, status: .ignored) }
+            } label: {
+                Text("全部忽略")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Rs.accent)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Capsule(style: .continuous).fill(Rs.card))
+            }
+            .buttonStyle(RsSpringButtonStyle())
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var rows: [MemoryItem] {
+        switch tab {
+        case 0: return app.pendingItems
+        case 1: return app.activeItems
+        default: return app.doneItems
+        }
+    }
+
+    private var groupedCards: some View {
+        let list = rows
+        let order = dayOrder(list)
+        return ForEach(order, id: \.self) { day in
+            let items = list.filter { $0.day == day }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("\(dayTitle(day)) · \(items.count) 条")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Rs.text3)
+                    .padding(.leading, 4)
+                RsCard(padding: EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0)) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { i, it in
+                        RsTodoRow(item: it, done: tab == 2)
+                        if i < items.count - 1 {
+                            Rectangle().fill(Rs.separator).frame(height: 0.5)
+                                .padding(.leading, 18).padding(.trailing, 18)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func dayOrder(_ list: [MemoryItem]) -> [String] {
+        var order: [String] = []
+        for it in list where !order.contains(it.day) { order.append(it.day) }
+        return order.sorted(by: >)
+    }
+
+    private func dayTitle(_ day: String) -> String {
+        if day == DayKey.of(Date()) { return "今天" }
+        if let d = DayKey.date(from: day) {
+            if Calendar.current.isDateInYesterday(d) { return "昨天" }
+            return Fmt.monthDay.string(from: d)
+        }
+        return day
+    }
+}
+
+struct RsTodoRow: View {
+    let item: MemoryItem
+    var done: Bool = false
+    @ObservedObject private var app = AppState.shared
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Button {
+                app.setItemStatus(item.id, status: done ? .accepted : .done)
+            } label: {
+                Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20, weight: .regular))
+                    .foregroundStyle(done ? Rs.good : Rs.text3)
+            }
+            .buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(item.content)
+                    .font(.system(size: 17))
+                    .foregroundStyle(Rs.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    RsCategoryChip(category: item.category, kind: item.kind)
+                    if let meta = metaText {
+                        Text(meta)
+                            .font(Rs.caption)
+                            .foregroundStyle(Rs.text3)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    if let due = item.dueDisplay, !due.isEmpty {
+                        Text(due)
+                            .font(Rs.caption)
+                            .foregroundStyle(Rs.accent)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(EdgeInsets(top: 12, leading: 18, bottom: 12, trailing: 18))
+        .opacity(done ? 0.55 : 1)
+    }
+
+    private var metaText: String? {
+        var parts: [String] = []
+        if let w = item.who, !w.isEmpty { parts.append(w) }
+        if let src = item.sourceText, !src.isEmpty {
+            parts.append(src)
+        } else if let d = DayKey.date(from: item.day) {
+            parts.append("\(Fmt.monthDay.string(from: d)) \(Fmt.hm.string(from: item.createdAt)) 提到")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+struct RsAddTodoSheet: View {
+    @Binding var text: String
+    var onAdd: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        RsSheetBody(title: "新待办") {
+            TextField("要做什么？", text: $text, axis: .vertical)
+                .font(Rs.body)
+                .lineLimit(1...4)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Rs.fill))
+            RsActionButton(title: "记下", enabled: !text.trimmingCharacters(in: .whitespaces).isEmpty) {
+                onAdd()
+                dismiss()
+            }
+        }
+    }
+}

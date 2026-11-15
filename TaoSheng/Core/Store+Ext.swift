@@ -669,7 +669,20 @@ extension Store {
     }
 
     /// 搜历史问答：问题或答案里含关键词
-    func searchAsk(_ keyword: String, limit: Int = 300) -> [AskMessage] {
+    /// 删掉最近 N 分钟的录音（原版「不想留的话：删掉哪段时间」）。
+/// 段、音频文件一起删；当天删空时 deleteSegment 会顺带清掉由它们整理出的内容。
+@discardableResult
+func eraseRecent(minutes: Int) -> Int {
+    guard minutes > 0 else { return 0 }
+    let from = Date().addingTimeInterval(-Double(minutes) * 60)
+    let rows = segments(day: nil, limit: 3000).filter { $0.startedAt >= from }
+    guard !rows.isEmpty else { return 0 }
+    for r in rows {
+        deleteSegment(id: r.id, removeFile: true)
+    }
+    return rows.count
+}
+func searchAsk(_ keyword: String, limit: Int = 300) -> [AskMessage] {
         let k = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         if k.isEmpty { return askMessages(limit: limit) }
         return queue.sync { () -> [AskMessage] in

@@ -256,6 +256,15 @@ jobs:
             shoot_dev "$DEV" "iphone16" "memory-timeline-rail" 8
             shoot_dev "$DEV" "iphone16" "card-sheet-top" 9
             shoot_dev "$DEV" "iphone16" "card-sheet-bottom" 9
+            # 0.7.0：照原版重做的五个 tab 与三个抽屉
+            shoot_dev "$DEV" "iphone16" "rs-today" 8
+            shoot_dev "$DEV" "iphone16" "rs-ask" 7
+            shoot_dev "$DEV" "iphone16" "rs-memory" 8
+            shoot_dev "$DEV" "iphone16" "rs-todo" 7
+            shoot_dev "$DEV" "iphone16" "rs-settings" 7
+            shoot_dev "$DEV" "iphone16" "rs-listen" 8
+            shoot_dev "$DEV" "iphone16" "rs-topic" 8
+            shoot_dev "$DEV" "iphone16" "rs-search" 7
             shoot_dev "$DEV" "iphone16" "review-meetings" 8
             shoot_dev "$DEV" "iphone16" "todo-pending" 7
             shoot_dev "$DEV" "iphone16" "llm-interval" 7
@@ -290,7 +299,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shots-066
+          name: shots-070
           path: ${{ github.workspace }}/shots
           retention-days: 30
           if-no-files-found: warn

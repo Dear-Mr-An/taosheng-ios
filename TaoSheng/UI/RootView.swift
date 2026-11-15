@@ -6,6 +6,20 @@ struct RootView: View {
     @StateObject private var kb = KeyboardObserver.shared
 
     var body: some View {
+        Group {
+            if let s = ShotMode.screen, s.hasPrefix("rs-") {
+                // 0.7.0 新界面：截图直接落到对应 tab / 抽屉
+                RsShell(shot: s)
+            } else if ShotMode.screen != nil {
+                legacyShell
+            } else {
+                RsShell()
+            }
+        }
+    }
+
+    /// 0.6.x 的旧界面：只在 CI 截图（-TSShot）时还留着，新界面的截图齐了就删
+    private var legacyShell: some View {
         ZStack(alignment: .bottom) {
             Theme.bg.ignoresSafeArea()
 
