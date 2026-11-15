@@ -578,41 +578,54 @@ struct RsMemoryScreen: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 40)
             }
-            ForEach(categoryGroups, id: \.0) { name, list in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("\(name) · \(list.count) 条")
-                        .font(Rs.caption)
-                        .foregroundStyle(Rs.text3)
-                        .padding(.leading, 4)
-                    RsCard(padding: EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0)) {
-                        ForEach(Array(list.enumerated()), id: \.element.id) { i, it in
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(it.title)
-                                    .font(Rs.body)
-                                    .foregroundStyle(Rs.text)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                HStack(spacing: 6) {
-                                    RsCategoryChip(category: it.kind.title, kind: it.kind)
-                                    if !it.due.isEmpty {
-                                        Text(it.due).font(Rs.caption).foregroundStyle(Rs.accent)
-                                    }
-                                    Spacer(minLength: 0)
-                                    Text(it.status == .done ? "已完成" : (it.status == .ignored ? "已忽略" : ""))
-                                        .font(Rs.caption)
-                                        .foregroundStyle(Rs.text3)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                            if i < list.count - 1 {
-                                Rectangle().fill(Rs.separator).frame(height: 0.5).padding(.leading, 16)
-                            }
-                        }
+            ForEach(categoryGroups, id: \.0) { pair in
+                categoryGroup(name: pair.0, list: pair.1)
+            }
+        }
+    }
+
+    private func categoryGroup(name: String, list: [DigestItem]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("\(name) · \(list.count) 条")
+                .font(Rs.caption)
+                .foregroundStyle(Rs.text3)
+                .padding(.leading, 4)
+            RsCard(padding: EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0)) {
+                ForEach(Array(list.enumerated()), id: \.element.id) { pair in
+                    categoryRow(item: pair.element)
+                    if pair.offset < list.count - 1 {
+                        Rectangle().fill(Rs.separator).frame(height: 0.5).padding(.leading, 16)
                     }
                 }
             }
         }
+    }
+
+    private func categoryRow(item: DigestItem) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(item.title)
+                .font(Rs.body)
+                .foregroundStyle(Rs.text)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                RsCategoryChip(category: item.kind.title, kind: item.kind)
+                if !item.due.isEmpty {
+                    Text(item.due).font(Rs.caption).foregroundStyle(Rs.accent)
+                }
+                Spacer(minLength: 0)
+                Text(statusText(item))
+                    .font(Rs.caption)
+                    .foregroundStyle(Rs.text3)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    private func statusText(_ item: DigestItem) -> String {
+        if item.status == .done { return "已完成" }
+        return ""
     }
 
     /// 原版记忆页的小节标题：20 号粗体 + 灰色数量，右侧可放「早的在上」
