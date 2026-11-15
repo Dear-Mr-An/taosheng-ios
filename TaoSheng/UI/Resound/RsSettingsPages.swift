@@ -690,12 +690,9 @@ struct RsTranscriptPage: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("多久转写一次").font(Rs.body).foregroundStyle(Rs.text)
                 .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 10)
-            RsFlowLayout(spacing: 8, lineSpacing: 8) {
-                ForEach(Array(["实时", "15 分钟", "30 分钟", "自定义"].enumerated()), id: \.offset) { i, t in
-                    RsOptPill(text: t, on: cadence == i) { cadence = i }
-                }
-            }
-            .padding(.horizontal, 18)
+            RsSegControl(options: ["实时", "15 分钟", "30 分钟", "自定义"],
+                          index: Binding(get: { cadence }, set: { cadence = $0 }))
+                .padding(.horizontal, 18)
             .padding(.bottom, 12)
             RsCardHint(text: "每 30 分钟把攒下的录音转写一次。整理成事件另在「模型与整理时间」里设置。")
         }
@@ -1013,33 +1010,24 @@ struct RsModelPage: View {
                 if timing == 0 {
                     Text("多久整理一次").font(Rs.body).foregroundStyle(Rs.text)
                         .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 8)
-                    RsFlowLayout(spacing: 8, lineSpacing: 8) {
-                        ForEach(Array(["15 分钟", "30 分钟", "60 分钟", "自定义"].enumerated()), id: \.offset) { i, t in
-                            RsOptPill(text: t, on: interval == i) { interval = i }
-                        }
-                    }
-                    .padding(.horizontal, 18)
+                    RsSegControl(options: ["15 分钟", "30 分钟", "60 分钟", "自定义"],
+                                  index: Binding(get: { interval }, set: { interval = $0 }))
+                        .padding(.horizontal, 18)
                     RsCardHint(text: "整理要等转写完成；转写间隔比整理长时，以转写为准。")
                 } else {
                     Text("每天整理").font(Rs.body).foregroundStyle(Rs.text)
                         .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 8)
-                    RsFlowLayout(spacing: 8, lineSpacing: 8) {
-                        ForEach(Array(["21:00", "22:00", "23:00"].enumerated()), id: \.offset) { i, t in
-                            RsOptPill(text: t, on: interval == i) { interval = i }
-                        }
-                    }
-                    .padding(.horizontal, 18)
+                    RsSegControl(options: ["21:00", "22:00", "23:00"],
+                                  index: Binding(get: { min(interval, 2) }, set: { interval = $0 }))
+                        .padding(.horizontal, 18)
                     RsCardHint(text: "到点整理当天剩下的原话。")
                 }
                 RsRowDivider(inset: 18)
                 Text("停多久算说完了").font(Rs.body).foregroundStyle(Rs.text)
                     .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 8)
-                RsFlowLayout(spacing: 8, lineSpacing: 8) {
-                    ForEach(Array(["5 分钟", "10 分钟", "20 分钟"].enumerated()), id: \.offset) { i, t in
-                        RsOptPill(text: t, on: idleGap == i) { idleGap = i }
-                    }
-                }
-                .padding(.horizontal, 18)
+                RsSegControl(options: ["5 分钟", "10 分钟", "20 分钟"],
+                              index: Binding(get: { idleGap }, set: { idleGap = $0 }))
+                    .padding(.horizontal, 18)
                 RsCardHint(text: "两句话之间停了 10 分钟以上，就算前面那段对话结束。")
                 RsRowDivider(inset: 18)
                 RsToggleRow(title: "整理前先思考",

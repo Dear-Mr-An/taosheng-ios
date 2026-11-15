@@ -623,7 +623,7 @@ struct RsTimelineLine: View {
         }
         .sheet(item: $detail) { e in
             NavigationStack {
-                EventDetailView(event: e)
+                RsEventSheet(event: e)
                     .environmentObject(AppState.shared)
             }
         }
