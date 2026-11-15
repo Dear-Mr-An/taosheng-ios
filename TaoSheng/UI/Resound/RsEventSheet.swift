@@ -1,4 +1,14 @@
 import SwiftUI
+
+/// 事件详情面板的全局开关：任意一页点某件事，都从这里打开同一张面板。
+/// 面板挂在 RsShell 最外层，才能盖住 TabBar，也不会被列表行的边界裁掉。
+final class RsEventPanel: ObservableObject {
+    static let shared = RsEventPanel()
+    @Published var event: MemoryEvent?
+    private init() {}
+    func open(_ e: MemoryEvent) { event = e }
+    func close() { event = nil }
+}
 import UIKit
 
 /// 事件详情（照原版 Sheets.kt / EventSheet 的结构）：

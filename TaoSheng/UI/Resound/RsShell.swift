@@ -297,6 +297,8 @@ struct RsShell: View {
     @State private var tab: Int
 
     @State private var panelOpen = false
+    /// 事件详情面板（点时间线上任何一件事都走这里，面板挂在最外层才盖得住 TabBar）
+    @ObservedObject private var eventPanel = RsEventPanel.shared
 
     init(shot: String? = nil) {
         self.shot = shot
@@ -370,12 +372,21 @@ struct RsShell: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .zIndex(panelOpen ? 2 : 0)
+            .zIndex((panelOpen || eventPanel.event != nil) ? 2 : 0)
 
             RsTabBar(tab: $tab)
                 .zIndex(1)
         }
         .background(Rs.bg.ignoresSafeArea())
+        .overlay {
+            if let e = eventPanel.event {
+                RsBottomSheet(tall: true, onClose: { eventPanel.close() }) {
+                    RsEventSheet(event: e, onClose: { eventPanel.close() })
+                        .environmentObject(AppState.shared)
+                }
+                .zIndex(3)
+            }
+        }
     }
 }
 

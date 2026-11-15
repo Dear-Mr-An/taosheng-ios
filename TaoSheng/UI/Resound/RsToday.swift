@@ -576,7 +576,6 @@ private struct SmallPill: View {
 struct RsTimelineLine: View {
     let event: MemoryEvent
     var onStar: (() -> Void)? = nil
-    @State private var detail: MemoryEvent?
     @State private var shotOpened = false
     /// 截图时只让第一行把事件详情打开（否则每行都会开一层，叠出好几张面板）
     private static var shotOpenedOnce = false
@@ -585,7 +584,7 @@ struct RsTimelineLine: View {
 
     var body: some View {
         Button {
-            detail = event
+            RsEventPanel.shared.event = event
         } label: {
             HStack(alignment: .top, spacing: 0) {
                 Text(event.timeText)
@@ -620,18 +619,9 @@ struct RsTimelineLine: View {
         .onAppear {
             if ShotMode.screen == "rs-event", !Self.shotOpenedOnce {
                 Self.shotOpenedOnce = true
-                detail = event
+                RsEventPanel.shared.event = event
             }
         }
-        .overlay {
-            if let e = detail {
-                RsBottomSheet(tall: true, onClose: { detail = nil }) {
-                    RsEventSheet(event: e, onClose: { detail = nil })
-                }
-                .environmentObject(AppState.shared)
-            }
-        }
-        .onChange(of: detail != nil) { open in onPanel?(open) }
     }
 
     var onPanel: ((Bool) -> Void)? = nil
