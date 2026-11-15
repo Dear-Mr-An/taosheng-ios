@@ -31,7 +31,7 @@ struct RsSettingsScreen: View {
                         row(LLMSettingsView(), title: "大模型", detail: settings.llmReady ? settings.llmModel : "未填密钥",
                             symbol: "brain", tint: Color(hex: "E0603A"))
                         line
-                        row(PersonsView(), title: "声纹与人物", detail: "人物 · \(app.persons.count)",
+                        row(PersonsView(), title: "声纹与人物", detail: voiceDetail,
                             symbol: "person.2.fill", tint: Color(hex: "D9534F"))
                         line
                         row(EnvironmentSoundView(), title: "环境音识别", detail: settings.envSoundOn ? "已开启" : "未开启",
@@ -83,12 +83,21 @@ struct RsSettingsScreen: View {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
     }
 
+    /// 原版这一行写的是「豆包 · 每 30 分钟」，未配置时才提示
     private var asrDetail: String {
-        if !settings.asrReady { return "转写未就绪" }
-        let every = "每 \(settings.transcribeIntervalMin) 分钟"
+        let m = settings.transcribeIntervalMin
+        let every = m < 60 ? "每 \(m) 分钟" : "每 \(m / 60) 小时"
         if queue.busy { return "正在转写 · \(every)" }
         if queue.pendingCount > 0 { return "待转写 \(queue.pendingCount) 段" }
+        if !settings.asrReady { return "未配置 · \(every)" }
         return "\(asrProvider) · \(every)"
+    }
+
+    /// 原版写「● 还差 3 段样本」
+    private var voiceDetail: String {
+        let total = app.persons.reduce(0) { $0 + $1.sampleCount }
+        if total < 3 { return "● 还差 \(3 - total) 段样本" }
+        return "人物 · \(app.persons.count)"
     }
 
     private var asrProvider: String {

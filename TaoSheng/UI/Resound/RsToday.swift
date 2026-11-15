@@ -399,6 +399,8 @@ struct RsOverviewCard: View {
     }
 
     private var statusText: String {
+        // 截图模式：模拟器没有麦克风，按原版显示「正在聆听」
+        if activeOverride == true { return "正在聆听" }
         if let _ = quiet.until {
             return "已暂停 · \(quiet.resumeText) 恢复"
         }
@@ -462,8 +464,17 @@ struct RsOverviewCard: View {
         .padding(.top, 8)
     }
 
+    /// 原版写的是服务商名（DeepSeek ›），不是模型 id
     private var modelName: String {
-        settings.llmModel.isEmpty ? "模型 ›" : "\(settings.llmModel) ›"
+        let raw = settings.llmModel
+        if raw.isEmpty { return "模型 ›" }
+        let low = raw.lowercased()
+        if low.hasPrefix("deepseek") { return "DeepSeek ›" }
+        if low.hasPrefix("gpt") || low.hasPrefix("o1") || low.hasPrefix("o3") { return "OpenAI ›" }
+        if low.contains("qwen") { return "通义 ›" }
+        if low.contains("glm") { return "智谱 ›" }
+        if low.contains("gemini") { return "Gemini ›" }
+        return "\(raw) ›"
     }
 
     private var digestLine: String {

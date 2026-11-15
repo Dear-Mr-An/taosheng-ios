@@ -410,15 +410,18 @@ struct RsRecordSearchSheet: View {
 
     var body: some View {
         RsSheetBody(title: "搜索记录") {
-            TextField("搜原话或事件，空格分开多个词", text: $query)
-                .font(Rs.body)
-                .foregroundStyle(Rs.text)
-                .submitLabel(.search)
-                .onSubmit { run() }
-                .onChange(of: query) { _ in run() }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 13)
-                .background(Capsule(style: .continuous).fill(Rs.fill))
+            HStack(spacing: 9) {
+                RsMagnifier(ink: Rs.text3).frame(width: 18, height: 18)
+                TextField("搜原话或事件，空格分开多个词", text: $query)
+                    .font(Rs.body)
+                    .foregroundStyle(Rs.text)
+                    .submitLabel(.search)
+                    .onSubmit { run() }
+                    .onChange(of: query) { _ in run() }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 15)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(hex: "EDE9E3")))
 
             if query.trimmingCharacters(in: .whitespaces).isEmpty {
                 Text("例如：合同、老王周五、报销")

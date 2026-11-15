@@ -22,14 +22,14 @@ enum Rs {
     static let hairline = Color.black.opacity(0.04)
 
     // MARK: - 字号（RsType）
-    static let largeTitle = Font.system(size: 32, weight: .bold)
-    static let title = Font.system(size: 20, weight: .semibold)
-    static let headline = Font.system(size: 16, weight: .semibold)
-    static let body = Font.system(size: 15, weight: .regular)
-    static let subhead = Font.system(size: 13, weight: .regular)
-    static let caption = Font.system(size: 12, weight: .regular)
-    static let section = Font.system(size: 13, weight: .medium)
-    static let number = Font.system(size: 26, weight: .semibold).monospacedDigit()
+    static let largeTitle = Font.system(size: 34, weight: .bold)
+    static let title = Font.system(size: 21, weight: .semibold)
+    static let headline = Font.system(size: 17, weight: .semibold)
+    static let body = Font.system(size: 16, weight: .regular)
+    static let subhead = Font.system(size: 14, weight: .regular)
+    static let caption = Font.system(size: 12.5, weight: .regular)
+    static let section = Font.system(size: 13.5, weight: .medium)
+    static let number = Font.system(size: 28, weight: .semibold).monospacedDigit()
 
     // MARK: - 卡片圆角与内容宽度
     static let cardRadius: CGFloat = 22
@@ -166,7 +166,7 @@ struct RsChip: View {
                     Circle().fill(on ? Color.white.opacity(0.8) : d).frame(width: 7, height: 7)
                 }
                 Text(text)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 14.5, weight: .medium))
                     .foregroundStyle(on ? Color.white : Rs.text2)
                 if let n = count {
                     Text("\(n)")
@@ -175,8 +175,8 @@ struct RsChip: View {
                 }
             }
             .lineLimit(1)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
+            .padding(.horizontal, 15)
+            .padding(.vertical, 9)
             .background(Capsule(style: .continuous).fill(on ? Rs.accent : Rs.card))
         }
         .buttonStyle(RsSpringButtonStyle())
@@ -191,10 +191,11 @@ struct RsCategoryChip: View {
     var body: some View {
         let color = Rs.categoryColor(category)
         Text(kind != nil && category == "待办" ? "待办 · \(kind!)" : category)
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: 11.5, weight: .medium))
             .foregroundStyle(color)
             .lineLimit(1)
-            .padding(.horizontal, 9)
+            .minimumScaleFactor(0.75)
+            .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background(Capsule(style: .continuous).fill(color.opacity(0.13)))
     }

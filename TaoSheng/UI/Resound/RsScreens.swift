@@ -142,10 +142,10 @@ struct FlowChips: View {
                     ForEach(row, id: \.self) { s in
                         Button { onTap(s) } label: {
                             Text(s)
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: 15, weight: .medium))
                                 .foregroundStyle(Rs.accent)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 9)
+                                .padding(.horizontal, 17)
+                                .padding(.vertical, 11)
                                 .background(Capsule(style: .continuous).fill(Rs.accentSoft))
                         }
                         .buttonStyle(RsSpringButtonStyle())
@@ -162,8 +162,8 @@ struct FlowChips: View {
         var cur: [String] = []
         var width = 0
         for s in items {
-            let w = s.count * 14 + 34
-            if width + w > 330, !cur.isEmpty {
+            let w = s.count * 15 + 40
+            if width + w > 356, !cur.isEmpty {
                 out.append(cur)
                 cur = [s]
                 width = w
@@ -343,16 +343,12 @@ struct RsMemoryScreen: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            VStack(spacing: 2) {
-                ForEach(Array(monthWeeks.enumerated()), id: \.offset) { _, week in
-                    HStack(spacing: 0) {
-                        ForEach(0..<7, id: \.self) { i in
-                            if let d = week[i] {
-                                dayCell(d).frame(maxWidth: .infinity)
-                            } else {
-                                Color.clear.frame(maxWidth: .infinity, minHeight: 40)
-                            }
-                        }
+            HStack(spacing: 0) {
+                ForEach(Array(currentWeek.enumerated()), id: \.offset) { _, d in
+                    if let d {
+                        dayCell(d).frame(maxWidth: .infinity)
+                    } else {
+                        Color.clear.frame(maxWidth: .infinity, minHeight: 40)
                     }
                 }
             }
@@ -372,6 +368,14 @@ struct RsMemoryScreen: View {
 
     private var monthTitle: String {
         Fmt.df("yyyy年M月").string(from: monthAnchor)
+    }
+
+    /// 当前显示的一周（周一开头）——与原版 03-memory 的日历一致：一次一行，左右箭头翻周
+    private var currentWeek: [Date?] {
+        let cal = Calendar.current
+        let lead = (cal.component(.weekday, from: selectedDay) + 5) % 7   // 周一=0
+        guard let monday = cal.date(byAdding: .day, value: -lead, to: cal.startOfDay(for: selectedDay)) else { return [] }
+        return (0..<7).map { cal.date(byAdding: .day, value: $0, to: monday) }
     }
 
     /// 整月网格：周一开头，前置留空（原版 MemoryScreen 的日历是整月）
@@ -444,6 +448,10 @@ struct RsMemoryScreen: View {
         .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.accentSoft))
     }
 
+    private var skillCards: [SkillCard] {
+        app.dayCards.filter { !$0.isNothing }
+    }
+
     private var cardsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             RsSection(title: "卡片") {
@@ -464,37 +472,29 @@ struct RsMemoryScreen: View {
                     .foregroundStyle(Rs.text2)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.bottom, 10)
-                if notes.isEmpty {
+                if skillCards.isEmpty {
                     EmptyView()
                 } else {
                     VStack(spacing: 8) {
-                        ForEach(notes) { e in
-                            HStack(alignment: .top, spacing: 10) {
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Rs.accentSoft)
-                                    .frame(width: 36, height: 36)
-                                    .overlay(Image(systemName: e.scene == "培训" ? "lightbulb" : "person.2.wave.2")
-                                        .font(.system(size: 16, weight: .medium))
-                                        .foregroundStyle(Rs.accent))
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text("\(e.noteTag) · \(e.timeText)")
-                                        .font(Rs.caption)
-                                        .foregroundStyle(Rs.text3)
-                                    Text(e.title)
-                                        .font(Rs.headline)
-                                        .foregroundStyle(Rs.text)
-                                        .lineLimit(2)
-                                    Text(e.conclusion)
-                                        .font(Rs.caption)
+                        ForEach(skillCards) { c in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("\(c.skillName) · \(c.startAt.map { Fmt.hm.string(from: $0) } ?? "")")
+                                    .font(Rs.caption)
+                                    .foregroundStyle(Rs.text3)
+                                Text(c.fields["title"] ?? c.skillName)
+                                    .font(Rs.headline)
+                                    .foregroundStyle(Rs.text)
+                                if let line = c.fields["summary"], !line.isEmpty {
+                                    Text(line)
+                                        .font(Rs.subhead)
                                         .foregroundStyle(Rs.text2)
-                                        .lineLimit(2)
+                                        .lineLimit(3)
                                 }
-                                Spacer(minLength: 0)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(12)
-                            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Rs.card)
-                                .shadow(color: Rs.shadow, radius: 8, x: 0, y: 3))
+                            .padding(14)
+                            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card)
+                                .shadow(color: Rs.shadow, radius: 10, x: 0, y: 4))
                         }
                     }
                 }
