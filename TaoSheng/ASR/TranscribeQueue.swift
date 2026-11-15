@@ -40,8 +40,9 @@ final class TranscribeQueue: ObservableObject {
         timer = nil
     }
 
-    /// live = 会话里的实时转写：跳过「多久转一次」的间隔限制，网络和开关规则照旧。
-    func tick(manual: Bool = false, live: Bool = false) {
+    /// manual = 手动点「现在转写」：跳过开关与间隔。会话不再有自己的「实时档」，
+    /// 一切按设置里的「多久转写一次」走，转完一段就交给 DigestEngine 按需整理。
+    func tick(manual: Bool = false) {
         let s = Settings.shared
         // 手动点「现在转写」时不受「自动转写」开关和间隔限制，
         // 否则关掉自动转写后按钮点了毫无反应，用户以为卡死。
@@ -58,9 +59,9 @@ final class TranscribeQueue: ObservableObject {
             refreshPending()
             return
         }
-        // 间隔由「多久转写一次」决定；实时档就是每 60 秒看一次
+        // 间隔由「多久转写一次」决定
         let interval = Double(max(1, s.transcribeIntervalMin)) * 60
-        guard manual || live || Date().timeIntervalSince(lastRun) >= interval else {
+        guard manual || Date().timeIntervalSince(lastRun) >= interval else {
             refreshPending()
             return
         }
@@ -71,12 +72,16 @@ final class TranscribeQueue: ObservableObject {
         lastRunAt = Date()
 
         Task.detached(priority: .utility) {
+            // 这一轮有没有转到新文字：有就顺手让整理跟上（设置里选「转写完就整理」时）
+            var produced = false
             defer {
+                let hadNewText = produced
                 Task { @MainActor in
                     self.working = false
                     self.busy = false
                     self.refreshPending()
                     NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
+                    DigestEngine.shared.afterTranscribeRound(newText: hadNewText)
                 }
             }
 
@@ -117,6 +122,7 @@ final class TranscribeQueue: ObservableObject {
                             cleaned = HotwordFix.apply(cleaned)
                         }
                         Store.shared.updateTranscript(id: seg.id, transcript: cleaned, state: .transcribed)
+                        if !cleaned.isEmpty { produced = true }
 
                         // 使用录制时保存的模式，切换当前模式不改变旧录音的分人策略。
                         if !cleaned.isEmpty && Settings.shared.speakerSplitOn && seg.captureMode.separateSpeakers {
@@ -192,9 +198,10 @@ final class TranscribeQueue: ObservableObject {
         tick(manual: true)
     }
 
-    /// 下一轮大约什么时候开始；没有待转写内容时为 nil
+    /// 下一轮大约什么时候开始；没有待转写内容、或现在压根传不出去（没网 / 只等 WiFi）时为 nil，
+    /// 界面就不会写出「约 0 分钟后下一轮」这种自己都不会发生的时刻。
     var nextRunAt: Date? {
-        guard pendingCount > 0 else { return nil }
+        guard pendingCount > 0, NetWatcher.shared.canUpload else { return nil }
         let base = lastRunAt ?? Date()
         let interval = Double(max(1, Settings.shared.transcribeIntervalMin)) * 60
         let next = base.addingTimeInterval(interval)

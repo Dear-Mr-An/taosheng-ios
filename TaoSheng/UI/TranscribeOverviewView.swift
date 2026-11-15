@@ -5,6 +5,8 @@ import SwiftUI
 struct TranscribeOverviewView: View {
     @EnvironmentObject var settings: Settings
     @ObservedObject private var queue = TranscribeQueue.shared
+    /// 0.6.5：NetWatcher 变成 ObservableObject，网络一变这页的「等网络」提示就跟着变
+    @ObservedObject private var net = NetWatcher.shared
 
     @State private var exportURL: URL?
     @State private var exportError: String?
@@ -165,7 +167,9 @@ struct TranscribeOverviewView: View {
         } else {
             parts.append("还没转过")
         }
-        if let next = queue.nextRunAt {
+        if queue.pendingCount > 0, !net.canUpload {
+            parts.append("当前网络按设置不转，连上 WiFi 自动继续")
+        } else if let next = queue.nextRunAt {
             let m = max(1, Int(next.timeIntervalSinceNow / 60))
             parts.append("约 \(m) 分钟后下一轮")
         } else {

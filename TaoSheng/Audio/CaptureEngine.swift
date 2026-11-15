@@ -69,10 +69,8 @@ final class CaptureEngine: ObservableObject {
         queue.sync {
             self.sessionId = id
             if let m = mode { self.recordingMode = m }
-            // 实时转写要快：段更短，最短时长也放宽，否则「嗯」「好」这种插话全被丢掉
-            self.minimumDuration = id == nil
-                ? Settings.shared.minSegment
-                : min(Settings.shared.minSegment, 0.8)
+            // 会话不再有「实时档」：切段的最短时长和平时一样按设置走
+            self.minimumDuration = Settings.shared.minSegment
         }
     }
 
@@ -424,15 +422,12 @@ final class CaptureEngine: ObservableObject {
             defer { self.releaseSlot() }
             guard self.acceptingBuffers, self.bufferGeneration == token else { return }
             self.lastBufferAt = now
-            // 有会话时用「实时」档：停顿 0.8 秒、最长 20 秒就切，切完立刻送转写。
-            // 没有会话（历史路径）仍按设置里的模式阈值走。
-            let inSession = self.sessionId != nil
-            let live = inSession ? self.recordingMode : Settings.shared.captureMode
-            let gap = inSession ? CaptureMode.liveSilenceGap : live.silenceGap
-            let maxSegment = inSession ? CaptureMode.liveMaxSegment : live.maxSegment
-            let liveThreshold = inSession
-                ? live.sensitivity(Settings.shared.sensitivity)
-                : Settings.shared.modeSensitivity
+            // 切段阈值统一按「这一场锁定的模式」走（mode 由 startSessionAndEngine 传进来，
+            // 就是 recordingMode），会话内外没有区别：0.6.4 之前会话里用 0.8 秒 / 20 秒的实时档，
+            // 董事长真机上被这套阈值一路切碎、又因为等网络一直不转。现在整场节奏和平时一样。
+            let gap = mode.silenceGap
+            let maxSegment = mode.maxSegment
+            let liveThreshold = mode.sensitivity(Settings.shared.sensitivity)
             let speaking = rms > liveThreshold
             if speaking {
                 self.lastVoiceAt = now
@@ -604,13 +599,10 @@ final class CaptureEngine: ObservableObject {
             }
             return
         }
-        let inSession = sessionId != nil
         DispatchQueue.main.async {
             self.onSegmentSaved?(seg)
             AppState.shared.refresh()
             NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
-            // 开会时这段一落地就转，不等 30 秒的定时器：实时字幕靠这一下面
-            if inSession { TranscribeQueue.shared.tick(live: true) }
         }
     }
 }

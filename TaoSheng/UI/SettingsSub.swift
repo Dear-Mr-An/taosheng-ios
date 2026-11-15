@@ -1395,7 +1395,7 @@ struct TranscribeSettingsSheet: View {
     private var switchCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             toggleLine("只在 WiFi 下转写",
-                       "关掉后用流量也会上传，每小时录音约 10 MB",
+                       "打开后，用流量时不转写，连上 WiFi 再补。默认关：蜂窝也照转，点了结束也会马上出结果",
                        $settings.wifiOnlyTranscribe)
             Divider().overlay(Theme.lineSoft).padding(.vertical, 12)
             toggleLine("外放声音时不转写",

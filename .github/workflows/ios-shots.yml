@@ -1,4 +1,4 @@
-name: shots
+﻿name: shots
 
 on:
   push:
@@ -290,7 +290,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shots-064
+          name: shots-065
           path: ${{ github.workspace }}/shots
           retention-days: 30
           if-no-files-found: warn
+

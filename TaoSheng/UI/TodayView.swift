@@ -120,14 +120,18 @@ struct TodayView: View {
             }
 
             if !heroCollapsed {
-                modeRow
-                    .padding(.top, 10)
+                // 录音中不让人换模式，也不再把「实时转写」铺在卡上：
+                // 董事长要的是「点开始就录、后台按设置转、转出字就整理」，
+                // 卡上只需要看到在录、录了多久、录了几段、怎么停。
+                if flow.isRecording {
+                    recordingRow
+                        .padding(.top, 10)
+                } else {
+                    modeRow
+                        .padding(.top, 10)
+                }
                 listenButton
                     .padding(.top, 8)
-                if flow.isRecording || !liveLines.isEmpty {
-                    liveTranscript
-                        .padding(.top, 8)
-                }
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -201,17 +205,19 @@ struct TodayView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// 底部那行说明：录音中给转写进度，空闲时给待转写段数和整理状态。
+    /// 底部那行说明：录音中只讲「结束后会怎么处理」，空闲时给待转写段数和整理状态。
     private var stageLine: String {
         if flow.isRecording {
-            return liveLines.isEmpty ? "正在转写…" : "已转写 \(liveLines.count) 段，结束统一分人"
+            return "结束后统一分人，再整理成纪要"
         }
         if flow.working {
             let p = flow.phaseText ?? ""
             return p.isEmpty ? flow.statusText : p
         }
-        if toTranscribe > 0 { return "\(toTranscribe) 段录音待转写" }
+        if flow.waitingNetwork { return "没有网络，联网后自动继续" }
+        // 失败的原因比「还有几段待转写」更要紧，先说失败
         if flow.canRetry, let err = flow.lastError { return err }
+        if toTranscribe > 0 { return "\(toTranscribe) 段录音待转写" }
         return digestAgo
     }
 
@@ -219,56 +225,68 @@ struct TodayView: View {
 
     /// 英雄卡顶上那行字：录音/收尾/整理/失败各有各的说法，别一律写「已暂停」。
     private var heroStatus: String {
-        if flow.working || flow.isRecording { return flow.statusText }
+        if flow.isRecording {
+            let mode = flow.current?.mode.title ?? settings.captureMode.title
+            return "正在聆听 · " + mode
+        }
+        if flow.working { return flow.statusText }
         if let s = flow.current, s.state == .done { return "已整理" }
         return flow.statusText
     }
 
-    /// 录音中的实时转写：最近 6 行，最新在最下面。分人留到结束再做，
-    /// 因为每段是独立送识别的，跨段编号对不上，硬标会标错人。
-    private var liveLines: [(String, String, Bool)] {
-        guard let sid = flow.current?.id, flow.isRecording else { return [] }
-        let rows = app.todaySegments.filter { $0.sessionId == sid }
-        let recent = rows.prefix(6)
-        return recent.map { seg in
-            (Fmt.hm.string(from: seg.startedAt), seg.transcript, seg.state == .transcribed)
-        }.reversed()
-    }
-
-    private var liveTranscript: some View {
+    /// 录音中卡上只放三件事：正在录、录了多久、录了几段（后台按设置里的节奏转写）。
+    /// 实时转写那一套在 0.6.5 去掉了——董事长要的是点开就录、不用等网络。
+    private var recordingRow: some View {
         VStack(alignment: .leading, spacing: 5) {
-            if liveLines.isEmpty {
-                HStack(spacing: 6) {
-                    ProgressView().scaleEffect(0.6).tint(.white)
-                    Text("转写中…")
-                        .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.85))
-                }
-            } else {
-                ForEach(Array(liveLines.enumerated()), id: \.offset) { _, line in
-                    HStack(alignment: .top, spacing: 6) {
-                        Text(line.0)
-                            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.55))
-                            .padding(.top, 1)
-                        Text(line.2 ? line.1 : "转写中…")
-                            .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(line.2 ? 0.95 : 0.7))
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                if let start = flow.current?.startedAt {
+                    TimelineView(.periodic(from: Date(), by: 1)) { ctx in
+                        Text(Self.clockText(ctx.date.timeIntervalSince(start)))
+                            .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.white)
                     }
+                } else {
+                    Text("00:00")
+                        .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white)
                 }
+                Text("已录 \(sessionSegmentCount) 段，后台每 \(transcribeCadence)转写一次")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(.white.opacity(0.85))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            if !NetWatcher.shared.canUpload {
-                Text("等网络后转写")
-                    .font(.system(size: 10.5))
-                    .foregroundColor(.white.opacity(0.7))
+            if settings.digestTiming == .afterTranscribe {
+                Text("转出文字就自动整理")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.72))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(Color.black.opacity(0.14))
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+    }
+
+    /// 这一场已经落地的段数（不是今天所有段）。
+    private var sessionSegmentCount: Int {
+        guard let sid = flow.current?.id else { return 0 }
+        return app.todaySegments.filter { $0.sessionId == sid }.count
+    }
+
+    /// 「30 分钟」/「2 小时」
+    private var transcribeCadence: String {
+        let minutes = max(1, settings.transcribeIntervalMin)
+        if minutes < 60 { return "\(minutes) 分钟" }
+        if minutes % 60 == 0 { return "\(minutes / 60) 小时" }
+        return "\(minutes / 60) 小时 \(minutes % 60) 分钟"
+    }
+
+    static func clockText(_ seconds: Double) -> String {
+        let total = max(0, Int(seconds))
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        return h > 0
+            ? String(format: "%d:%02d:%02d", h, m, s)
+            : String(format: "%02d:%02d", m, s)
     }
 
     private var modeRow: some View {
@@ -318,7 +336,7 @@ struct TodayView: View {
                     Image(systemName: flow.isRecording ? "stop.fill" : "mic.fill")
                         .font(.system(size: 13, weight: .semibold))
                 }
-                Text(flow.working ? flow.statusText : (flow.isRecording ? "结束聆听" : "开始聆听"))
+                Text(flow.working ? flow.statusText : (flow.isRecording ? "结束" : "开始聆听"))
                     .font(.system(size: 15, weight: .semibold))
             }
             .foregroundColor(flow.isRecording || flow.working ? Color.white : Theme.accent)
@@ -331,7 +349,7 @@ struct TodayView: View {
         .disabled(flow.working)
     }
     private var heroNote: String {
-        if flow.isRecording { return "边说边转写；结束后统一分人，再整理成纪要。实时行先不标说话人，避免标错。" }
+        if flow.isRecording { return "正在录音并后台转写；点「结束」后整场分说话人，再整理成纪要。" }
         if flow.working { return flow.statusText + "，稍等，整理好会推送到你配置的通道。" }
         if flow.canRetry, let err = flow.lastError { return err }
         if let s = flow.current, s.state == .done {

@@ -30,6 +30,8 @@ final class DigestEngine: ObservableObject {
             self?.tick()
         }
         tick()
+        // 「转写完就整理」这一档没有定时器驱动，开机补一次上次没整理完的零散段
+        Task { @MainActor in self.catchUpAfterLaunch() }
     }
 
     func stop() {
@@ -46,7 +48,9 @@ final class DigestEngine: ObservableObject {
         let now = Date()
         let day = DayKey.of(now)
         let lastSuccess = UserDefaults.standard.object(forKey: "digestLastAutomaticSuccess") as? Date
-        guard DigestSchedule.shouldRun(enabled: s.autoDigest, byInterval: s.digestByInterval,
+        // 第一档「转写完就整理」由 TranscribeQueue 转完一段后调用 afterTranscribeRound 触发，
+        // 定时器在这一档不跑（否则等于又变回按间隔整理）。
+        guard DigestSchedule.shouldRun(enabled: s.autoDigest, timing: s.digestTiming,
             intervalMinutes: s.digestIntervalMin, hour: s.digestHour, now: now, lastRun: lastSuccess) else { return }
         // 失败按指数退避重试（时间点模式失败不该阻止当天再试）；
         // 连续失败 5 次就停掉自动重试，免得 Key 失效时一直烧请求。
@@ -58,6 +62,38 @@ final class DigestEngine: ObservableObject {
 
         lastAttempt[day] = now
         Task { await self.digestAutomatically(days: days) }
+    }
+
+    /// 一轮转写结束后调用（来自 TranscribeQueue）。选「转写完就整理」时，
+    /// 只要这一轮真的转出了新文字，就立刻整理零散段；会话里的段仍然留到点「结束」统一整理
+    /// （performDigest 里那句 session_id 过滤保持不变）。
+    @MainActor
+    func afterTranscribeRound(newText: Bool) {
+        let s = Settings.shared
+        guard DigestTrigger.afterTranscribe(timing: s.digestTiming,
+                                            newText: newText,
+                                            hasKey: !s.effectiveLLM.key.isEmpty,
+                                            working: running) else { return }
+        let now = Date()
+        let day = DayKey.of(now)
+        // 连续几段之间别每几秒就整一次：同一分钟内复用已经跑过的那次
+        if let last = lastAttempt[day], now.timeIntervalSince(last) < 20 { return }
+        let days = Store.shared.undigestedDays(through: day)
+        guard !days.isEmpty else { return }
+        lastAttempt[day] = now
+        Task { await digestAutomatically(days: days) }
+    }
+
+    /// 启动兜底：第一档不跑定时器，如果上次退出前还有没整理的零散段（比如整理时没网），
+    /// 开机就该补上，不能等用户再去点一下。
+    @MainActor
+    func catchUpAfterLaunch() {
+        let s = Settings.shared
+        guard s.digestTiming == .afterTranscribe, s.autoDigest,
+              !s.effectiveLLM.key.isEmpty, !running else { return }
+        let days = Store.shared.undigestedDays(through: DayKey.of(Date()))
+        guard !days.isEmpty else { return }
+        Task { await digestAutomatically(days: days) }
     }
 
     // MARK: - 主流程

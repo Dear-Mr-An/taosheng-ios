@@ -119,8 +119,20 @@ final class Settings: ObservableObject {
     static let digestIntervalOptions = [5, 10, 15, 30, 60, 120, 240, 720]
 
     @Published var digestIntervalMin: Int { didSet { d.set(digestIntervalMin, forKey: "digestIntervalMin") } }
-    /// true=按间隔，false=按时间点（digestHour）
-    @Published var digestByInterval: Bool { didSet { d.set(digestByInterval, forKey: "digestByInterval") } }
+    /// 什么时候整理：转写完就整理（默认）/ 按间隔 / 按时间点。规则在 DigestTiming 里。
+    @Published var digestTimingRaw: String {
+        didSet {
+            d.set(digestTimingRaw, forKey: "digestTimingRaw")
+            // 老键继续跟着写，降级回 0.6.4 时至少还是「按间隔」或「按时间点」
+            d.set(digestTiming == .interval, forKey: "digestByInterval")
+        }
+    }
+    var digestTiming: DigestTiming {
+        get { DigestTiming.restored(digestTimingRaw) }
+        set { digestTimingRaw = newValue.rawValue }
+    }
+    /// 兼容旧读法：true=按间隔
+    var digestByInterval: Bool { digestTiming == .interval }
     @Published var reviewHour: Int { didSet { d.set(reviewHour, forKey: "reviewHour") } }
     @Published var weeklyReviewWeekday: Int { didSet { d.set(weeklyReviewWeekday, forKey: "weeklyReviewWeekday") } }
     @Published var keepAudioDays: Int { didSet { d.set(keepAudioDays, forKey: "keepAudioDays") } }
@@ -140,7 +152,7 @@ final class Settings: ObservableObject {
     var modeSensitivity: Double { captureMode.sensitivity(sensitivity) }
     @Published var preferredInputUID: String { didSet { d.set(preferredInputUID, forKey: "preferredInputUID") } }
     @Published var skipWhenOutput: Bool { didSet { d.set(skipWhenOutput, forKey: "skipWhenOutput") } }
-    /// 只在 WiFi 下转写：关掉后蜂窝网络也会上传录音
+    /// 只在 WiFi 下转写：默认关（蜂窝也传）。打开后流量下不转，连上 WiFi 再补。
     @Published var wifiOnlyTranscribe: Bool { didSet { d.set(wifiOnlyTranscribe, forKey: "wifiOnlyTranscribe") } }
     /// 自定义转写请求头，一行一个 "Key: Value"
     @Published var asrCustomHeaders: String { didSet { d.set(asrCustomHeaders, forKey: "asrCustomHeaders") } }
@@ -220,7 +232,14 @@ final class Settings: ObservableObject {
         digestHour = d.object(forKey: "digestHour") as? Int ?? 21
         let savedInterval = d.object(forKey: "digestIntervalMin") as? Int ?? 30
         digestIntervalMin = Settings.digestIntervalOptions.contains(savedInterval) ? savedInterval : 30
-        digestByInterval = d.object(forKey: "digestByInterval") as? Bool ?? true
+        // 0.6.5 之前只有 digestByInterval；没有 digestTimingRaw 的老库按旧值推出「按间隔 / 按时间点」，
+        // 全新安装（两个键都没有）默认「转写完就整理」——董事长的用法就是转出字就整理。
+        if let savedTiming = d.string(forKey: "digestTimingRaw") {
+            digestTimingRaw = DigestTiming.restored(savedTiming).rawValue
+        } else {
+            digestTimingRaw = DigestTiming.migrated(
+                byInterval: d.object(forKey: "digestByInterval") as? Bool).rawValue
+        }
         reviewHour = d.object(forKey: "reviewHour") as? Int ?? 22
         weeklyReviewWeekday = d.object(forKey: "weeklyReviewWeekday") as? Int ?? 1
         keepAudioDays = d.object(forKey: "keepAudioDays") as? Int ?? 3
@@ -230,7 +249,8 @@ final class Settings: ObservableObject {
         minSegment = d.object(forKey: "minSegment") as? Double ?? 2.0
         preferredInputUID = d.string(forKey: "preferredInputUID") ?? ""
         skipWhenOutput = d.object(forKey: "skipWhenOutput") as? Bool ?? true
-        wifiOnlyTranscribe = d.object(forKey: "wifiOnlyTranscribe") as? Bool ?? true
+        // 默认不算流量：真机上第一次用就被「等网络」卡住，压根录不出东西
+        wifiOnlyTranscribe = d.object(forKey: "wifiOnlyTranscribe") as? Bool ?? false
         asrCustomHeaders = d.string(forKey: "asrCustomHeaders") ?? ""
         speakerSplitOn = d.object(forKey: "speakerSplitOn") as? Bool ?? true
         silenceWindowOn = d.object(forKey: "silenceWindowOn") as? Bool ?? false

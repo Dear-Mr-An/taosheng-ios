@@ -3,8 +3,9 @@ import Combine
 
 /// 「开始聆听 → 边录边转写 → 结束 → 分清说话人 → 立即整理 → 推送」的总调度。
 ///
-/// 一句话说明各步归谁管：录音归 CaptureEngine（段上带 session_id），转写归 TranscribeQueue
-/// （会话中每段落盘就立刻转），分人与整理归这里。任何一步失败都落在会话上，界面给「重试」，
+/// 一句话说明各步归谁管：录音归 CaptureEngine（段上带 session_id），
+/// 转写归 TranscribeQueue（按设置里的节奏在后台转，不再为会话单独提速），
+/// 分人与整理归这里。任何一步失败都落在会话上，界面给「重试」，
 /// App 被杀之后重启也能凭库里的状态接着收尾。
 @MainActor
 final class ListenFlow: ObservableObject {
@@ -21,6 +22,17 @@ final class ListenFlow: ObservableObject {
 
     private init() {
         current = Store.shared.latestSession()
+        // 没网导致收尾失败时不要卡死在「处理失败」：链路一恢复就自己接着做
+        NotificationCenter.default.addObserver(forName: .taoshengNetworkRestored,
+                                               object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.resumeAfterNetworkRestore() }
+        }
+    }
+
+    /// 英雄卡上给「没有网络，联网后自动继续」用
+    var waitingNetwork: Bool {
+        guard let s = current, s.state == .failed else { return false }
+        return lastError?.contains("没有网络") == true
     }
 
     var isRecording: Bool { current?.state == .recording }
@@ -96,6 +108,37 @@ final class ListenFlow: ObservableObject {
         Task { await finish(s, fromDigest: hasUtterances) }
     }
 
+    /// 网络恢复：把卡住的那一场自动接着做，用户不用再点「重试」。
+    /// 点「结束」之后的收尾不受「只在 WiFi 下转写」影响——这里只管「当时真没网」这一种情况。
+    func resumeAfterNetworkRestore() {
+        guard let s = current, !working else { return }
+        switch s.state {
+        case .failed:
+            retry()
+        case .finalizing, .digesting:
+            // 半途断网会停在 finalizing / digesting，但 working 已经落回 false
+            working = true
+            let fromDigest = s.state == .digesting && Store.shared.utteranceCount(sessionId: s.id) > 0
+            Task { await finish(s, fromDigest: fromDigest) }
+        case .recording, .done:
+            break
+        }
+    }
+
+    /// 断网 / 连接被掐断这类错误统一说人话，界面才好提示「联网后自动继续」。
+    static func networkMessage(_ error: Error) -> String? {
+        let ns = error as NSError
+        guard ns.domain == NSURLErrorDomain else { return nil }
+        switch ns.code {
+        case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost:
+            return "没有网络，联网后自动继续"
+        case NSURLErrorTimedOut:
+            return "网络超时，联网后自动继续"
+        default:
+            return nil
+        }
+    }
+
     /// 启动时接上次没处理完的会话（被杀、闪退、断电都算）。
     func resumeAfterLaunch() {
         let un = Store.shared.unfinishedSessions()
@@ -161,11 +204,13 @@ final class ListenFlow: ObservableObject {
             phaseText = Settings.shared.pushOnDigest ? "已整理并推送" : "已整理"
             lastError = nil
         } catch {
+            // 断网不算「处理失败」：状态仍记 failed 好让重试有据，但提示写清楚会自动继续
+            let message = Self.networkMessage(error) ?? error.localizedDescription
             phaseText = nil
-            lastError = error.localizedDescription
-            Store.shared.updateSessionState(id: s.id, state: .failed, error: error.localizedDescription)
+            lastError = message
+            Store.shared.updateSessionState(id: s.id, state: .failed, error: message)
             s.stateRaw = SessionState.failed.rawValue
-            s.error = error.localizedDescription
+            s.error = message
             current = s
             NSLog("涛声: 会话收尾失败 \(error)")
         }

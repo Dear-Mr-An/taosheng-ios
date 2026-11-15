@@ -1,11 +1,20 @@
 import Foundation
 import Network
+import Combine
+
+extension Notification.Name {
+    /// 从「没网」变成「有网」：会话收尾失败后靠它自动接着做，不需要用户再点一下。
+    static let taoshengNetworkRestored = Notification.Name("taoshengNetworkRestored")
+    /// 任何一次链路变化（WiFi ↔ 蜂窝、断网、恢复）：界面刷新用
+    static let taoshengNetworkChanged = Notification.Name("taoshengNetworkChanged")
+}
 
 /// 网络状态：判断当前是不是「贵的网」（蜂窝、个人热点），用来实现「只在 WiFi 下转写」。
 ///
 /// NWPathMonitor 的回调在私有队列 q 上跑，而 `canUpload` / `label` 在 UI 线程读，
 /// 所以状态用锁保护，避免数据竞争（Swift 5 不报，但真机上可能读到半个值）。
-final class NetWatcher {
+/// 0.6.5 起它是 ObservableObject：以前界面拿不到变化，开着飞行模式也一直显示旧状态。
+final class NetWatcher: ObservableObject {
     static let shared = NetWatcher()
 
     private let monitor = NWPathMonitor()
@@ -23,11 +32,22 @@ final class NetWatcher {
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self = self else { return }
             self.lock.lock()
+            let wasOnline = self._online
             self._online = (path.status == .satisfied)
             self._expensive = path.isExpensive
             self._isWiFi = path.usesInterfaceType(.wifi)
             self._resolved = true
+            let nowOnline = self._online
             self.lock.unlock()
+
+            DispatchQueue.main.async {
+                self.objectWillChange.send()
+                NotificationCenter.default.post(name: .taoshengNetworkChanged, object: nil)
+                // 只有「断→通」才发恢复通知：收尾失败的那一场要立刻接着做
+                if nowOnline && !wasOnline {
+                    NotificationCenter.default.post(name: .taoshengNetworkRestored, object: nil)
+                }
+            }
         }
         monitor.start(queue: q)
     }

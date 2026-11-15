@@ -179,7 +179,8 @@ enum ShotDemo {
         }
 
         if screen == "today-live", Store.shared.session(id: liveSessionID) == nil {
-            let started = now.addingTimeInterval(-420)
+            // 12:34 已录，界面上「已录 4 段，后台每 30 分钟转写一次」一行放得下
+            let started = now.addingTimeInterval(-754)
             let s = ListenSession(id: liveSessionID,
                                   modeRaw: CaptureMode.meeting.rawValue,
                                   startedAt: started,

@@ -18,11 +18,6 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    /// 会话中段的切分：停顿满 0.8 秒或长度满 20 秒就切，切完立刻转写。
-    /// 会议里等 2.5 秒判停会让实时字幕迟到半分钟，所以实时转写用另一套更短的阈值。
-    static let liveSilenceGap: Double = 0.8
-    static let liveMaxSegment: Double = 20
-
     var title: String {
         switch self {
         case .meeting: return "会议"

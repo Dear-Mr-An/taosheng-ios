@@ -161,12 +161,40 @@ struct LLMSettingsView: View {
             Toggle("自动整理", isOn: $settings.autoDigest).tint(Theme.accent)
                 .font(.system(size: Theme.fsBody))
             if settings.autoDigest {
-                Picker("整理方式", selection: $settings.digestByInterval) {
-                    Text("按间隔").tag(true)
-                    Text("按时间点").tag(false)
+                // 三档横排铺开，默认第一档「转写完就整理」：董事长要的是转出字就出结果
+                VStack(spacing: 6) {
+                    ForEach(DigestTiming.allCases) { t in
+                        let on = settings.digestTiming == t
+                        Button { settings.digestTiming = t } label: {
+                            HStack(alignment: .top, spacing: 9) {
+                                Image(systemName: on ? "largecircle.fill.circle" : "circle")
+                                    .font(.system(size: 15))
+                                    .foregroundColor(on ? Theme.accent : Theme.dim2)
+                                    .padding(.top, 1)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(t.title)
+                                        .font(.system(size: Theme.fsBody, weight: on ? .semibold : .regular))
+                                        .foregroundColor(on ? Theme.accent : Theme.text)
+                                    Text(t.detail)
+                                        .font(.system(size: Theme.fsCaption))
+                                        .foregroundColor(Theme.dim)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 9)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
+                                .fill(on ? Theme.accent.opacity(0.10) : Theme.bgDeep))
+                            .contentShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(t.title)
+                        .accessibilityAddTraits(on ? [.isSelected] : [])
+                    }
                 }
-                .pickerStyle(.segmented)
-                if settings.digestByInterval {
+                if settings.digestTiming == .interval {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("多久整理一次")
                             .font(.system(size: Theme.fsSmall))
@@ -189,7 +217,7 @@ struct LLMSettingsView: View {
                             }
                         }
                     }
-                } else {
+                } else if settings.digestTiming == .clock {
                     Picker("每天整理", selection: $settings.digestHour) {
                         ForEach(0..<24, id: \.self) { hour in
                             Text(String(format: "%02d:00", hour)).tag(hour)
