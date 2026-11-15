@@ -608,7 +608,7 @@ struct RsMemoryScreen: View {
                 .foregroundStyle(Rs.text)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 6) {
-                RsCategoryChip(category: item.kind.title, kind: item.kind)
+                RsCategoryChip(category: item.kind.title)
                 if !item.due.isEmpty {
                     Text(item.due).font(Rs.caption).foregroundStyle(Rs.accent)
                 }
