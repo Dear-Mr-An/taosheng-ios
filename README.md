@@ -77,7 +77,7 @@ iOS 侧每张参照图都有对应截图，左右拼图放在 `.tmp/compare-0.7.
 - 待办页（`RsTodoScreen`）照 `ui/todo/TodoScreen.kt`：待确认/进行中/已完成三档（带条数）、全部接受/全部忽略、
   「今天 · N 条」分组、卡片内多行 + 细分隔线、右下橙色 FAB。
 - 设置页（`RsSettingsScreen`）照 `ui/settings/SettingsScreen.kt`：搜索框、状态卡（一切正常）、分组行（44pt 彩色圆角图标 + 详情 + ›）。
-- 三个抽屉：正在聆听（`RsListenSheet`，暂停四选 + 专题区 + 删除时间段）、专题（`RsTopicSheet`，五格类型 + 名字 + 结束时机 + 两个次要入口）、搜索记录（`RsRecordSearchSheet`）。
+- 三个抽屉：正在聆听（`RsListenSheet`，暂停四选 + 专题区 + 删除时间段）、专题（`RsTopicSheet`，五格类型 + 名字 + 结束时机 + 两个次要入口）、搜索记录（`RsRecordSearchSheet`）。三个面板都由 `RsSheetKit.swift` 的 `RsBottomSheet` 承担：背景压暗、白底圆角 28、下拉关闭；面板打开时把内容层提到 TabBar 之上，不会被胶囊挡住。
 
 二、专题：回到原版的五种
 `CaptureMode` 从两种扩成五种，场景与产物由代码写死（`SceneRules` / `NoteRules`）：
