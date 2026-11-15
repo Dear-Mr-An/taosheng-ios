@@ -143,15 +143,18 @@ struct RsListenSheet: View {
     private let pauseChoices = [15, 30, 60, 120]
     private let eraseChoices = [10, 30, 60]
 
+    /// 截图模式：模拟器没有麦克风，按原版显示「正在聆听」
+    private var listening: Bool { capture.isRunning || ShotMode.screen == "rs-listen" }
+
     private var statusText: String {
         if quiet.isQuiet { return "已暂停 · \(quiet.resumeText) 恢复" }
         if flow.isRecording { return "正在录音" }
-        if capture.isRunning { return "正在聆听" }
+        if listening { return "正在聆听" }
         return "没在聆听"
     }
 
     var body: some View {
-        RsSheetBody(title: quiet.isQuiet ? "已暂停" : (capture.isRunning ? "正在聆听" : "没在聆听"),
+        RsSheetBody(title: quiet.isQuiet ? "已暂停" : (listening ? "正在聆听" : "没在聆听"),
                     subtitle: quiet.isQuiet ? "到 \(quiet.resumeText) 自动恢复" : "只在有人说话时录音") {
             if flow.isRecording {
                 recordingTopicPanel

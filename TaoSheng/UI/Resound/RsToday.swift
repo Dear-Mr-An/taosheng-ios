@@ -78,8 +78,11 @@ struct RsTodayScreen: View {
     @State private var themeMode: RsThemeMode = .system
     /// 截图模式：进页面就打开对应抽屉
     var autoSheet: String? = nil
-    @State private var events: [MemoryEvent] = []
-    @State private var pending: [MemoryItem] = []
+    @State private var cachedEvents: [MemoryEvent] = []
+
+    /// 今天直接读 AppState（刷新完成后自动跟着变），其它天用一次查询的缓存
+    private var events: [MemoryEvent] { dayOffset == 0 ? app.todayEvents : cachedEvents }
+    private var pending: [MemoryItem] { dayOffset == 0 ? app.pendingItems : [] }
 
     var body: some View {
         ScrollView {
@@ -87,7 +90,8 @@ struct RsTodayScreen: View {
                 header
                 RsOverviewCard(onPending: {
                     withAnimation(.easeOut(duration: 0.2)) { filter = 0 }
-                }, onOpenListen: { showListen = true })
+                }, onOpenListen: { showListen = true },
+                   activeOverride: ShotMode.screen == "rs-today" ? true : nil)
                 if !pending.isEmpty { pendingSection }
                 timelineSection
                 Color.clear.frame(height: Rs.shellBottom + 24)
@@ -114,7 +118,7 @@ struct RsTodayScreen: View {
             load()
             if autoSheet == "listen" { showListen = true }
             if autoSheet == "search" { showSearch = true }
-            if autoSheet == "topic" { showListen = true }
+            if autoSheet == "topic" { showTopic = true }
         }
         .onReceive(NotificationCenter.default.publisher(for: .taoshengDataChanged)) { _ in load() }
         .onChange(of: dayOffset) { _ in load() }
@@ -266,14 +270,8 @@ struct RsTodayScreen: View {
     }
 
     private func load() {
-        let key = DayKey.of(dayDate)
-        if dayOffset == 0 {
-            events = app.todayEvents
-            pending = app.pendingItems
-        } else {
-            events = Store.shared.events(day: key, limit: 400)
-            pending = []
-        }
+        guard dayOffset != 0 else { cachedEvents = []; return }
+        cachedEvents = Store.shared.events(day: DayKey.of(dayDate), limit: 400)
     }
 }
 
@@ -288,9 +286,11 @@ struct RsOverviewCard: View {
 
     var onPending: () -> Void = {}
     var onOpenListen: () -> Void = {}
+    /// 截图模式用：模拟器没有麦克风，按原版显示「正在聆听」和暂停键
+    var activeOverride: Bool? = nil
 
-    private var recording: Bool { capture.isRunning && capture.isSpeaking }
-    private var listening: Bool { capture.isRunning }
+    private var recording: Bool { activeOverride == true ? false : (capture.isRunning && capture.isSpeaking) }
+    private var listening: Bool { activeOverride ?? capture.isRunning }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -413,7 +413,6 @@ struct RsOverviewCard: View {
     private var statsRow: some View {
         HStack(alignment: .top, spacing: 8) {
             stat(speechParts.0, speechParts.1) {}
-                .layoutPriority(1.3)
             stat("\(app.eventCount)", "件") {}
             stat("\(app.pendingItems.count)", "条") { onPending() }
         }

@@ -343,13 +343,20 @@ struct RsMemoryScreen: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            HStack(spacing: 0) {
-                ForEach(weekDays, id: \.self) { d in
-                    dayCell(d)
-                        .frame(maxWidth: .infinity)
+            VStack(spacing: 2) {
+                ForEach(Array(monthWeeks.enumerated()), id: \.offset) { _, week in
+                    HStack(spacing: 0) {
+                        ForEach(0..<7, id: \.self) { i in
+                            if let d = week[i] {
+                                dayCell(d).frame(maxWidth: .infinity)
+                            } else {
+                                Color.clear.frame(maxWidth: .infinity, minHeight: 40)
+                            }
+                        }
+                    }
                 }
             }
-            .padding(.top, 4)
+            .padding(.top, 2)
         }
         .padding(EdgeInsets(top: 16, leading: 16, bottom: 12, trailing: 16))
         .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card)
@@ -367,19 +374,25 @@ struct RsMemoryScreen: View {
         Fmt.df("yyyy年M月").string(from: monthAnchor)
     }
 
-    private var weekDays: [Date] {
+    /// 整月网格：周一开头，前置留空（原版 MemoryScreen 的日历是整月）
+    private var monthWeeks: [[Date?]] {
         let cal = Calendar.current
-        var comp = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: monthAnchor)
-        comp.weekday = 2     // 周一开头
-        let monday = cal.date(from: comp) ?? monthAnchor
-        return (0..<7).compactMap { cal.date(byAdding: .day, value: $0, to: monday) }
+        guard let first = cal.date(from: cal.dateComponents([.year, .month], from: monthAnchor)),
+              let range = cal.range(of: .day, in: .month, for: first) else { return [] }
+        let lead = (cal.component(.weekday, from: first) + 5) % 7   // 周一=0
+        var cells: [Date?] = Array(repeating: nil, count: lead)
+        for d in range {
+            cells.append(cal.date(byAdding: .day, value: d - 1, to: first))
+        }
+        while cells.count % 7 != 0 { cells.append(nil) }
+        return stride(from: 0, to: cells.count, by: 7).map { Array(cells[$0..<min($0 + 7, cells.count)]) }
     }
 
     private func shiftWeek(_ delta: Int) {
-        if let d = Calendar.current.date(byAdding: .weekOfYear, value: 7 * delta, to: monthAnchor) {
-            monthAnchor = d
-            selectedDay = d
-        }
+        guard let d = Calendar.current.date(byAdding: .day, value: 7 * delta, to: selectedDay) else { return }
+        selectedDay = d
+        monthAnchor = d
+        load()
     }
 
     private func dayCell(_ d: Date) -> some View {
@@ -703,7 +716,7 @@ struct RsTodoScreen: View {
                     .padding(.leading, 4)
                 RsCard(padding: EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0)) {
                     ForEach(Array(items.enumerated()), id: \.element.id) { i, it in
-                        RsTodoRow(item: it, done: tab == 2)
+                        RsTodoRow(item: it, done: tab == 2, showCheck: tab != 0)
                         if i < items.count - 1 {
                             Rectangle().fill(Rs.separator).frame(height: 0.5)
                                 .padding(.leading, 18).padding(.trailing, 18)
@@ -733,18 +746,21 @@ struct RsTodoScreen: View {
 struct RsTodoRow: View {
     let item: MemoryItem
     var done: Bool = false
+    var showCheck: Bool = true
     @ObservedObject private var app = AppState.shared
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Button {
-                app.setItemStatus(item.id, status: done ? .accepted : .done)
-            } label: {
-                Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 20, weight: .regular))
-                    .foregroundStyle(done ? Rs.good : Rs.text3)
+            if showCheck {
+                Button {
+                    app.setItemStatus(item.id, status: done ? .accepted : .done)
+                } label: {
+                    Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 20, weight: .regular))
+                        .foregroundStyle(done ? Rs.good : Rs.text3)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
             VStack(alignment: .leading, spacing: 6) {
                 Text(item.content)
                     .font(.system(size: 17))
@@ -778,7 +794,10 @@ struct RsTodoRow: View {
         if let src = item.sourceText, !src.isEmpty {
             parts.append(src)
         } else if let d = DayKey.date(from: item.day) {
-            parts.append("\(Fmt.monthDay.string(from: d)) \(Fmt.hm.string(from: item.createdAt)) 提到")
+            let cal = Calendar.current
+            let day = cal.isDateInToday(d) ? "今天"
+                : (cal.isDateInYesterday(d) ? "昨天" : Fmt.monthDay.string(from: d))
+            parts.append("\(day) \(Fmt.hm.string(from: item.createdAt)) 提到")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }

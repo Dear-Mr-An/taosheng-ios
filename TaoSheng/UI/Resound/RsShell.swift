@@ -85,9 +85,19 @@ struct RsSettingsScreen: View {
 
     private var asrDetail: String {
         if !settings.asrReady { return "转写未就绪" }
-        if queue.busy { return "正在转写" }
+        let every = "每 \(settings.transcribeIntervalMin) 分钟"
+        if queue.busy { return "正在转写 · \(every)" }
         if queue.pendingCount > 0 { return "待转写 \(queue.pendingCount) 段" }
-        return "每 \(settings.transcribeIntervalMin) 分钟"
+        return "\(asrProvider) · \(every)"
+    }
+
+    private var asrProvider: String {
+        switch settings.asrKind {
+        case .doubao: return "豆包"
+        case .openAICompatible: return "OpenAI 兼容"
+        case .appleSpeech: return "本机识别"
+        default: return "未配置"
+        }
     }
 
     private var searchBar: some View {
@@ -110,15 +120,17 @@ struct RsSettingsScreen: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Rs.good)
             }
-            VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("一切正常")
                     .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(Rs.text)
-                Text(capture.isRunning ? "正在聆听 · 逐段转写中" : "没在聆听 · 点今天页的状态开始")
-                    .font(Rs.subhead)
-                    .foregroundStyle(Rs.text2)
+                Text(capture.isRunning ? "正在聆听 · 每 \(settings.transcribeIntervalMin) 分钟转写" : "没在聆听 · 点今天页的状态开始")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Rs.text3)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
         }
         .padding(EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14))
         .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card)
@@ -236,6 +248,7 @@ struct RsShell: View {
         switch shot ?? "" {
         case "rs-listen": return "listen"
         case "rs-search": return "search"
+        case "rs-topic": return "topic"
         default: return nil
         }
     }

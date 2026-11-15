@@ -1072,7 +1072,7 @@ struct AboutView: View {
             }
 
             Section("致谢") {
-                Text("界面与文案参考 Android 原版 0xCoach/TaoSheng（MIT License）。")
+                Text("界面与功能参考 Android 原版 0xCoach/TaoSheng 0.4.0（FSL-1.1-MIT，仅供个人使用）。")
                     .font(.system(size: 12.5))
                     .foregroundStyle(Theme.text2)
                     .lineSpacing(3)
