@@ -74,7 +74,6 @@ struct Utterance: Identifiable, Hashable {
 /// 会话在界面上的实时状态，录音中的英雄卡直接读它。
 struct SessionProgress: Equatable {
     var session: ListenSession
-    var liveLines: [String]     // 最近几行实时转写（没有说话人）
     var speakers: Int
     var pendingSegments: Int
 }

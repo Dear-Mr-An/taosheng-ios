@@ -41,7 +41,7 @@ public enum DigestTiming: String, CaseIterable, Identifiable {
 
     public var detail: String {
         switch self {
-        case .afterTranscribe: return "转出一段文字就整理一次，会议中也能马上看到纪要"
+        case .afterTranscribe: return "转出新文字就整理；开会和培训的录音在点结束后统一整理成速记"
         case .interval: return "隔一段时间把攒下的原话一起整理"
         case .clock: return "每天固定一个时间点整理"
         }

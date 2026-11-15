@@ -256,11 +256,6 @@ struct TodayView: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if settings.digestTiming == .afterTranscribe {
-                Text("转出文字就自动整理")
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.72))
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -360,7 +355,7 @@ struct TodayView: View {
         if settings.effectiveLLM.key.isEmpty {
             return "没填大模型密钥也能录音转写；整理纪要先在「设置 → 大模型与整理」填密钥。"
         }
-        if app.todayEvents.isEmpty { return "点「开始聆听」边说边转写，结束就出纪要。" }
+        if app.todayEvents.isEmpty { return "点「开始聆听」开始录音，点结束分人出纪要。" }
         return "模型已就绪 · \(settings.llmModel)"
     }
 

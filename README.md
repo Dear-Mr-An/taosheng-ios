@@ -4,6 +4,26 @@ Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 Swift
 全天收音 → 人声切片 → 转写 → DeepSeek 整理事件、待办和记忆。数据使用本机 SQLite。
 
 
+0.6.6 第十二轮（文案对齐：录音中不再暗示「会议进行中就出纪要」，2026-11-15）
+
+0.6.5 功能都对，但文案自相矛盾：录音中的英雄卡一边写「转出文字就自动整理」，一边写「结束后统一分人，再整理成纪要」；「什么时候整理」里「转写完就整理」的说明还写着「会议中也能马上看到纪要」。实际行为是：会话里的段只在点「结束」后整场整理（`DigestEngine.performDigest` 里的 `session_id` 过滤），「转写完就整理」只作用于零散段。
+
+1. 英雄卡删掉「转出文字就自动整理」那一行。录音中只剩三样：状态行「正在聆听 · 会议/培训」、已录时长 + 「已录 N 段，后台每 X 分钟转写一次」、底部「结束后统一分人，再整理成纪要」，不再提「边录边整理」。
+2. `DigestTiming.afterTranscribe` 的说明改成「转出新文字就整理；开会和培训的录音在点结束后统一整理成速记」。
+3. 全仓按同一口径扫了一遍：`ListenFlow.statusText` 默认文案「点开始聆听，边录边转写」→「点开始聆听开始录音」；今天页空态「点「开始聆听」边说边转写，结束就出纪要」→「点「开始聆听」开始录音，点结束分人出纪要」；`SessionProgress.liveLines`（已经没人读的字段）删掉；`ListenFlow` / `SessionRules` 的文档注释补上「后台转写只攒文字，这一场的纪要要等点结束」。
+4. README：0.6.0 章节里描述实时转写区的两处、`shots-060` 里「today-live 带实时转写行」一处，都加了「0.6.5 起已改」的标注；0.6.5 章节开头那句「转出文字就整理」也补明只管零散段。
+
+版本与验证：
+
+- `project.yml`：`MARKETING_VERSION 0.6.6` / `CURRENT_PROJECT_VERSION 33`。
+- CI `build-ipa #__IPA__`（提交 `__SHA__`）success：warning count 0，`swift test` 36 个用例 0 失败。`dist/TaoSheng-v0.6.6.ipa` 未签名、__SIZE__ 字节，`Info.plist` 为 XML，`CFBundleShortVersionString 0.6.6`、`CFBundleVersion 33`。
+- `shots #__SHOTS__`（提交 `__SSHA__`）success，截图 `.tmp/shots-0.6.6/`：`iphone16-today-live`（录音中的英雄卡：时长、段数、结束按钮，没有「转出文字就自动整理」）、`iphone16-llm`（「什么时候整理」三档，第一档说明改成新口径）。
+
+没做到 / 没验证：
+
+- 本轮只改文案、删了一个没人读的字段，没动逻辑；真机与真实密钥仍没验证（同上一条）。
+
+
 0.6.5 第十一轮（真机反馈：点「开始聆听」一直等网络，改成点开就录、后台转、转出字就整理，2026-11-15）
 
 真机上装 0.6.4 后，点「开始聆听」英雄卡一直显示「等网络后转写」，录音转不出文字，等于用不了。
@@ -14,7 +34,7 @@ Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 的 Swift
 - `NetWatcher` 不是 `ObservableObject`，界面拿不到链路变化，网络恢复了界面也不知道。
 - 会话里的切段被单独提速到「停顿 0.8 秒 / 最长 20 秒」，而且每落一段就 `tick(live: true)` 催一次转写；段又碎又多，配合上面那条「等 WiFi」，英雄卡就一直停在「等网络」。
 
-董事长要的其实很简单：点聆听就开始录，后台按设置里的「多久转写一次」转文字，转出文字就整理。实时转写这一套不要了。这一版按这个改：
+董事长要的其实很简单：点聆听就开始录，后台按设置里的「多久转写一次」转文字；攒下来的零散段转出字就整理，开会和培训这类录音要等点「结束」才整场分人、出速记。实时转写这一套不要了。这一版按这个改：
 
 1. 去掉实时转写。英雄卡录音中只显示「正在聆听 · 会议/培训」、已录时长（每秒走）、「已录 N 段，后台每 X 分钟转写一次」，以及「结束」按钮；`liveTranscript`、「转写中…」「等网络后转写」全部删掉，界面上不再出现任何网络等待字样。
 2. 会话里的段不再特殊。`CaptureEngine` 删掉 0.8 秒 / 20 秒的实时阈值，切段按这一场锁定的模式走（会议 2.5 秒静音断句、单段上限 300 秒），最短时长也用设置里的值；段落地不再调 `tick(live:)`。`TranscribeQueue` 的 `live` 参数、`CaptureMode.liveSilenceGap` / `liveMaxSegment` 一起删掉。
@@ -297,10 +317,10 @@ iPhone 16 与 iPhone SE（第三代）各截一遍，重点画面：
 - 设置里的培训入口改走 `ListenFlow.start(mode: .training)`（原来只切 `settings.captureMode` 再 `capture.start()`，消息发不进同一套流程）。
 - App 被杀或闪退：`TaoShengApp.onAppear` 调 `ListenFlow.resumeAfterLaunch()`，把 `recording` 状态的会话改成 `finalizing` 并用已有段收尾，不会留下永远「正在聆听」的会话。
 
-二、边录边转写（B）
+二、边录边转写（B）（0.6.5 起已改：只后台转写，不再边录边出字；这一场的纪要仍等点「结束」）
 
-- 会话中段在停顿 0.8 秒或长度 20 秒时切开（`CaptureMode.liveSilenceGap` / `liveMaxSegment`），切完立刻调 `TranscribeQueue.tick(live: true)`，不等 60 秒定时器；非会话录音仍是原来的 2.5–3 秒 / 300–600 秒。
-- 今天页英雄卡在录音时显示实时转写区：最近 6 行、带 `HH:mm`，还没出字的行显示「转写中…」；不允许联网时提示「等网络后转写」。实时行不标说话人——跨段编号在结束时统一分，先标会标错。
+（0.6.5 已删）会话中段在停顿 0.8 秒或长度 20 秒时切开（`CaptureMode.liveSilenceGap` / `liveMaxSegment`），切完立刻调 `TranscribeQueue.tick(live: true)`，不等 60 秒定时器；非会话录音仍是原来的 2.5–3 秒 / 300–600 秒。
+（0.6.5 已删）今天页英雄卡在录音时显示实时转写区：最近 6 行、带 `HH:mm`，还没出字的行显示「转写中…」；不允许联网时提示「等网络后转写」。实时行不标说话人——跨段编号在结束时统一分，先标会标错。
 
 三、结束 → 整场分说话人（C）
 
@@ -336,7 +356,7 @@ iPhone 16 与 iPhone SE（第三代）各截一遍，重点画面：
 
 八、模拟器截图
 
-`ios-shots.yml` 的产物 `shots-060`，两台机各 11 张，新的四张：`today-live`（录音中带实时转写行）、`today-done`（已整理 + 节律会话语块）、`event-meeting`（按人分行 + 每人发言时长）、`speaker-rename`（改说话人名字的弹层）。截图种子在 `ShotDemo.seedSessionsIfNeeded()`：一场三名说话人的已结束会议（其中「说话人2」已改名「周工」）+ 一场录音中的会话。
+`ios-shots.yml` 的产物 `shots-060`，两台机各 11 张，新的四张：`today-live`（0.6.5 起改拍「已录时长 + 段数」，不再有实时转写行）、`today-done`（已整理 + 节律会话语块）、`event-meeting`（按人分行 + 每人发言时长）、`speaker-rename`（改说话人名字的弹层）。截图种子在 `ShotDemo.seedSessionsIfNeeded()`：一场三名说话人的已结束会议（其中「说话人2」已改名「周工」）+ 一场录音中的会话。
 
 九、验证
 

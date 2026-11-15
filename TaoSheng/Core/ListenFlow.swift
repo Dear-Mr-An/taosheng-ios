@@ -1,7 +1,8 @@
 import Foundation
 import Combine
 
-/// 「开始聆听 → 边录边转写 → 结束 → 分清说话人 → 立即整理 → 推送」的总调度。
+/// 「开始聆听 → 边录边在后台转写 → 结束 → 分清说话人 → 立即整理 → 推送」的总调度。
+/// 注意：后台转写只是攒文字，这一场的纪要要等点「结束」才生成。
 ///
 /// 一句话说明各步归谁管：录音归 CaptureEngine（段上带 session_id），
 /// 转写归 TranscribeQueue（按设置里的节奏在后台转，不再为会话单独提速），
@@ -45,7 +46,7 @@ final class ListenFlow: ObservableObject {
     /// 英雄卡上显示的状态文字。
     var statusText: String {
         if let p = phaseText, !p.isEmpty { return p }
-        guard let s = current else { return "点开始聆听，边录边转写" }
+        guard let s = current else { return "点开始聆听开始录音" }
         switch s.state {
         case .recording: return "正在聆听"
         case .finalizing: return "正在分辨说话人"
