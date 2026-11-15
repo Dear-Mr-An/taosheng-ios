@@ -225,7 +225,7 @@ struct RsSettingsScreen: View {
         .buttonStyle(.plain)
     }
 
-    private func group<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
+    private func group<C: View>(_ title: String, @ViewBuilder content: @escaping () -> C) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
                 .font(Rs.section)
