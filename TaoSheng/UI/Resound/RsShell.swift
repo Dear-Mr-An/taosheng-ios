@@ -31,9 +31,7 @@ struct RsSettingsScreen: View {
                         line
                         row(TranscribeOverviewView(), title: "原话与转写", detail: asrDetail,
                             symbol: "list.bullet", tint: Color(hex: "D9A02B"))
-                        line
-                        row(LLMSettingsView(), title: "大模型", detail: settings.llmReady ? settings.llmModel : "未填密钥",
-                            symbol: "brain", tint: Color(hex: "E0603A"))
+
                         line
                         row(PersonsView(), title: "声纹与人物", detail: voiceDetail,
                             symbol: "person.2.fill", tint: Color(hex: "D9534F"))
@@ -45,6 +43,9 @@ struct RsSettingsScreen: View {
                             symbol: "mappin", tint: Color(hex: "C4693C"))
                     }
                     group("整理") {
+                        row(LLMSettingsView(), title: "模型与整理时间", detail: settings.llmReady ? settings.llmModel : "未填密钥",
+                            symbol: "brain", tint: Color(hex: "E0603A"))
+                        line
                         row(SkillsView(), title: "整理技能", detail: "开了 \(app.skills.filter { $0.enabled }.count) 个",
                             symbol: "wand.and.stars", tint: Color(hex: "8A7BE0"))
                         line
