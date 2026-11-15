@@ -94,7 +94,7 @@ struct RsSettingsScreen: View {
         let every = m < 60 ? "每 \(m) 分钟" : "每 \(m / 60) 小时"
         if queue.busy { return "正在转写 · \(every)" }
         if queue.pendingCount > 0 { return "待转写 \(queue.pendingCount) 段" }
-        if !settings.asrReady { return "未配置 · \(every)" }
+        if !settings.asrReady { return "\(asrProvider) · \(every)" }
         return "\(asrProvider) · \(every)"
     }
 
