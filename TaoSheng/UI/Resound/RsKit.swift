@@ -542,3 +542,21 @@ struct RsSpringButtonStyle: ButtonStyle {
             .animation(.spring(response: 0.28, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
+
+/// 原版状态卡里那条点线（安静时暗，说话时亮）
+struct RsDotLine: View {
+    var active: Bool
+    var body: some View {
+        GeometryReader { geo in
+            let n = max(12, Int(geo.size.width / 9))
+            HStack(spacing: 6) {
+                ForEach(0..<n, id: \.self) { _ in
+                    Circle()
+                        .fill(Rs.accent.opacity(active ? 0.85 : 0.35))
+                        .frame(width: 3, height: 3)
+                }
+            }
+            .frame(width: geo.size.width, alignment: .leading)
+        }
+    }
+}

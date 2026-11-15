@@ -14,7 +14,7 @@ struct RsSubPage<Content: View>: View {
                 Button {
                     dismiss()
                 } label: {
-                    Text("‹ 返回")
+                    Text("‹ 设置")
                         .font(Rs.headline)
                         .foregroundStyle(Rs.accent)
                         .padding(.horizontal, 8)
@@ -178,10 +178,53 @@ struct RsRecordingPage: View {
 
     var body: some View {
         RsSubPage(title: "录音与后台") {
+            statusCard
+            RsGroup(title: "停录时段") {
+                RsToggleRow(title: "睡眠", note: "\(settings.silenceStartHour):00 – 次日 \(settings.silenceEndHour):00 · 每天",
+                            on: $settings.silenceWindowOn)
+                RsRowDivider()
+                Button {
+                    settings.silenceWindowOn = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("添加时段").font(Rs.subhead)
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(Rs.accent)
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 48)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            Text("时段内不录音，到点自动恢复；时段内点「现在恢复」只对这一次有效。")
+                .font(Rs.caption).foregroundStyle(Rs.text3)
+                .padding(.horizontal, 4)
             RsGroup(title: "录制") {
                 RsToggleRow(title: "一直在听", note: "关了就只在点「开始聆听」之后才录", on: $captureWanted)
                 RsRowDivider()
                 RsToggleRow(title: "别的应用出声时不录", note: "看视频、开会时有声音，就不重复录一遍", on: $settings.skipWhenOutput)
+            }
+            RsGroup(title: "保留") {
+                VStack(alignment: .leading, spacing: 10) {
+                    RsFormLabel("原录音保留多久")
+                    RsPillRow(options: [("7 天", 7), ("30 天", 30), ("90 天", 90), ("一直留", 0)],
+                              selected: Binding(get: { settings.keepAudioDays }, set: { settings.keepAudioDays = $0 }))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                RsRowDivider(inset: 0)
+                RsToggleRow(title: "夜里自动停录", on: $settings.silenceWindowOn)
+                if settings.silenceWindowOn {
+                    RsRowDivider(inset: 0)
+                    Text("从 \(settings.silenceStartHour):00 到 \(settings.silenceEndHour):00 不录。")
+                        .font(Rs.caption).foregroundStyle(Rs.text3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                }
             }
             RsGroup(title: "切段") {
                 VStack(alignment: .leading, spacing: 8) {
@@ -211,29 +254,68 @@ struct RsRecordingPage: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
-            RsGroup(title: "保留") {
-                VStack(alignment: .leading, spacing: 10) {
-                    RsFormLabel("原录音保留多久")
-                    RsPillRow(options: [("7 天", 7), ("30 天", 30), ("90 天", 90), ("一直留", 0)],
-                              selected: Binding(get: { settings.keepAudioDays }, set: { settings.keepAudioDays = $0 }))
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                RsRowDivider(inset: 0)
-                RsToggleRow(title: "夜里自动停录", on: $settings.silenceWindowOn)
-                if settings.silenceWindowOn {
-                    RsRowDivider(inset: 0)
-                    Text("从 \(settings.silenceStartHour):00 到 \(settings.silenceEndHour):00 不录。")
-                        .font(Rs.caption).foregroundStyle(Rs.text3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                }
+        }
+    }
+
+    /// 顶部状态卡：原版第一张卡
+    private var statusCard: some View {
+        let listening = capture.isRunning || ShotMode.screen == "rs-recording"
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(listening ? Rs.good : Rs.text3)
+                    .frame(width: 8, height: 8)
+                Text(listening ? (capture.isSpeaking ? "正在录音" : "正在聆听") : "没在聆听")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Rs.text)
+                Spacer(minLength: 0)
+                Text("内置麦克风")
+                    .font(Rs.subhead)
+                    .foregroundStyle(Rs.text3)
             }
-            RsGroup(title: "状态") {
-                RsNoteRow(text: capture.isRunning ? "现在在听：有人说话才录，安静的时候不占空间。" : "现在没在听。回今天页点状态胶囊就能打开。")
+            Text(listening ? "安静中 · 已持续 \(uptimeText)" : "点了「开始聆听」才会录")
+                .font(Rs.subhead)
+                .foregroundStyle(Rs.text3)
+            RsDotLine(active: listening)
+                .frame(height: 8)
+            HStack(spacing: 10) {
+                Button {
+                    RsQuiet.shared.pause(minutes: 60)
+                } label: {
+                    Text("暂停 1 小时")
+                        .font(Rs.subhead)
+                        .foregroundStyle(Rs.accent)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(Capsule().fill(Rs.accentSoft))
+                }
+                .buttonStyle(.plain)
+                Button {
+                    UserDefaults.standard.set(false, forKey: "captureWanted")
+                    CaptureEngine.shared.stop()
+                } label: {
+                    Text("停止")
+                        .font(Rs.subhead)
+                        .foregroundStyle(Rs.critical)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(Capsule().fill(Rs.critical.opacity(0.10)))
+                }
+                .buttonStyle(.plain)
+                Spacer(minLength: 0)
             }
         }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card)
+        )
+    }
+
+    private var uptimeText: String {
+        guard let start = capture.startedAt else { return "0 分钟" }
+        let m = Int(Date().timeIntervalSince(start) / 60)
+        if m < 60 { return "\(m) 分钟" }
+        return "\(m / 60) 小时 \(m % 60) 分"
     }
 }
 

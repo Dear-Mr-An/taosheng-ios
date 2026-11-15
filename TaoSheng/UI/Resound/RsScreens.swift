@@ -528,8 +528,11 @@ struct RsMemoryScreen: View {
 
     // MARK: 按类（ItemsScreens.kt 的分类胶囊 + 分组列表）
 
+    /// 原版按类的固定几档（重点/寻物/灵感/关键信息/决定）在前，再补我们数据里出现的类别
+    static let baseCategories = ["重点", "寻物", "灵感", "关键信息", "决定"]
+
     private var categoryNames: [String] {
-        var seen: [String] = []
+        var seen = RsMemoryScreen.baseCategories
         for it in dayItems where !it.kind.title.isEmpty && !seen.contains(it.kind.title) { seen.append(it.kind.title) }
         return ["全部"] + seen
     }

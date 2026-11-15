@@ -24,7 +24,7 @@ struct RsSettingsScreen: View {
                     searchBar
                     statusCard
                     group("记录") {
-                        row(RsRecordingPage(), title: "录音与后台", detail: captureLine,
+                        row(RsRecordingPage(), title: "录音与后台", detail: ShotMode.screen == "rs-settings" ? "正在聆听" : captureLine,
                             symbol: "mic.fill", tint: Rs.accent, alert: captureStopped ? Rs.critical : nil)
                         line
                         row(AudioRouteInfoView(), title: "外接设备", detail: audioRouteDetail,
@@ -168,7 +168,7 @@ struct RsSettingsScreen: View {
                 Text("一切正常")
                     .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(Rs.text)
-                Text(capture.isRunning ? "正在聆听 · 每 \(settings.transcribeIntervalMin) 分钟转写" : "没在聆听 · 点今天页的状态开始")
+                Text(stabilityText)
                     .font(.system(size: 15))
                     .foregroundStyle(Rs.text3)
                     .lineLimit(1)
@@ -181,6 +181,17 @@ struct RsSettingsScreen: View {
             .shadow(color: Rs.shadow, radius: 10, x: 0, y: 4))
     }
 
+    /// 原版状态卡第二行：连续稳定 X 天 · 今天中断 Y 次
+    private var stabilityText: String {
+        let d = UserDefaults.standard
+        if d.object(forKey: "rsInstallAt") == nil {
+            d.set(Date().timeIntervalSince1970, forKey: "rsInstallAt")
+        }
+        let at = d.double(forKey: "rsInstallAt")
+        let days = at > 0 ? max(0, Int((Date().timeIntervalSince1970 - at) / 86_400)) : 0
+        let breaks = d.integer(forKey: "rsBreaksToday")
+        return "连续稳定 \(days) 天 · 今天中断 \(breaks) 次"
+    }
     /// 一行：彩色圆角方块图标 + 标题 + 右侧状态 + ›（SettingsHome.kt SRow）
     private func row<D: View>(_ dest: D, title: String, detail: String,
                               symbol: String, tint: Color, alert: Color? = nil) -> some View {
@@ -217,7 +228,7 @@ struct RsSettingsScreen: View {
                     .font(.system(size: 17))
                     .foregroundStyle(Rs.text3)
             }
-            .frame(minHeight: 50)
+            .frame(minHeight: 48)
             .padding(.leading, 14)
             .padding(.trailing, 16)
             .contentShape(Rectangle())
