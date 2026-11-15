@@ -74,6 +74,7 @@ struct RsTodayScreen: View {
     @State private var filter = 0                 // 0 全部 / 1 媒体
     @State private var showListen = false
     @State private var showSearch = false
+    @State private var showTopic = false
     @State private var themeMode: RsThemeMode = .system
     /// 截图模式：进页面就打开对应抽屉
     var autoSheet: String? = nil
@@ -497,7 +498,7 @@ struct RsPendingCard: View {
                 }
             }
             Text(item.content)
-                .font(.system(size: 13, lineSpacing: 4))
+                .font(.system(size: 13)).lineSpacing(4)
                 .foregroundStyle(Rs.text)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -580,7 +581,7 @@ struct RsTimelineLine: View {
                         Spacer(minLength: 0)
                     }
                     Text(event.summary)
-                        .font(.system(size: 12, lineSpacing: 4))
+                        .font(.system(size: 12)).lineSpacing(4)
                         .foregroundStyle(Rs.text2)
                         .lineLimit(2)
                 }

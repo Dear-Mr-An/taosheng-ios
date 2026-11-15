@@ -102,13 +102,6 @@ extension RsSection where Trailing == EmptyView {
 // MARK: - 胶囊
 
 /// 卡片上的小按钮：主要操作实心；次要操作白底橙字（OverviewCard.kt CardPill / SmallPill）
-/// 没有右侧控件时用这个重载，省得每次都写 trailing: { EmptyView() }
-extension RsSection where Trailing == EmptyView {
-    init(title: String, @ViewBuilder content: () -> Content) {
-        self.init(title: title, trailing: { EmptyView() }, content: content)
-    }
-}
-
 struct RsPillButton: View {
     let text: String
     var filled: Bool = false
