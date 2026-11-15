@@ -74,6 +74,10 @@ struct TaoShengApp: App {
                     ReminderEngine.shared.rescheduleQuick(quicks)
                     MicRouter.shared.applyPreferred()
                     LocationEngine.shared.syncWithSettings()
+                    // 原版默认一直在听：首次启动就把 captureWanted 置 true，之后由用户暂停/恢复决定
+                    if UserDefaults.standard.object(forKey: "captureWanted") == nil {
+                        UserDefaults.standard.set(true, forKey: "captureWanted")
+                    }
                     if UserDefaults.standard.bool(forKey: "captureWanted") && !capture.isRunning {
                         capture.start()
                     }
