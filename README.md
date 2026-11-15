@@ -48,8 +48,8 @@
 
 ### 七、截图与验证
 
-- `build-ipa` 第 127 次（`192e2f4`）修完编译错误后通过；第 128 次（`c3545c2`）再次通过：Swift 编译 0 warning，`swift test` 36 项全过，SQL 回归 8 项通过，产物 `dist/TaoSheng-v0.7.2.ipa`（2 109 314 字节，未签名，`CFBundleShortVersionString 0.7.2` / `CFBundleVersion 36`）。
-- `shots` 第 71 次（`c3545c2`）出 68 张，其中 iPhone 16 的 `rs-*` 画面 21 个：上一版的 15 个，加上 `rs-recording-b`、`rs-transcript-b`、`rs-llm-b`、`rs-location-b`（子页滚到底的第二屏）、`rs-event`（事件详情）、`rs-all`（时间线全部）。
+- `build-ipa` 第 127 次（`192e2f4`）修完编译错误后通过；第 130 次（`4c1e35d`）为最终通过的一次：Swift 编译 0 warning（日志里只有 Node 的 punycode 弃用提示），`swift test` 36 项全过，SQL 回归 8 项通过，产物 `dist/TaoSheng-v0.7.2.ipa`（2 110 375 字节，未签名，`CFBundleShortVersionString 0.7.2` / `CFBundleVersion 36` / `MinimumOSVersion 16.0`）。
+- `shots` 第 73 次（`4c1e35d`）出 68 张，其中 iPhone 16 的 `rs-*` 画面 21 个：上一版的 15 个，加上 `rs-recording-b`、`rs-transcript-b`、`rs-llm-b`、`rs-location-b`（子页滚到底的第二屏）、`rs-event`（事件详情）、`rs-all`（时间线全部）。
 - 对比图在 `.tmp/compare-0.7.2/`，按安卓 1440px ÷4 = 360dp、iOS 1206px ÷3 = 402pt 换算，统一 1 逻辑单位 = 1.5px、顶部对齐，共 16 张：上一版 15 张里除 `03-memory` 与 `15-memory-class` 之外的 13 张，加 `09-recording-b`、`10-transcript-b`、`13-location-b`、`14-llm-b`、`16-event`、`17-all`。
 
 ### 还没做到
