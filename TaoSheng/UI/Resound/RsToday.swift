@@ -78,6 +78,8 @@ struct RsTodayScreen: View {
     @State private var themeMode: RsThemeMode = .system
     /// 截图模式：进页面就打开对应抽屉
     var autoSheet: String? = nil
+    /// 面板打开时告诉外层，好把自己盖到 TabBar 上面
+    var onPanel: (Bool) -> Void = { _ in }
     @State private var cachedEvents: [MemoryEvent] = []
 
     /// 今天直接读 AppState（刷新完成后自动跟着变），其它天用一次查询的缓存
@@ -118,6 +120,9 @@ struct RsTodayScreen: View {
                 }
             }
         }
+        .onChange(of: showListen) { onPanel($0 || showTopic || showSearch) }
+        .onChange(of: showTopic) { onPanel(showListen || $0 || showSearch) }
+        .onChange(of: showSearch) { onPanel(showListen || showTopic || $0) }
         .onAppear {
             load()
             if autoSheet == "listen" { showListen = true }

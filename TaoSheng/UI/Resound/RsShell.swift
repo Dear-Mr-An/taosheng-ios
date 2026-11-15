@@ -285,6 +285,8 @@ struct RsShell: View {
 
     @State private var tab: Int
 
+    @State private var panelOpen = false
+
     init(shot: String? = nil) {
         self.shot = shot
         _tab = State(initialValue: RsShell.tabIndex(for: shot))
@@ -327,7 +329,7 @@ struct RsShell: View {
         ZStack(alignment: .bottom) {
             Group {
                 switch tab {
-                case 0: RsTodayScreen(autoSheet: todaySheet)
+                case 0: RsTodayScreen(autoSheet: todaySheet, onPanel: { panelOpen = $0 })
                 case 1: RsAskScreen()
                 case 2: RsMemoryScreen()
                 case 3: RsTodoScreen()
@@ -346,8 +348,10 @@ struct RsShell: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .zIndex(panelOpen ? 2 : 0)
 
             RsTabBar(tab: $tab)
+                .zIndex(1)
         }
         .background(Rs.bg.ignoresSafeArea())
     }

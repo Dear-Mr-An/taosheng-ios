@@ -441,7 +441,7 @@ struct RsMemoryScreen: View {
 
     private var cardsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            memSection(title: "卡片", trailing: "\(skillCards.count) 张") {
+            memSection(title: "卡片", trailing: "") {
                 Button {
                     generateCard()
                 } label: {
