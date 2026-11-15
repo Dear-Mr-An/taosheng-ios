@@ -64,8 +64,49 @@ enum SessionDigest {
     5. 只依据原话，不要编造。
     """
 
+    static let callSystem = """
+    你是通话记录助手。用户给你一段通话/访谈的原话（每一行带说话人和相对时间）。
+    只输出一个 JSON 对象，不要任何解释文字、不要 markdown 围栏：
+    {"title":"不超过 14 字的通话标题","summary":"2-4 句；第一句就是这次聊的结果","points":["带前缀的条目"],"todos":[{"content":"要做的事","owner":"负责的说话人名字","due":"YYYY-MM-DD HH:mm 或 明天 或空"}],"quotes":[{"speaker":"说话人名字","time":"03:12","text":"原话照抄"}]}
+    要求：
+    1. points 每条都必须以下面三个前缀之一开头：「聊了什么：」「结论：」「待办：」。
+    2. summary 第一句直接给结果，不要「双方进行了沟通」这种开场白。
+    3. quotes 给 3-5 条关键原话，text 必须原文照抄，speaker 用原话里的名字，time 用原话前面的时间。
+    4. todos 的 owner 必须是原话里出现过的说话人名字；没有就 []。
+    5. 只依据原话，不要编造。
+    """
+
+    static let scriptSystem = """
+    你是口播稿整理助手。用户给你一段对着手机口述的原话（每一行带说话人和相对时间）。
+    只输出一个 JSON 对象，不要任何解释文字、不要 markdown 围栏：
+    {"title":"不超过 14 字的稿子标题","summary":"2-4 句；第一句就是这段口述想说什么","points":["带前缀的条目"],"todos":[{"content":"要做的事","owner":"我","due":"空"}],"quotes":[{"speaker":"说话人名字","time":"00:42","text":"原话照抄"}]}
+    要求：
+    1. points 每条都必须以下面三个前缀之一开头：「稿子：」「要点：」「怎么说：」。
+       稿子写给整理后的成稿段落，要点写核心信息，怎么说写语气和结构建议。
+    2. summary 第一句直接说这段口述的主题。
+    3. quotes 给 3-5 条最能代表原意的原话，text 原文照抄。
+    4. todos 是「我要做的」，owner 写「我」；没有就 []。
+    5. 只依据原话，不要编造。
+    """
+
+    static let normalSystem = """
+    你是记录整理助手。用户给你一段普通录音的原话（每一行带说话人和相对时间）。
+    只输出一个 JSON 对象，不要任何解释文字、不要 markdown 围栏：
+    {"title":"不超过 14 字的标题","summary":"2-3 句；这件事是什么、结论是什么","points":["带前缀的条目"],"todos":[{"content":"要做的事","owner":"说话人名字或我","due":"空"}],"quotes":[{"speaker":"说话人名字","time":"01:05","text":"原话照抄"}]}
+    要求：
+    1. points 每条都必须以下面两个前缀之一开头：「这件事：」「要点：」。普通录音不写纪要，只把这件事合成一条记录。
+    2. summary 第一句说清这件事本身。
+    3. quotes 给 3-5 条关键原话，text 原文照抄。
+    4. 只依据原话，不要编造。
+    """
     static func system(for mode: CaptureMode) -> String {
-        mode == .training ? trainingSystem : meetingSystem
+        switch mode {
+        case .training: return trainingSystem
+        case .call: return callSystem
+        case .script: return scriptSystem
+        case .normal: return normalSystem
+        default: return meetingSystem
+        }
     }
 
     // MARK: - 主流程

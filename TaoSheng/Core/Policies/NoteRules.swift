@@ -31,18 +31,34 @@ public struct EventQuote: Codable, Hashable {
 }
 
 public enum NoteRules {
-    /// 会议速记 / 培训笔记
-    public static func noteTitle(forMode raw: String?) -> String {
-        (raw ?? "") == "training" ? "培训笔记" : "会议速记"
+    /// 会议速记 / 培训笔记 / 通话记录 / 口播稿 / 记录
+    public static func noteTitle(forScene scene: String) -> String {
+        switch scene {
+        case "培训": return "培训笔记"
+        case "通话": return "通话记录"
+        case "口播稿": return "口播稿"
+        case "普通": return "记录"
+        default: return "会议速记"
+        }
     }
 
-    /// 时间线上用的小标签：速记 / 笔记
+    public static func noteTitle(forMode raw: String?) -> String {
+        noteTitle(forScene: scene(forMode: raw))
+    }
+
+    /// 时间线上用的小标签：速记 / 笔记 / 通话 / 口播 / 记录
     public static func tag(forScene scene: String) -> String {
-        scene == "培训" ? "笔记" : "速记"
+        switch scene {
+        case "培训": return "笔记"
+        case "通话": return "通话"
+        case "口播稿": return "口播"
+        case "普通": return "记录"
+        default: return "速记"
+        }
     }
 
     public static func tag(forMode raw: String?) -> String {
-        (raw ?? "") == "training" ? "笔记" : "速记"
+        tag(forScene: scene(forMode: raw))
     }
 
     /// 场景写死：会议 / 培训
@@ -52,18 +68,24 @@ public enum NoteRules {
 
     /// 分段名（顺序即展示顺序）
     public static func sectionTitles(forMode raw: String?) -> [String] {
-        if (raw ?? "") == "training" {
-            return ["主题", "核心要点", "知识点", "行动"]
+        switch raw ?? "" {
+        case "training": return ["主题", "核心要点", "知识点", "行动"]
+        case "call": return ["聊了什么", "结论", "待办"]
+        case "script": return ["稿子", "要点", "怎么说"]
+        case "normal": return ["这件事", "要点"]
+        default: return ["议题", "结论先行", "要点", "决定"]
         }
-        return ["议题", "结论先行", "要点", "决定"]
     }
 
     /// 大模型返回的字段名 → 展示用的分段名
     private static func prefixes(forMode raw: String?) -> [String] {
-        if (raw ?? "") == "training" {
-            return ["主题：", "核心要点：", "知识点：", "行动："]
+        switch raw ?? "" {
+        case "training": return ["主题：", "核心要点：", "知识点：", "行动："]
+        case "call": return ["聊了什么：", "结论：", "待办："]
+        case "script": return ["稿子：", "要点：", "怎么说："]
+        case "normal": return ["这件事：", "要点："]
+        default: return ["议题：", "结论先行：", "要点：", "决定："]
         }
-        return ["议题：", "结论先行：", "要点：", "决定："]
     }
 
     /// 把「字段：内容」格式的要点重新分拣成分段；没带前缀的落到第三个分段（要点/知识点）。

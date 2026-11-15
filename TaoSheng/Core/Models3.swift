@@ -39,7 +39,7 @@ struct MemoryEvent: Identifiable, Hashable {
 
     /// 会议速记 / 培训笔记（场景写死，0.6.0 起会话事件就是这样）
     var noteTitle: String {
-        NoteRules.noteTitle(forMode: scene == "培训" ? "training" : "meeting")
+        NoteRules.noteTitle(forScene: scene)
     }
 
     /// 时间线上的小标签：速记 / 笔记

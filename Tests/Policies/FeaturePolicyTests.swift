@@ -5,13 +5,13 @@ import XCTest
 final class FeaturePolicyTests: XCTestCase {
     func testLegacyModesFallBackToMeeting() {
         // 0.6.0 去掉了「日常」：老库里的 daily/script/未知值都必须落到会议，不能变成没有模式
-        XCTAssertEqual(CaptureMode.restored("script"), .meeting)
+        XCTAssertEqual(CaptureMode.restored("script"), .script)
         XCTAssertEqual(CaptureMode.restored("daily"), .meeting)
         XCTAssertEqual(CaptureMode.restored("nonsense"), .meeting)
         XCTAssertEqual(CaptureMode.restored(""), .meeting)
-        XCTAssertEqual(CaptureMode.allCases.count, 2)
+        XCTAssertEqual(CaptureMode.allCases.count, 5)
         XCTAssertEqual(CaptureMode.restored("training").separateSpeakers, false)
-        XCTAssertEqual(CaptureMode.restored("call"), .meeting)
+        XCTAssertEqual(CaptureMode.restored("call"), .call)
     }
 
     func testDeepSeekMigrationNeverReusesAnotherProvidersKey() {

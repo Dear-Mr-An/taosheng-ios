@@ -40,7 +40,15 @@ enum RsTopicKind: String, CaseIterable, Identifiable {
     var buttonTitle: String { self == .call ? "开始访谈" : "开始\(title)" }
 
     /// 底层只有会议 / 培训两种收尾方式：会议分人出速记，其余按培训出笔记
-    var mode: CaptureMode { self == .meeting ? .meeting : .training }
+    var mode: CaptureMode {
+        switch self {
+        case .meeting: return .meeting
+        case .training: return .training
+        case .call: return .call
+        case .script: return .script
+        case .normal: return .normal
+        }
+    }
 }
 
 /// 五格类型选择（TopicStartPanel 的 TopicKindChoice）

@@ -209,10 +209,16 @@ public enum SceneRules {
     public static let meeting = "会议"
     public static let training = "培训"
     public static let call = "通话"
+    public static let script = "口播稿"
+    public static let normal = "普通"
 
+    /// 场景由模式写死（原版 0.4.0 五种专题各有各的产物名）
     public static func scene(forMode raw: String?) -> String {
         switch raw ?? "" {
         case "training": return training
+        case "call": return call
+        case "script": return script
+        case "normal": return normal
         default: return meeting
         }
     }
