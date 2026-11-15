@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 // MARK: - 设置（SettingsScreen.kt）
@@ -24,6 +25,9 @@ struct RsSettingsScreen: View {
                     group("记录") {
                         row(RecordingSettingsView(), title: "录音与后台", detail: capture.isRunning ? "正在聆听" : "已暂停",
                             symbol: "mic.fill", tint: Rs.accent)
+                        line
+                        row(AudioRouteInfoView(), title: "外接设备", detail: audioRouteDetail,
+                            symbol: "iphone.radiowaves.left.and.right", tint: Color(hex: "D9822B"))
                         line
                         row(TranscribeOverviewView(), title: "原话与转写", detail: asrDetail,
                             symbol: "list.bullet", tint: Color(hex: "D9A02B"))
@@ -98,6 +102,17 @@ struct RsSettingsScreen: View {
         let total = app.persons.reduce(0) { $0 + $1.sampleCount }
         if total < 3 { return "● 还差 \(3 - total) 段样本" }
         return "人物 · \(app.persons.count)"
+    }
+
+    /// 原版这一行显示外接麦克风状态；iOS 走系统输入路由
+    private var audioRouteDetail: String {
+        let s = AVAudioSession.sharedInstance()
+        switch s.currentRoute.inputs.first?.portType {
+        case .bluetoothHFP, .bluetoothLE, .bluetoothA2DP: return "蓝牙"
+        case .headsetMic, .headphones: return "有线"
+        case .usbAudio: return "USB"
+        default: return "内置"
+        }
     }
 
     private var asrProvider: String {
@@ -278,5 +293,47 @@ struct RsShell: View {
             RsTabBar(tab: $tab)
         }
         .background(Rs.bg.ignoresSafeArea())
+    }
+}
+
+// MARK: - 外接设备（原版能选 USB/蓝牙麦克风，iOS 走系统输入路由）
+
+struct AudioRouteInfoView: View {
+    @State private var route = "内置"
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("现在用的输入")
+                    .font(Rs.title)
+                    .foregroundStyle(Rs.text)
+                RsCard {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(route)
+                            .font(Rs.headline)
+                            .foregroundStyle(Rs.text)
+                        Text("iOS 不给 App 枚举和锁定具体麦克风：插上耳机、连上蓝牙之后，系统自己切到那个输入。这里显示的就是正在用的那一路。")
+                            .font(Rs.subhead)
+                            .foregroundStyle(Rs.text2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Text("想在原版里挑设备，是因为安卓能枚举输入；iOS 只能跟着系统走。")
+                    .font(Rs.caption)
+                    .foregroundStyle(Rs.text3)
+            }
+            .padding(16)
+        }
+        .background(Rs.bg)
+        .navigationTitle("外接设备")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            switch AVAudioSession.sharedInstance().currentRoute.inputs.first?.portType {
+            case .bluetoothHFP, .bluetoothLE: route = "蓝牙"
+            case .headsetMic, .headphones: route = "有线耳机"
+            case .usbAudio: route = "USB"
+            default: route = "内置"
+            }
+        }
     }
 }
