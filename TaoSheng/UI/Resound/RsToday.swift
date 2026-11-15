@@ -621,13 +621,18 @@ struct RsTimelineLine: View {
                 detail = event
             }
         }
-        .sheet(item: $detail) { e in
-            NavigationStack {
-                RsEventSheet(event: e)
-                    .environmentObject(AppState.shared)
+        .overlay {
+            if let e = detail {
+                RsBottomSheet(tall: true, onClose: { detail = nil }) {
+                    RsEventSheet(event: e, onClose: { detail = nil })
+                }
+                .environmentObject(AppState.shared)
             }
         }
+        .onChange(of: detail != nil) { open in onPanel?(open) }
     }
+
+    var onPanel: ((Bool) -> Void)? = nil
 
     private var timeColor: Color {
         if quietRow { return Rs.text3 }

@@ -166,7 +166,7 @@ struct RsChip: View {
                     Circle().fill(on ? Color.white.opacity(0.8) : d).frame(width: 7, height: 7)
                 }
                 Text(text)
-                    .font(.system(size: 14.5, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(on ? Color.white : Rs.text2)
                 if let n = count {
                     Text("\(n)")
@@ -191,7 +191,7 @@ struct RsCategoryChip: View {
     var body: some View {
         let color = Rs.categoryColor(category)
         Text(kind != nil && category == "待办" ? "待办 · \(kind!)" : category)
-            .font(.system(size: 11.5, weight: .medium))
+            .font(.system(size: 11, weight: .medium))
             .foregroundStyle(color)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
@@ -472,7 +472,7 @@ struct RsSideEntry: View {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Rs.text)
                         .lineLimit(1)
                     Text(note)
@@ -482,7 +482,7 @@ struct RsSideEntry: View {
                 }
                 Spacer(minLength: 0)
                 Text("›")
-                    .font(.system(size: 17))
+                    .font(.system(size: 16))
                     .foregroundStyle(Rs.text3)
             }
             .padding(.horizontal, 14)
@@ -576,7 +576,7 @@ struct RsStarSwipe<Content: View>: View {
             } label: {
                 VStack(spacing: 3) {
                     Image(systemName: starred ? "star.slash" : "star.fill")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                     Text(starred ? "取消重点" : "标重点")
                         .font(.system(size: 11, weight: .medium))
                 }

@@ -204,7 +204,7 @@ struct RsSettingsScreen: View {
                     .frame(width: 28, height: 28)
                     .overlay(
                         Image(systemName: symbol)
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.white)
                     )
                 Text(title)
@@ -225,7 +225,7 @@ struct RsSettingsScreen: View {
                 }
                 .layoutPriority(1)
                 Text("›")
-                    .font(.system(size: 17))
+                    .font(.system(size: 16))
                     .foregroundStyle(Rs.text3)
             }
             .frame(minHeight: 48)
@@ -303,8 +303,18 @@ struct RsShell: View {
         _tab = State(initialValue: RsShell.tabIndex(for: shot))
     }
 
+    /// 去掉截图名末尾的滚动位置标记：rs-recording-b / -c / -d 都算 rs-recording
+    static func baseShot(_ shot: String?) -> String {
+        guard var s = shot else { return "" }
+        for suffix in ["-b", "-c", "-d"] where s.hasSuffix(suffix) {
+            s = String(s.dropLast(2))
+            break
+        }
+        return s
+    }
+
     static func tabIndex(for shot: String?) -> Int {
-        switch shot ?? "" {
+        switch baseShot(shot) {
         case "rs-ask": return 1
         case "rs-memory", "rs-memory-class", "rs-all": return 2
         case "rs-event": return 0
@@ -317,7 +327,7 @@ struct RsShell: View {
 
     /// 截图模式要直接打开哪个设置子页
     private var settingsShotPage: String? {
-        switch shot ?? "" {
+        switch RsShell.baseShot(shot) {
         case "rs-recording": return "recording"
         case "rs-transcript": return "transcript"
         case "rs-voice": return "voice"

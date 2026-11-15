@@ -37,7 +37,7 @@ struct RsAskScreen: View {
                 ZStack {
                     Circle().fill(Rs.card)
                     Image(systemName: "clock")
-                        .font(.system(size: 17, weight: .regular))
+                        .font(.system(size: 16, weight: .regular))
                         .foregroundStyle(Rs.text2)
                 }
                 .frame(width: 40, height: 40)
@@ -271,7 +271,7 @@ struct RsMemoryScreen: View {
                 UIPasteboard.general.string = md
             } label: {
                 Text("导出")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Rs.accent)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)
@@ -309,7 +309,7 @@ struct RsMemoryScreen: View {
                 Button { showMonth = true } label: {
                     HStack(spacing: 4) {
                         Text(monthTitle)
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(Rs.text)
                         Image(systemName: "chevron.down")
                             .font(.system(size: 11, weight: .semibold))
@@ -404,7 +404,7 @@ struct RsMemoryScreen: View {
         } label: {
             VStack(spacing: 3) {
                 Text("\(cal.component(.day, from: d))")
-                    .font(.system(size: 17, weight: on ? .bold : .regular))
+                    .font(.system(size: 16, weight: on ? .bold : .regular))
                     .foregroundStyle(on ? Color.white : Rs.text)
                     .frame(width: 34, height: 34)
                     .background(Circle().fill(on ? Rs.accent : Color.clear))
@@ -420,7 +420,7 @@ struct RsMemoryScreen: View {
         HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(app.dayReview == nil ? "这天还没有回顾" : "这天的回顾")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(Rs.text)
                 Text(app.dayReview == nil ? "每晚会自动生成，也可以现在先生成一版" : "已经生成，点右边再看一遍")
                     .font(Rs.subhead)
@@ -432,7 +432,7 @@ struct RsMemoryScreen: View {
                 Task { _ = try? await ReviewEngine.shared.generateDaily(day: dayKey); app.refresh() }
             } label: {
                 Text(app.dayReview == nil ? "生成回顾" : "再看")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 9)
@@ -809,7 +809,7 @@ struct RsTodoScreen: View {
                 for it in app.pendingItems { app.setItemStatus(it.id, status: .accepted) }
             } label: {
                 Text("全部接受 \(app.pendingItems.count) 条")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
@@ -820,7 +820,7 @@ struct RsTodoScreen: View {
                 for it in app.pendingItems { app.setItemStatus(it.id, status: .ignored) }
             } label: {
                 Text("全部忽略")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Rs.text2)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
@@ -898,7 +898,7 @@ struct RsTodoRow: View {
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text(item.content)
-                    .font(.system(size: 17))
+                    .font(.system(size: 16))
                     .foregroundStyle(Rs.text)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {

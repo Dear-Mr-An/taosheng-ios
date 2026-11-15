@@ -76,7 +76,7 @@ struct RsTopicKindPicker: View {
                     VStack(spacing: 7) {
                         RsSkillIcon(icon: k.glyph, size: 30)
                         Text(k.title.replacingOccurrences(of: " / ", with: "·"))
-                            .font(.system(size: 12.5, weight: on ? .semibold : .medium))
+                            .font(.system(size: 12, weight: on ? .semibold : .medium))
                             .foregroundStyle(on ? Rs.text : Rs.text2)
                             .lineLimit(1)
                             .fixedSize()
@@ -305,7 +305,7 @@ struct RsTopicSheet: View {
                         withAnimation(.easeOut(duration: 0.16)) { tab = i }
                     } label: {
                         Text(label)
-                            .font(.system(size: 14, weight: tab == i ? .semibold : .regular))
+                            .font(.system(size: 13, weight: tab == i ? .semibold : .regular))
                             .foregroundStyle(tab == i ? Rs.text : Rs.text2)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
@@ -386,7 +386,7 @@ struct RsTopicSheet: View {
     private func entry(_ title: String, _ detail: String, _ symbol: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: symbol)
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Rs.text3)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(Rs.subhead).foregroundStyle(Rs.text)

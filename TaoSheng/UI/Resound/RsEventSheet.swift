@@ -6,8 +6,9 @@ import UIKit
 /// 分人原话卡片；重点 / 复制 / 问问 / 删除；最后一条「设为专题」。
 struct RsEventSheet: View {
     let event: MemoryEvent
+    var onClose: () -> Void = {}
     @EnvironmentObject private var app: AppState
-    @Environment(\.dismiss) private var dismiss
+    private func dismiss() { onClose() }
 
     @State private var lines: [Segment] = []
     @State private var utterances: [Utterance] = []
@@ -41,8 +42,8 @@ struct RsEventSheet: View {
                 } label: {
                     HStack(spacing: 4) {
                         Text("设为专题（可连带前后几件事合成一件）")
-                            .font(.system(size: 14, weight: .medium))
-                        Text("›").font(.system(size: 14))
+                            .font(.system(size: 13, weight: .medium))
+                        Text("›").font(.system(size: 13))
                     }
                     .foregroundStyle(Rs.accent)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -55,7 +56,6 @@ struct RsEventSheet: View {
             .padding(.horizontal, 18)
             .padding(.top, 18)
         }
-        .background(Rs.bg)
         .task { await load() }
     }
 
@@ -73,7 +73,7 @@ struct RsEventSheet: View {
                 app.addItems([(content: current.title, category: "待办", due: nil)])
             } label: {
                 Text("存待办")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Rs.accent)
             }
             .buttonStyle(.plain)
@@ -81,7 +81,7 @@ struct RsEventSheet: View {
                 UIPasteboard.general.string = current.title + "\n" + current.summary
             } label: {
                 Text("编辑")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Rs.accent)
             }
             .buttonStyle(.plain)
@@ -105,7 +105,7 @@ struct RsEventSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text("原话")
-                    .font(.system(size: 14))
+                    .font(.system(size: 13))
                     .foregroundStyle(Rs.text3)
                 Spacer(minLength: 0)
                 compactPill("▶ 播放这件事") { playAll() }
@@ -220,7 +220,7 @@ struct RsEventSheet: View {
     private func pill(_ text: String, filled: Bool, danger: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(text)
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(danger ? Rs.critical : (filled ? Rs.accent : Rs.text))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 11)
