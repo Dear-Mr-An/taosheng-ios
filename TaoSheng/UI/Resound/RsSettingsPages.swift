@@ -441,7 +441,7 @@ struct RsRecordingPage: View {
                 RsBtn(text: "暂停 1 小时", filled: false) {
                     RsQuiet.shared.pause(minutes: 60)
                 }
-                RsBtn(text: "停止", filled: false, danger: true) {
+                RsBtn(text: "停止", filled: false, danger: false) {
                     captureWanted = false
                     if flow.isRecording { flow.stop() }
                 }

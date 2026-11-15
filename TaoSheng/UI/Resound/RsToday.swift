@@ -578,6 +578,8 @@ struct RsTimelineLine: View {
     var onStar: (() -> Void)? = nil
     @State private var detail: MemoryEvent?
     @State private var shotOpened = false
+    /// 截图时只让第一行把事件详情打开（否则每行都会开一层，叠出好几张面板）
+    private static var shotOpenedOnce = false
 
     private var quietRow: Bool { event.scene == "媒体" }
 
@@ -616,8 +618,8 @@ struct RsTimelineLine: View {
         }
         .buttonStyle(.plain)
         .onAppear {
-            if ShotMode.screen == "rs-event", !shotOpened {
-                shotOpened = true
+            if ShotMode.screen == "rs-event", !Self.shotOpenedOnce {
+                Self.shotOpenedOnce = true
                 detail = event
             }
         }
