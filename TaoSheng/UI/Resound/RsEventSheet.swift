@@ -56,7 +56,6 @@ struct RsEventSheet: View {
             .padding(.top, 18)
         }
         .background(Rs.bg)
-        .presentationBackground(Rs.bg)
         .task { await load() }
     }
 
