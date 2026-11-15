@@ -553,23 +553,25 @@ struct RsRecordingPage: View {
         .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
     }
 
-    // 自动导入文件夹
+    // 自动导入文件夹（原版：一张只有「＋ 添加文件夹」的浅橙卡，说明在卡外）
     private var importCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 10) {
             RsSectionLabel(title: "自动导入文件夹")
-                .padding(.bottom, 8)
-            HStack {
-                Text("录音笔、录音机存的文件夹").font(Rs.body).foregroundStyle(Rs.text)
-                Spacer(minLength: 0)
-                RsBtn(text: "添加文件夹", filled: false) { }
+            Button { } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .bold))
+                    Text("添加文件夹").font(.system(size: 15, weight: .semibold))
+                }
+                .foregroundStyle(Rs.accent)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 17)
+                .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.accentSoft.opacity(0.55)))
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 14)
-            .padding(.bottom, 12)
-            RsCardHint(text: "录音笔 App、录音机把录音存在哪，就选哪个文件夹。新录音会自动导入转写，原文件不动、不删；同一个录音只导入一次。")
-            RsCardHint(text: "大约每 15 分钟看一次，打开涛声时也会看；录音写完一两分钟后才会导入。")
+            .buttonStyle(.plain)
+            RsFootNote(text: "录音笔 App、录音机把录音存在哪，就选哪个文件夹。新录音会自动导入转写，原文件不动、不删；同一个录音只导入一次。")
+            RsFootNote(text: "大约每 15 分钟看一次，打开涛声时也会看；录音写完一两分钟后才会导入。")
         }
-        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
     }
 
     // 后台设置
@@ -596,10 +598,19 @@ struct RsRecordingPage: View {
 
     private func backendItem(_ title: String, _ note: String, done: Bool) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 16))
-                .foregroundStyle(done ? Rs.good : Rs.text3.opacity(0.6))
-                .padding(.top, 1)
+            ZStack {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(done ? Rs.good.opacity(0.14) : Rs.fill)
+                if done {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Rs.good)
+                } else {
+                    Circle().stroke(Rs.text3.opacity(0.5), lineWidth: 1.2)
+                        .frame(width: 9, height: 9)
+                }
+            }
+            .frame(width: 24, height: 24)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(Rs.body).foregroundStyle(Rs.text)
                 Text(note).font(Rs.caption).foregroundStyle(Rs.text3)
