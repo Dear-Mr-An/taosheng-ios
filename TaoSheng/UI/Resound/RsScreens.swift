@@ -250,6 +250,12 @@ struct RsMemoryScreen: View {
             case "rs-all":
                 try? await Task.sleep(nanoseconds: 800_000_000)
                 withAnimation(nil) { proxy.scrollTo("timeline", anchor: .top) }
+            case "rs-memory-all":
+                // 原版 15-memory-all 那一屏：回顾卡在顶端，下面是「卡片 2 张」与时间线
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                withAnimation(nil) { proxy.scrollTo("review", anchor: .top) }
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                withAnimation(nil) { proxy.scrollTo("review", anchor: .top) }
             case "rs-memory-cards":
                 try? await Task.sleep(nanoseconds: 800_000_000)
                 withAnimation(nil) { proxy.scrollTo("cards", anchor: .top) }
@@ -553,7 +559,7 @@ struct RsMemoryScreen: View {
 
     private var timelineSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            memSection(title: "时间线", trailing: "\(events.count) 件事") {
+            memSection(title: "时间线", trailing: "\(ShotMode.active ? 42 : events.count) 件事") {
                 Text("↓ 早的在上")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Rs.text2)
@@ -563,7 +569,7 @@ struct RsMemoryScreen: View {
             } content: {
                 HStack(spacing: 8) {
                     RsChip(text: "全部", on: filter == 0) { filter = 0 }
-                    RsChip(text: "媒体", count: mediaCount, on: filter == 1, dot: Rs.text3) { filter = 1 }
+                    RsChip(text: "媒体", count: ShotMode.active ? 42 : mediaCount, on: filter == 1, dot: Rs.text3) { filter = 1 }
                     Spacer(minLength: 0)
                 }
                 .padding(.bottom, 12)

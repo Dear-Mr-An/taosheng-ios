@@ -210,12 +210,12 @@ struct RsTodayScreen: View {
 
     private var timelineSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            RsSection(title: "时间线 · \(events.count) 件事") {
+            RsSection(title: "时间线 · \(ShotMode.active ? 42 : events.count) 件事") {
                 RsDaySwitcher(selected: $dayOffset, compact: true)
             } content: {
                 HStack(spacing: 8) {
                     RsChip(text: "全部", on: filter == 0) { filter = 0 }
-                    RsChip(text: "媒体", count: mediaCount, on: filter == 1, dot: Rs.text3) { filter = 1 }
+                    RsChip(text: "媒体", count: ShotMode.active ? 42 : mediaCount, on: filter == 1, dot: Rs.text3) { filter = 1 }
                     Spacer(minLength: 0)
                 }
                 .padding(.bottom, 14)
@@ -424,9 +424,9 @@ struct RsOverviewCard: View {
     // 第二行：三个大数字
     private var statsRow: some View {
         HStack(alignment: .top, spacing: 8) {
-            stat(speechParts.0, speechParts.1) {}
-            stat("\(app.eventCount)", "件") {}
-            stat("\(app.pendingItems.count)", "条") { onPending() }
+            stat(ShotMode.active ? "28" : speechParts.0, ShotMode.active ? "分钟" : speechParts.1) {}
+            stat(ShotMode.active ? "42" : "\(app.eventCount)", "件") {}
+            stat(ShotMode.active ? "4" : "\(app.pendingItems.count)", "条") { onPending() }
         }
         .padding(.top, 8)
     }

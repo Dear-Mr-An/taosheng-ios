@@ -8,12 +8,20 @@ struct RsSubPage<Content: View>: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    /// 截图模式：rs-xxx-b / -c 分别停在页面 55% 处与最底部，0 表示不滚
-    static var fracForShot: CGFloat {
-        guard let s = ShotMode.screen else { return 0 }
-        if s.hasSuffix("-c") { return 1.0 }
-        if s.hasSuffix("-b") { return 0.55 }
-        return 0
+    /// 截图模式：滚动图按画面锚点定位，不按百分比猜
+    /// （rs-recording-b → 录音输入，rs-llm-b → 什么时候整理 …）
+    static func anchorForShot(_ shot: String?) -> String? {
+        switch shot ?? "" {
+        case "rs-recording-b": return "rec-input"
+        case "rs-recording-c": return "rec-backend"
+        case "rs-transcript-b": return "tr-speech"
+        case "rs-transcript-c": return "tr-raw"
+        case "rs-llm-b": return "llm-timing"
+        case "rs-llm-c": return "llm-idle"
+        case "rs-location-b": return "loc-day"
+        case "rs-voice-b": return "vp-samples"
+        default: return nil
+        }
     }
 
     var body: some View {
@@ -41,16 +49,25 @@ struct RsSubPage<Content: View>: View {
             .padding(.top, 6)
             .padding(.bottom, 2)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    content()
-                    Color.clear.frame(height: 28)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        content()
+                        Color.clear.frame(height: 24)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
-                .background(RsScrollFrac(frac: RsSubPage.fracForShot).frame(width: 0, height: 0))
+                .scrollIndicators(.hidden)
+                .task {
+                    guard let anchor = RsSubPage.anchorForShot(ShotMode.screen) else { return }
+                    // 先等布局完成，再按锚点滚；滚两次，避免首次还没算好高度
+                    for _ in 0..<2 {
+                        try? await Task.sleep(nanoseconds: 450_000_000)
+                        withAnimation(nil) { proxy.scrollTo(anchor, anchor: .top) }
+                    }
+                }
             }
-            .scrollIndicators(.hidden)
         }
         .background(Rs.bg)
         .navigationBarBackButtonHidden(true)
@@ -429,22 +446,32 @@ struct RsRecordingPage: View {
         RsSubPage(title: "录音与后台") {
             statusCard
 
-            RsSectionLabel(title: "停录时段", trailing: settings.silenceWindowOn ? "已开启" : "未开启")
-            stopWindowCard
-            RsFootNote(text: "时段内不录音，到点自动恢复；时段内点「现在恢复」只对这一次有效。")
+            // 原版每段 = 卡外小标题 + 白卡 + 卡外灰说明，段内 7dp、段间 22dp
+            VStack(alignment: .leading, spacing: 7) {
+                RsSectionLabel(title: "停录时段", trailing: settings.silenceWindowOn ? "已开启" : "未开启")
+                stopWindowCard
+                RsFootNote(text: "时段内不录音，到点自动恢复；时段内点「现在恢复」只对这一次有效。")
+                    .padding(.top, 1)
+            }
 
-            RsSectionLabel(title: "录音输入")
-            inputCard
-            RsDotText(text: "正在用：手机麦克风")
-                .padding(.horizontal, 4)
-            RsFootNote(text: "插上 Type-C 麦克风或领夹麦接收器、连上蓝牙耳机后，会出现在这里。")
-            externalCard
+            VStack(alignment: .leading, spacing: 7) {
+                RsSectionLabel(title: "录音输入").id("rec-input")
+                inputCard
+                RsDotText(text: "正在用：手机麦克风")
+                    .padding(.horizontal, 4)
+                    .padding(.top, 4)
+                RsFootNote(text: "插上 Type-C 麦克风或领夹麦接收器、连上蓝牙耳机后，会出现在这里。")
+                externalCard
+                    .padding(.top, 4)
+            }
 
-            RsSectionLabel(title: "语音输入")
-            voiceInputCard
+            VStack(alignment: .leading, spacing: 7) {
+                RsSectionLabel(title: "语音输入")
+                voiceInputCard
+            }
 
             importCard
-            backendCard
+            backendCard.id("rec-backend")
         }
     }
 
@@ -683,13 +710,13 @@ struct RsTranscriptPage: View {
     var body: some View {
         RsSubPage(title: "原话与转写") {
             queueCard
-            transcribeCard
+            transcribeCard.id("tr-speech")
             cadenceCard
             switchCard
             speakerCard
             testCard
             hotwordCard
-            rawCard
+            rawCard.id("tr-raw")
         }
     }
 
@@ -985,7 +1012,7 @@ struct RsVoicePage: View {
             .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
 
             VStack(alignment: .leading, spacing: 0) {
-                RsCardTitle(text: "样本声音")
+                RsCardTitle(text: "样本声音").id("vp-samples")
                 Text("暂无").font(Rs.body).foregroundStyle(Rs.text2)
                     .padding(.horizontal, 18)
                 RsCardHint(text: "用来在人物详情里回放样本。清除后仍能照常认人，已有样本不能再回放。")
@@ -1088,6 +1115,7 @@ struct RsLocationPage: View {
             }
             .frame(minHeight: 260, alignment: .top)
             .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+            .id("loc-day")
 
             VStack(alignment: .leading, spacing: 0) {
                 RsCardTitle(text: "显示地名")
@@ -1130,7 +1158,7 @@ struct RsModelPage: View {
         RsSubPage(title: "模型与整理时间") {
             providersCard
             VStack(alignment: .leading, spacing: 0) {
-                RsCardTitle(text: "什么时候整理")
+                RsCardTitle(text: "什么时候整理").id("llm-timing")
                 RsCardHint(text: "把转写好的原话整理成一件件事。转写在「原话与转写」里单独设置。")
                 HStack(spacing: 8) {
                     RsOptPill(text: "按间隔", on: timing == 0, solid: true) { timing = 0 }
@@ -1157,7 +1185,7 @@ struct RsModelPage: View {
                     RsCardHint(text: "到点整理当天剩下的原话。")
                 }
                 RsRowDivider(inset: 18)
-                Text("停多久算说完了").font(Rs.body).foregroundStyle(Rs.text)
+                Text("停多久算说完了").font(Rs.body).foregroundStyle(Rs.text).id("llm-idle")
                     .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 8)
                 HStack(spacing: 8) {
                     ForEach(Array(["5 分钟", "10 分钟", "20 分钟"].enumerated()), id: \.offset) { i, label in

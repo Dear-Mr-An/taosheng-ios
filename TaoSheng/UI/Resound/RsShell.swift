@@ -29,30 +29,30 @@ struct RsSettingsScreen: View {
                             symbol: "mic.fill", tint: Rs.accent, alert: (captureStopped && !shotListening) ? Rs.critical : nil)
                         line
                         row(AudioRouteInfoView(), title: "外接设备", detail: audioRouteDetail,
-                            symbol: "iphone", tint: Color(hex: "D9822B"))
+                            symbol: "iphone", tint: Color(hex: "F2994A"))
                         line
                         row(RsTranscriptPage(), title: "原话与转写", detail: asrDetail,
-                            symbol: "list.bullet", tint: Color(hex: "D9A02B"))
+                            symbol: "list.bullet", tint: Color(hex: "E0A030"))
                             .id("row-transcript")
                         line
                         row(RsVoicePage(), title: "声纹与人物", detail: voiceDetail,
-                            symbol: "person.2.fill", tint: Color(hex: "D9534F"), alert: voiceReady ? nil : Rs.warning)
+                            symbol: "person.2.fill", tint: Color(hex: "E06A50"), alert: voiceReady ? nil : Rs.warning)
                         line
                         row(RsEnvPage(), title: "环境音识别", detail: settings.envSoundOn ? "已开启" : "未开启",
-                            symbol: "waveform", tint: Color(hex: "C99A0E"))
+                            symbol: "waveform", tint: Color(hex: "D4A017"))
                         line
                         row(RsLocationPage(), title: "足迹", detail: settings.locationOn ? "记录全天位置" : "未开启",
-                            symbol: "mappin", tint: Color(hex: "C4693C"))
+                            symbol: "mappin", tint: Color(hex: "C9643A"))
                     }
                     group("整理") {
                         row(RsModelPage(), title: "模型与整理时间", detail: shotListening ? "DeepSeek · ¥12.84" : modelLine,
-                            symbol: "sparkles", tint: Color(hex: "E0603A"))
+                            symbol: "sparkles", tint: Color(hex: "7C5CC4"))
                         line
                         row(SkillsView(), title: "整理技能", detail: shotListening ? "开了 3 个" : "开了 \(app.skills.filter { $0.enabled }.count) 个",
-                            symbol: "square.grid.2x2.fill", tint: Color(hex: "8A7BE0"))
+                            symbol: "square.grid.2x2.fill", tint: Color(hex: "5B5BD6"))
                         line
                         row(ChannelsView(), title: "推送通道", detail: app.channels.isEmpty ? "只发手机通知" : "\(app.channels.count) 个通道",
-                            symbol: "paperplane.fill", tint: Color(hex: "4F86C6"))
+                            symbol: "paperplane.fill", tint: Color(hex: "3B82C4"))
                     }
                     group("数据") {
                         row(BackupView(), title: "数据备份", detail: settings.backupKind == .none ? "未开启" : settings.backupKind.title,
@@ -194,6 +194,8 @@ struct RsSettingsScreen: View {
 
     /// 原版状态卡第二行：连续稳定 X 天 · 今天中断 Y 次
     private var stabilityText: String {
+        // 截图模式跟原版一致：连续稳定 0 天 · 今天中断 2 次
+        if shotListening { return "连续稳定 0 天 · 今天中断 2 次" }
         let d = UserDefaults.standard
         if d.object(forKey: "rsInstallAt") == nil {
             d.set(Date().timeIntervalSince1970, forKey: "rsInstallAt")
@@ -329,7 +331,7 @@ struct RsShell: View {
     static func tabIndex(for shot: String?) -> Int {
         switch baseShot(shot) {
         case "rs-ask": return 1
-        case "rs-memory", "rs-memory-class", "rs-memory-cards", "rs-all": return 2
+        case "rs-memory", "rs-memory-class", "rs-memory-cards", "rs-memory-all", "rs-all": return 2
         case "rs-event": return 0
         case "rs-todo": return 3
         case "rs-settings", "rs-recording", "rs-transcript", "rs-voice",

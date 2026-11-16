@@ -87,7 +87,7 @@ enum ShotDemo {
                            dueText: "今晚 8 点", dueAt: now.addingTimeInterval(3600),
                            who: "我", sourceText: nil, createdAt: now, updatedAt: now),
                 MemoryItem(id: "shot-item-2", eventId: eventID, day: day, category: "约定",
-                           kind: "我答应别人", content: "周五上午十点出发去客户现场", status: .accepted,
+                           kind: "我答应别人", content: "周五上午十点出发去客户现场", status: .pending,
                            dueText: nil, dueAt: nil, who: "周工", sourceText: nil,
                            createdAt: now, updatedAt: now),
                 MemoryItem(id: "shot-item-3", eventId: eventID, day: day, category: "备忘",
