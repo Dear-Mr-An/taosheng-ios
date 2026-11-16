@@ -232,6 +232,9 @@ struct RsListenSheet: View {
     private var recordingTopicPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
             RsLabel("这一场")
+            if let t = flow.topicName {
+                Text(t).font(Rs.subhead).foregroundStyle(Rs.text2)
+            }
             HStack(spacing: 8) {
                 Text(flow.current?.mode.title ?? "会议")
                     .font(Rs.headline)
@@ -333,7 +336,7 @@ struct RsTopicSheet: View {
             RsLabel("什么时候结束")
             RsEndChoices(choice: $endChoice)
             RsActionButton(title: kind.buttonTitle, enabled: !flow.working) {
-                flow.start(mode: kind.mode)
+                flow.start(mode: kind.mode, topicName: name, endMinutes: endChoice)
                 onClose()
             }
             HStack(spacing: 10) {

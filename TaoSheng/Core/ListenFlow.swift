@@ -21,6 +21,9 @@ final class ListenFlow: ObservableObject {
     @Published private(set) var working = false
     @Published private(set) var lastError: String?
 
+    /// 到点自动结束的定时器（「什么时候结束」选了 30 分钟 / 1 小时 / 2 小时）
+    private var topicTimer: Timer?
+
     private init() {
         current = Store.shared.latestSession()
         // 没网导致收尾失败时不要卡死在「处理失败」：链路一恢复就自己接着做
@@ -63,7 +66,7 @@ final class ListenFlow: ObservableObject {
 
     // MARK: - 开始 / 结束
 
-    func start(mode: CaptureMode) {
+    func start(mode: CaptureMode, topicName: String = "", endMinutes: Int = 0) {
         guard current?.state != .recording else { return }
         let s = ListenSession(
             id: shortID(),
@@ -85,6 +88,42 @@ final class ListenFlow: ObservableObject {
         note = nil
         lastError = nil
         CaptureEngine.shared.start()
+        // 专题：名字与计划结束写下来，到点自动收尾
+        let endAt = TopicRules.endAt(start: s.startedAt, minutes: endMinutes)
+        TopicStore.save(sessionId: s.id, name: topicName, endAt: endAt)
+        scheduleTopicTimer(sessionId: s.id, endAt: endAt)
+    }
+
+    /// 当前这一场的专题名（没起名就是 nil）
+    var topicName: String? {
+        guard let s = current else { return nil }
+        return TopicStore.name(sessionId: s.id)
+    }
+
+    private func scheduleTopicTimer(sessionId: String, endAt: Date?) {
+        topicTimer?.invalidate()
+        topicTimer = nil
+        guard let endAt else { return }
+        let interval = max(1, endAt.timeIntervalSinceNow)
+        let t = Timer(timeInterval: interval, repeats: false) { _ in
+            Task { @MainActor in
+                guard ListenFlow.shared.current?.id == sessionId else { return }
+                if ListenFlow.shared.isRecording { ListenFlow.shared.stop() }
+            }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        topicTimer = t
+    }
+
+    /// 启动 / 回前台时补一次：计划时间早就过了但还在录，就当场收尾。
+    func checkTopicDeadline() {
+        guard let s = current, s.state == .recording else { return }
+        let endAt = TopicStore.endAt(sessionId: s.id)
+        if TopicRules.shouldAutoFinish(endAt: endAt, now: Date(), isRecording: true) {
+            stop()
+        } else if let endAt {
+            scheduleTopicTimer(sessionId: s.id, endAt: endAt)
+        }
     }
 
     func stop() {
@@ -92,6 +131,8 @@ final class ListenFlow: ObservableObject {
         UserDefaults.standard.set(false, forKey: "captureWanted")
         CaptureEngine.shared.stop()
         CaptureEngine.shared.bindSession(nil, mode: nil)
+        topicTimer?.invalidate()
+        topicTimer = nil
         s.endedAt = Date()
         s.stateRaw = SessionState.finalizing.rawValue
         Store.shared.updateSessionState(id: s.id, state: .finalizing, endedAt: s.endedAt)
@@ -193,7 +234,8 @@ final class ListenFlow: ObservableObject {
             Store.shared.updateSessionState(id: s.id, state: .digesting)
             current = s
 
-            let digest = try await SessionDigest.run(session: s, utterances: utterances)
+            let digest = try await SessionDigest.run(session: s, utterances: utterances,
+                                                    topicName: TopicStore.name(sessionId: s.id))
             Store.shared.updateSessionState(id: s.id, state: .done, eventId: digest.eventId)
             PushEngine.shared.pushSession(session: s, title: digest.title,
                                           conclusion: NoteRules.conclusion(digest.summary),

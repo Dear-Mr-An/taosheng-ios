@@ -111,7 +111,7 @@ enum SessionDigest {
 
     // MARK: - 主流程
 
-    static func run(session: ListenSession, utterances: [Utterance]) async throws -> Output {
+    static func run(session: ListenSession, utterances: [Utterance], topicName: String? = nil) async throws -> Output {
         guard !utterances.isEmpty else { throw LLMError.badReply("这场没有识别出内容") }
         guard !Settings.shared.effectiveLLM.key.isEmpty else {
             throw LLMError.badReply("还没填大模型密钥。去「设置 → 大模型与整理」填好，再点重试。")
@@ -123,8 +123,9 @@ enum SessionDigest {
             lines.append("[\(i + 1)] \(u.timeText) \(name)：\(u.text)")
         }
         let speakerList = Set(utterances.map { session.name($0.speaker) }).sorted()
+        let topic = (topicName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let head = """
-        模式：\(session.mode.title)
+        模式：\(session.mode.title)\(topic.isEmpty ? "" : "（专题名：\(topic)）")
         开始：\(Fmt.monthDayTime.string(from: session.startedAt))
         时长：\(session.durationText)
         说话人：\(speakerList.joined(separator: "、"))
@@ -149,7 +150,9 @@ enum SessionDigest {
             throw LLMError.badReply("整理结果结构不对，原话已保留，可点重试")
         }
 
-        let title = (out.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        // 董事长给专题起了名字，就用名字当标题：会议记录页面上要能一眼认出是哪一场
+        let modelTitle = (out.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = topic.isEmpty ? modelTitle : TopicRules.displayName(topic, kind: session.mode.title)
         let summary = (out.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty || !summary.isEmpty else {
             throw LLMError.badReply("整理没返回标题和摘要，原话已保留，可点重试")

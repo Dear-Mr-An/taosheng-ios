@@ -88,6 +88,7 @@ struct TaoShengApp: App {
                     guard phase == .active else { return }
                     app.refresh()
                     RsQuiet.shared.checkNow()
+                    ListenFlow.shared.checkTopicDeadline()
                     if UserDefaults.standard.bool(forKey: "captureWanted") && !capture.isRunning {
                         capture.start()
                     }
