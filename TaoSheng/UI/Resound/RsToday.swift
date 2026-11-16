@@ -30,6 +30,7 @@ final class RsQuiet: ObservableObject {
             d.removeObject(forKey: "rsQuietUntil")
             d.removeObject(forKey: "rsQuietHeldWanted")
             d.set(true, forKey: "captureWanted")
+            d.set(false, forKey: "rsUserStopped")
             // 截图模式不起麦克风；真机上跟 TaoShengApp 启动流程一样把录音拉回来。
             if !ShotMode.active && !CaptureEngine.shared.isRunning {
                 CaptureEngine.shared.start()
@@ -66,6 +67,7 @@ final class RsQuiet: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "rsQuietUntil")
         UserDefaults.standard.removeObject(forKey: "rsQuietHeldWanted")
         UserDefaults.standard.set(true, forKey: "captureWanted")
+        UserDefaults.standard.set(false, forKey: "rsUserStopped")
         if !CaptureEngine.shared.isRunning { CaptureEngine.shared.start() }
     }
 
@@ -105,8 +107,6 @@ struct RsTodayScreen: View {
     var autoSheet: String? = nil
     /// 面板打开时告诉外层，好把自己盖到 TabBar 上面
     var onPanel: (Bool) -> Void = { _ in }
-    /// 「◉ 专题」要打开专题面板，不能和状态行的「正在聆听」共用同一个开关
-    var onOpenTopic: () -> Void = {}
     @State private var cachedEvents: [MemoryEvent] = []
 
     /// 今天直接读 AppState（刷新完成后自动跟着变），其它天用一次查询的缓存
@@ -124,7 +124,7 @@ struct RsTodayScreen: View {
                 RsOverviewCard(onPending: {
                     withAnimation(.easeOut(duration: 0.2)) { filter = 0 }
                 }, onOpenListen: { showListen = true },
-               onOpenTopic: { showTopic = true },
+                   onOpenTopic: { showTopic = true },
                    activeOverride: ShotMode.screen == "rs-today" ? true : nil)
                 if !pending.isEmpty { pendingSection }
                 timelineSection
@@ -401,6 +401,7 @@ struct RsOverviewCard: View {
                 quiet.pause(minutes: quiet.lastPauseMinutes)
             } else {
                 UserDefaults.standard.set(true, forKey: "captureWanted")
+                UserDefaults.standard.set(false, forKey: "rsUserStopped")
                 CaptureEngine.shared.start()
             }
         } label: {

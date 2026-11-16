@@ -368,6 +368,13 @@ final class AppState: ObservableObject {
         refresh()
     }
 
+    func setChannelEnabled(_ id: String, _ on: Bool) {
+        guard var c = store.channels().first(where: { $0.id == id }) else { return }
+        c.enabled = on
+        store.upsertChannel(c)
+        refresh()
+    }
+
     func deleteChannel(_ id: String) {
         store.deleteChannel(id: id)
         refresh()
@@ -510,6 +517,16 @@ final class AppState: ObservableObject {
         for id in ids where Store.shared.dropAudio(id: id) { removed += 1 }
         if removed > 0 { refresh() }
         return removed
+    }
+
+    /// 「原录音保留 N 天」必须有自动执行者：启动 / 回前台每天最多跑一次。
+    func purgeOldAudioIfDue() {
+        let today = DayKey.of(Date())
+        guard UserDefaults.standard.string(forKey: "ts.lastPurgeDay") != today else { return }
+        Task {
+            _ = await purgeOldAudio()
+            UserDefaults.standard.set(today, forKey: "ts.lastPurgeDay")
+        }
     }
 
     func exportMarkdown(day: String) -> String {

@@ -116,12 +116,12 @@ final class BackupEngine {
 
     func snapshot(day: String) -> String {
         let segs = store.segments(day: day, limit: 2000).sorted { $0.startedAt < $1.startedAt }
-        let items = store.items(day: day, openOnly: false)
-        let dig = store.digest(day: day)
+        // 当前界面读的是 memory_event / memory_item；旧的 item / digest 表只为兼容老备份。
+        let events = store.events(day: day, limit: 2000)
+        let items = store.items(day: day, limit: 2000)
         var obj: [String: Any] = [
             "day": day,
             "generated_at": ISO8601DateFormatter().string(from: Date()),
-            "summary": dig?.summary ?? "",
             "segments": segs.map { s -> [String: Any] in
                 [
                     "id": s.id,
@@ -131,15 +131,49 @@ final class BackupEngine {
                     "text": s.transcript
                 ]
             },
-            "items": items.map { i -> [String: Any] in
-                [
-                    "id": i.id,
-                    "kind": i.kind.rawValue,
-                    "title": i.title,
-                    "detail": i.detail,
-                    "due": i.due,
-                    "status": i.status.rawValue
+            "events": events.map { e -> [String: Any] in
+                var d: [String: Any] = [
+                    "id": e.id,
+                    "day": e.day,
+                    "start": e.startAt.timeIntervalSince1970,
+                    "scene": e.scene,
+                    "title": e.title,
+                    "summary": e.summary,
+                    "points": e.points,
+                    "people": e.people,
+                    "emotion": e.emotion,
+                    "intensity": e.intensity,
+                    "important": e.important,
+                    "starred": e.starred,
+                    "line_from": e.lineFrom,
+                    "line_to": e.lineTo,
+                    "created_at": e.createdAt.timeIntervalSince1970,
+                    "quotes": e.quotes.map { ["speaker": $0.speaker, "time": $0.time, "text": $0.text] }
                 ]
+                if let end = e.endAt { d["end"] = end.timeIntervalSince1970 }
+                if let place = e.place { d["place"] = place }
+                if let at = e.starredAt { d["starred_at"] = at.timeIntervalSince1970 }
+                if let entity = e.entityId { d["entity_id"] = entity }
+                if let sid = e.sessionId { d["session_id"] = sid }
+                return d
+            },
+            "items": items.map { i -> [String: Any] in
+                var d: [String: Any] = [
+                    "id": i.id,
+                    "day": i.day,
+                    "category": i.category,
+                    "content": i.content,
+                    "status": i.status.rawValue,
+                    "created_at": i.createdAt.timeIntervalSince1970,
+                    "updated_at": i.updatedAt.timeIntervalSince1970
+                ]
+                if let e = i.eventId { d["event_id"] = e }
+                if let k = i.kind { d["kind"] = k }
+                if let t = i.dueText { d["due_text"] = t }
+                if let due = i.dueAt { d["due_at"] = due.timeIntervalSince1970 }
+                if let w = i.who { d["who"] = w }
+                if let s = i.sourceText { d["source_text"] = s }
+                return d
             }
         ]
         let s = Settings.shared
@@ -181,6 +215,70 @@ final class BackupEngine {
                 return "云端文件读不出来"
             }
             let day = (obj["day"] as? String) ?? DayKey.of(Date())
+
+            // 新格式：当前界面读的 memory_event / memory_item
+            if let rawEvents = obj["events"] as? [[String: Any]] {
+                var events: [MemoryEvent] = []
+                for e in rawEvents {
+                    guard let id = e["id"] as? String,
+                          let start = e["start"] as? Double else { continue }
+                    let quotes: [EventQuote] = (e["quotes"] as? [[String: Any]] ?? []).compactMap { q in
+                        guard let speaker = q["speaker"] as? String,
+                              let time = q["time"] as? String,
+                              let text = q["text"] as? String else { return nil }
+                        return EventQuote(speaker: speaker, time: time, text: text)
+                    }
+                    events.append(MemoryEvent(
+                        id: id,
+                        day: (e["day"] as? String) ?? day,
+                        startAt: Date(timeIntervalSince1970: start),
+                        endAt: (e["end"] as? Double).map { Date(timeIntervalSince1970: $0) },
+                        scene: (e["scene"] as? String) ?? "其他",
+                        title: (e["title"] as? String) ?? "",
+                        summary: (e["summary"] as? String) ?? "",
+                        points: (e["points"] as? [String]) ?? [],
+                        people: (e["people"] as? [String]) ?? [],
+                        place: e["place"] as? String,
+                        emotion: (e["emotion"] as? String) ?? "平静",
+                        intensity: (e["intensity"] as? Int) ?? 0,
+                        important: (e["important"] as? Bool) ?? false,
+                        starred: (e["starred"] as? Bool) ?? false,
+                        starredAt: (e["starred_at"] as? Double).map { Date(timeIntervalSince1970: $0) },
+                        entityId: e["entity_id"] as? String,
+                        lineFrom: (e["line_from"] as? Int) ?? 0,
+                        lineTo: (e["line_to"] as? Int) ?? 0,
+                        createdAt: (e["created_at"] as? Double).map { Date(timeIntervalSince1970: $0) } ?? Date(),
+                        sessionId: e["session_id"] as? String,
+                        quotes: quotes
+                    ))
+                }
+                var items: [MemoryItem] = []
+                for i in (obj["items"] as? [[String: Any]] ?? []) {
+                    guard let id = i["id"] as? String else { continue }
+                    items.append(MemoryItem(
+                        id: id,
+                        eventId: i["event_id"] as? String,
+                        day: (i["day"] as? String) ?? day,
+                        category: (i["category"] as? String) ?? "备忘",
+                        kind: i["kind"] as? String,
+                        content: (i["content"] as? String) ?? "",
+                        status: MemItemStatus(rawValue: (i["status"] as? String) ?? "pending") ?? .pending,
+                        dueText: i["due_text"] as? String,
+                        dueAt: (i["due_at"] as? Double).map { Date(timeIntervalSince1970: $0) },
+                        who: i["who"] as? String,
+                        sourceText: i["source_text"] as? String,
+                        createdAt: (i["created_at"] as? Double).map { Date(timeIntervalSince1970: $0) } ?? Date(),
+                        updatedAt: (i["updated_at"] as? Double).map { Date(timeIntervalSince1970: $0) } ?? Date()
+                    ))
+                }
+                store.deleteMemory(day: day)
+                for e in events { store.upsertEvent(e) }
+                store.insertItems(items)
+                NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
+                return "已从云端恢复 \(day)：\(events.count) 件事、\(items.count) 条待办（原话录音不回传）"
+            }
+
+            // 旧格式：只有 summary + DigestItem，保留兼容，避免老备份读不出来
             if let summary = obj["summary"] as? String, !summary.isEmpty {
                 store.saveDigest(day: day, summary: summary)
             }
@@ -201,7 +299,7 @@ final class BackupEngine {
                 store.replaceItems(day: day, items: list)
             }
             NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
-            return "已从云端恢复 \(day)（原话录音不回传）"
+            return "已从云端恢复 \(day)（旧格式：只恢复摘要与提取项；原话录音不回传）"
         } catch {
             return "恢复失败：\(error.localizedDescription)"
         }

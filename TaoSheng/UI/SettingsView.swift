@@ -59,7 +59,7 @@ struct SettingsView: View {
                         sep
                         nav(ChannelsView(), icon: "paperplane", title: "推送通道",
                             dot: Theme.dim2,
-                            detail: app.channels.isEmpty ? "只发手机通知" : "通道 · \(app.channels.count)")
+                            detail: app.channels.filter(\.enabled).isEmpty ? "只发手机通知" : "通道 · \(app.channels.filter(\.enabled).count)")
                         sep
                         nav(PersonsView(), icon: "person.2", title: "声纹与人物",
                             dot: Theme.dim2,

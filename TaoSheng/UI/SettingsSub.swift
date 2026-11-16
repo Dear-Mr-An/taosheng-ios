@@ -27,9 +27,12 @@ struct RecordingSettingsView: View {
                     Spacer()
                     Button(capture.isRunning ? "暂停" : "开始") {
                         if capture.isRunning {
+                            let st = StopRules.stateAfterUserStop()
                             capture.stop()
-                            UserDefaults.standard.set(false, forKey: "captureWanted")
+                            UserDefaults.standard.set(st.captureWanted, forKey: "captureWanted")
+                            UserDefaults.standard.set(st.userStopped, forKey: "rsUserStopped")
                         } else {
+                            UserDefaults.standard.set(false, forKey: "rsUserStopped")
                             capture.start()
                             UserDefaults.standard.set(true, forKey: "captureWanted")
                         }
@@ -564,6 +567,11 @@ struct ChannelsView: View {
                                 .font(.system(size: 11))
                                 .foregroundStyle(Theme.dim)
                                 .lineLimit(2)
+                            if c.kind == .nutstore, let u = c.user, !u.isEmpty {
+                                Text("账号 \(u) · 密码已存安全区")
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(Theme.dim)
+                            }
                             if let t = c.lastPushAt {
                                 Text("\(timeText(t)) · \(c.lastStatus)")
                                     .font(.system(size: 10.5))
@@ -571,6 +579,12 @@ struct ChannelsView: View {
                             }
                         }
                         Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { c.enabled },
+                            set: { app.setChannelEnabled(c.id, $0) }
+                        ))
+                        .labelsHidden()
+                        .tint(Theme.accent)
                         Button("测试") { test(c) }
                             .font(.system(size: 12))
                             .buttonStyle(.bordered)
@@ -681,7 +695,9 @@ struct ChannelsView: View {
     private var canSaveChannel: Bool {
         let u = url.trimmingCharacters(in: .whitespacesAndNewlines)
         if kind == .nutstore {
-            return !u.isEmpty && !davUser.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return !u.isEmpty
+                && !davUser.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !davPass.isEmpty
         }
         if kind.needsURL && u.isEmpty { return false }
         if kind == .ntfy && extra.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -743,13 +759,15 @@ struct BackupView: View {
                     }
                 }
 
-                Section("自动") {
-                    Toggle("每晚自动备份", isOn: $settings.backupAuto).tint(Theme.accent)
+                Section {
+                    Toggle("自动备份（约每 6 小时）", isOn: $settings.backupAuto).tint(Theme.accent)
                     Picker("保留版本", selection: $settings.backupKeepVersions) {
                         Text("3 份").tag(3)
                         Text("7 份").tag(7)
                         Text("30 份").tag(30)
                     }
+                } footer: {
+                    Text("App 在运行时才会检查，大约每 6 小时最多备一次今天；没开 App 的日子下次打开时补。")
                 }
 
                 Section {
@@ -770,6 +788,8 @@ struct BackupView: View {
                         Label("从云端恢复", systemImage: "arrow.down.to.line")
                     }
                     .disabled(busy)
+                } footer: {
+                    Text("备份内容只有当天的整理事件、待办和原话文字；不含音频、人物、技能卡和设置。")
                 }
 
                 if let m = msg {
@@ -782,11 +802,11 @@ struct BackupView: View {
         .tabBarClearance()
         .navigationTitle("数据备份")
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog("从云端恢复会用云上的内容覆盖本机这一天和待办", isPresented: $confirmRestore, titleVisibility: .visible) {
+        .confirmationDialog("从云端恢复会用云上的内容覆盖本机那一天的整理结果与待办", isPresented: $confirmRestore, titleVisibility: .visible) {
             Button("继续恢复", role: .destructive) { restore() }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("恢复只覆盖整理结果与待办，原话录音不会被动。")
+            Text("只覆盖云端那一天的整理结果与待办；原话、录音、人物和设置不动。")
         }
     }
 
@@ -844,7 +864,12 @@ struct ReviewSettingsView: View {
                 Toggle("回顾生成推给我", isOn: $settings.pushOnReview).tint(Theme.accent)
             }
 
-            Section("提醒") {
+            Section {
+                if app.reminders.isEmpty {
+                    Text("还没有提醒。整理出带明确时间的待办时，会自动排一条。")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Theme.dim)
+                }
                 ForEach(app.reminders) { r in
                     HStack {
                         Text(r.title)
@@ -854,6 +879,14 @@ struct ReviewSettingsView: View {
                             .foregroundStyle(Theme.dim)
                     }
                 }
+                .onDelete { idx in
+                    let ids = idx.map { app.reminders[$0].id }
+                    for id in ids { app.deleteReminder(id) }
+                }
+            } header: {
+                Text("提醒")
+            } footer: {
+                Text("左滑删除。删掉的是这条手机提醒，不影响待办本身。")
             }
         }
         .scrollContentBackground(.hidden)
@@ -970,7 +1003,7 @@ struct PrivacyView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("录音、原话、待办、回顾、人物和通道全部删掉，不能恢复。")
+            Text("录音、原话、待办、回顾、人物、技能卡、推送通道和通道密码全部删掉，不能恢复。模型密钥、识别密钥和备份设置保留。")
         }
     }
 }

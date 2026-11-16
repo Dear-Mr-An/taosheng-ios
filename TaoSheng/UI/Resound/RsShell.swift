@@ -117,7 +117,7 @@ struct RsSettingsScreen: View {
                   detail: shotListening ? "开了 3 个" : "开了 \(app.skills.filter { $0.enabled }.count) 个",
                   symbol: "square.grid.2x2.fill", tint: Color(hex: "5B5BD6")),
             SItem(id: "channels", group: "整理", title: "推送通道",
-                  detail: app.channels.isEmpty ? "只发手机通知" : "\(app.channels.count) 个通道",
+                  detail: enabledChannels == 0 ? "只发手机通知" : "\(enabledChannels) 个通道",
                   symbol: "paperplane.fill", tint: Color(hex: "3B82C4")),
             SItem(id: "backup", group: "数据", title: "数据备份",
                   detail: settings.backupKind == .none ? "未开启" : settings.backupKind.title,
@@ -203,6 +203,8 @@ struct RsSettingsScreen: View {
     }
 
     private var voiceReady: Bool { app.persons.reduce(0) { $0 + $1.sampleCount } >= 3 }
+
+    private var enabledChannels: Int { app.channels.filter { $0.enabled }.count }
 
     private var captureLine: String {
         if capture.isRunning { return "正在聆听" }

@@ -272,7 +272,7 @@ struct RsListenSheet: View {
             UserDefaults.standard.removeObject(forKey: "rsTopicName")
         }
         if quiet.isQuiet { quiet.resume() }
-        flow.start(mode: kind.mode)
+        flow.start(mode: kind.mode, topicName: name, endMinutes: endChoice)
         onClose()
     }
 }
@@ -327,6 +327,7 @@ struct RsTopicSheet: View {
             RsLabel("什么时候结束")
             RsEndChoices(choice: $endChoice)
             RsActionButton(title: kind.buttonTitle, enabled: !flow.working) {
+                if RsQuiet.shared.isQuiet { RsQuiet.shared.resume() }
                 flow.start(mode: kind.mode, topicName: name, endMinutes: endChoice)
                 onClose()
             }

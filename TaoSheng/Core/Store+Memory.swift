@@ -343,6 +343,20 @@ extension Store {
 
     // MARK: 提取项
 
+    /// 备份恢复用：先删掉这一天的事件与提取项，再由调用方按备份内容重建。
+    func deleteMemory(day: String) {
+        queue.sync {
+            for table in ["memory_item", "memory_event"] {
+                var st: OpaquePointer?
+                if sqlite3_prepare_v2(db, "DELETE FROM \(table) WHERE day=?;", -1, &st, nil) == SQLITE_OK {
+                    bind(st, 1, day)
+                    sqlite3_step(st)
+                }
+                sqlite3_finalize(st)
+            }
+        }
+    }
+
     func insertItems(_ items: [MemoryItem]) {
         queue.sync { () -> Void in
             let sql = """

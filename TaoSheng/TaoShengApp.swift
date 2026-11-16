@@ -74,6 +74,8 @@ struct TaoShengApp: App {
                     ReminderEngine.shared.rescheduleQuick(quicks)
                     MicRouter.shared.applyPreferred()
                     LocationEngine.shared.syncWithSettings()
+                    // 「原录音保留 N 天」自动执行：启动 / 回前台每天最多跑一次
+                    app.purgeOldAudioIfDue()
                     // 暂停跨进程恢复：到期的暂停在这里把 captureWanted 拉回 true（必须在下面判断录音前跑）
                     _ = RsQuiet.shared
                     // 原版默认一直在听：首次启动就把 captureWanted 置 true，之后由用户暂停/恢复决定
@@ -91,6 +93,7 @@ struct TaoShengApp: App {
                 .onChange(of: scenePhase) { phase in
                     guard phase == .active else { return }
                     app.refresh()
+                    app.purgeOldAudioIfDue()
                     RsQuiet.shared.checkNow()
                     ListenFlow.shared.checkTopicDeadline()
                     // 用户点过「停止」就不自动拉起：只有 captureWanted 且没被手动停过才起

@@ -43,6 +43,21 @@ final class StopRulesTests: XCTestCase {
         XCTAssertEqual(MicRules.keepUidAfterReplug("usb-123"), "usb-123")
     }
 
+    func testRouteChangeKeepsAutoAndClearsMissingSpecificInput() {
+        XCTAssertEqual(
+            MicRules.uidAfterRouteChange(preferredUID: "auto", availableUIDs: []),
+            "auto"
+        )
+        XCTAssertEqual(
+            MicRules.uidAfterRouteChange(preferredUID: "usb-123", availableUIDs: []),
+            ""
+        )
+        XCTAssertEqual(
+            MicRules.uidAfterRouteChange(preferredUID: "usb-123", availableUIDs: ["usb-123"]),
+            "usb-123"
+        )
+    }
+
     func testUserStopAlsoMarksWantedOff() {
         let s = StopRules.stateAfterUserStop()
         XCTAssertFalse(s.captureWanted)

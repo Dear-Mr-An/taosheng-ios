@@ -135,10 +135,11 @@ final class CaptureEngine: ObservableObject {
         switch reason {
         case .oldDeviceUnavailable:
             let pref = Settings.shared.preferredInputUID
-            if !pref.isEmpty {
-                let stillThere = AVAudioSession.sharedInstance().availableInputs?.contains { $0.uid == pref } ?? false
-                if !stillThere { Settings.shared.preferredInputUID = "" }
-            }
+            let availableUIDs = AVAudioSession.sharedInstance().availableInputs?.map(\.uid) ?? []
+            Settings.shared.preferredInputUID = MicRules.uidAfterRouteChange(
+                preferredUID: pref,
+                availableUIDs: availableUIDs
+            )
             if isRunning { restartSoon() }
         case .newDeviceAvailable:
             if isRunning { restartSoon() }
@@ -300,6 +301,7 @@ final class CaptureEngine: ObservableObject {
                                     mode: .default,
                                     options: [.allowBluetooth, .mixWithOthers])
             try session.setActive(true, options: [])
+            MicRouter.shared.applyPreferred()
 
             let input = engine.inputNode
             let format = input.inputFormat(forBus: 0)

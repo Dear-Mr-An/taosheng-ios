@@ -44,4 +44,11 @@ public enum MicRules {
 
     /// 「自动」在插拔后要保留偏好，不能把 auto 清成空串
     public static func keepUidAfterReplug(_ uid: String) -> String { uid }
+
+    /// 路由变化时只清掉已经不存在的具体设备；auto 是策略值，不是设备 UID。
+    public static func uidAfterRouteChange(preferredUID: String, availableUIDs: [String]) -> String {
+        let uid = preferredUID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !uid.isEmpty, uid != "auto" else { return uid }
+        return availableUIDs.contains(uid) ? uid : ""
+    }
 }

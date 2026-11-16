@@ -66,9 +66,13 @@ extension Store {
                 enabled INTEGER NOT NULL DEFAULT 1,
                 last_push_at REAL,
                 last_status TEXT NOT NULL DEFAULT '',
-                created_at REAL NOT NULL
+                created_at REAL NOT NULL,
+                user TEXT NOT NULL DEFAULT ''
             );
             """)
+            // 坚果云通道的账号。密码不进数据库，按通道 id 存钥匙串（channelPass.<id>）。
+            ensureColumn(table: "channel", column: "user",
+                         ddl: "ALTER TABLE channel ADD COLUMN user TEXT NOT NULL DEFAULT '';")
             exec("""
             CREATE TABLE IF NOT EXISTS place (
                 id TEXT PRIMARY KEY,
@@ -416,7 +420,7 @@ extension Store {
     func channels() -> [Channel] {
         queue.sync { () -> [Channel] in
             var st: OpaquePointer?
-            let sql = "SELECT id,kind,name,url,extra,enabled,last_push_at,last_status,created_at FROM channel ORDER BY created_at ASC;"
+            let sql = "SELECT id,kind,name,url,extra,enabled,last_push_at,last_status,created_at,user FROM channel ORDER BY created_at ASC;"
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
             defer { sqlite3_finalize(st) }
             var out: [Channel] = []
@@ -425,8 +429,9 @@ extension Store {
                 if sqlite3_column_type(st, 6) != SQLITE_NULL {
                     last = Date(timeIntervalSince1970: sqlite3_column_double(st, 6))
                 }
+                let id = col(st, 0)
                 out.append(Channel(
-                    id: col(st, 0),
+                    id: id,
                     kind: ChannelKind(rawValue: col(st, 1)) ?? .webhook,
                     name: col(st, 2),
                     url: col(st, 3),
@@ -434,7 +439,9 @@ extension Store {
                     enabled: sqlite3_column_int64(st, 5) != 0,
                     lastPushAt: last,
                     lastStatus: col(st, 7),
-                    createdAt: Date(timeIntervalSince1970: sqlite3_column_double(st, 8))
+                    createdAt: Date(timeIntervalSince1970: sqlite3_column_double(st, 8)),
+                    user: col(st, 9),
+                    pass: Secrets.get("channelPass." + id) ?? ""
                 ))
             }
             return out
@@ -443,7 +450,7 @@ extension Store {
 
     func upsertChannel(_ c: Channel) {
         queue.sync {
-            let sql = "INSERT OR REPLACE INTO channel (id,kind,name,url,extra,enabled,last_push_at,last_status,created_at) VALUES (?,?,?,?,?,?,?,?,?);"
+            let sql = "INSERT OR REPLACE INTO channel (id,kind,name,url,extra,enabled,last_push_at,last_status,created_at,user) VALUES (?,?,?,?,?,?,?,?,?,?);"
             var st: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return }
             defer { sqlite3_finalize(st) }
@@ -460,7 +467,11 @@ extension Store {
             }
             bind(st, 8, c.lastStatus)
             sqlite3_bind_double(st, 9, c.createdAt.timeIntervalSince1970)
+            bind(st, 10, c.user ?? "")
             sqlite3_step(st)
+            // 密码只放钥匙串；空密码表示删除，不在 SQLite 里留明文。
+            let key = "channelPass." + c.id
+            if let p = c.pass, !p.isEmpty { Secrets.set(key, p) } else { Secrets.delete(key) }
         }
     }
 
@@ -471,6 +482,7 @@ extension Store {
                 bind(st, 1, id); sqlite3_step(st)
             }
             sqlite3_finalize(st)
+            Secrets.delete("channelPass." + id)
         }
     }
 
@@ -847,6 +859,14 @@ func searchAsk(_ keyword: String, limit: Int = 300) -> [AskMessage] {
     /// 清空全部数据（含音频文件）
     func wipeAll() {
         queue.sync {
+            // 通道密码在钥匙串里，不随 DELETE 消失，先按 channel id 清掉。
+            var ids: [String] = []
+            var st: OpaquePointer?
+            if sqlite3_prepare_v2(db, "SELECT id FROM channel;", -1, &st, nil) == SQLITE_OK {
+                while sqlite3_step(st) == SQLITE_ROW { ids.append(col(st, 0)) }
+            }
+            sqlite3_finalize(st)
+            for id in ids { Secrets.delete("channelPass." + id) }
             for t in ["segment", "item", "digest", "person", "voice_sample", "skill",
                       "skill_run", "channel", "place", "reminder", "review", "ask", "hotword",
                       "memory_event", "memory_item", "skill_card", "thing", "thing_fact", "env_tag",
