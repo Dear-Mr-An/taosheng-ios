@@ -84,6 +84,9 @@ struct RsSettingsScreen: View {
                         line
                         row(PrivacyView(), title: "隐私与数据", detail: "原录音保留 \(settings.keepAudioDays) 天",
                             symbol: "lock.shield.fill", tint: Color(hex: "8C7652"))
+                        line
+                        row(RsAdvancedPage(), title: "整理要求与诊断", detail: settings.digestRequirement.isEmpty ? "未设置" : "已写",
+                            symbol: "stethoscope", tint: Color(hex: "5B6B7C"))
                     }
 
                     Text("录音、转写和整理结果都只存在这台手机上，没有账号，也没有我们的服务器。")

@@ -240,7 +240,9 @@ final class DigestEngine: ObservableObject {
 
         // 2. 调模型
         let user = Prompts.digestUser(day: day, lines: lines, unfinished: unfinished, ignored: ignored)
-        let reply = try await LLMClient.completeAny(system: system, user: user, temperature: 0.2, thinking: Settings.shared.deepThinking)
+        let extra = Settings.shared.digestRequirement.trimmingCharacters(in: .whitespacesAndNewlines)
+        let systemText = extra.isEmpty ? system : system + "\n\n用户额外要求（优先遵守）：\n" + extra
+        let reply = try await LLMClient.completeAny(system: systemText, user: user, temperature: 0.2, thinking: Settings.shared.deepThinking)
         // 3. 解析
         guard let data = JSONExtract.object(from: reply) else {
             throw LLMError.badReply("整理结果不是 JSON，原话已保留，请重试")

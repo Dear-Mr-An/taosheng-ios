@@ -107,6 +107,10 @@ final class Settings: ObservableObject {
     @Published var llmKey: String { didSet { Secrets.set("llmKey", llmKey) } }
     // 只保留 DeepSeek 一套配置：底座地址固定，不给切换服务商的口子。
 
+    /// 整理要求：用户自己写的偏好，会拼进整理提示词（成就「高级与诊断」里的可编辑项）
+    @Published var digestRequirement: String {
+        didSet { d.set(digestRequirement, forKey: "digestRequirement") }
+    }
     @Published var deepThinking: Bool { didSet { d.set(deepThinking, forKey: "deepThinking") } }
     @Published var balanceAlertThreshold: Double { didSet { d.set(balanceAlertThreshold, forKey: "balanceAlertThreshold") } }
 
@@ -238,6 +242,7 @@ final class Settings: ObservableObject {
         llmModel = dsMigrated.model
         llmKey = dsMigrated.key
 
+        digestRequirement = d.string(forKey: "digestRequirement") ?? ""
         deepThinking = d.bool(forKey: "deepThinking")
         balanceAlertThreshold = d.object(forKey: "balanceAlertThreshold") as? Double ?? 10
 
