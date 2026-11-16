@@ -869,22 +869,20 @@ struct RsTranscriptPage: View {
 
     // 培训专题入口
     private var speakerCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("临时不区分说话人").font(.system(size: 15, weight: .semibold)).foregroundStyle(Rs.text)
+            Text("上课、听讲座时开始一个「培训」专题：这段时间不分人，结束后出培训笔记")
+                .font(.system(size: 13)).foregroundStyle(Rs.text2)
+                .fixedSize(horizontal: false, vertical: true)
             Button { } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("临时不区分说话人").font(Rs.body).foregroundStyle(Rs.text)
-                        Text("一人讲、多人听时用，结束后出培训笔记").font(Rs.caption).foregroundStyle(Rs.text3)
-                    }
-                    Spacer(minLength: 0)
-                    Text("开始培训专题 ›").font(.system(size: 13)).foregroundStyle(Rs.accent)
-                }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 14)
-                .contentShape(Rectangle())
+                Text("开始培训专题 ›").font(.system(size: 14)).foregroundStyle(Rs.accent)
             }
             .buttonStyle(.plain)
+            .padding(.top, 2)
         }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
     }
 
@@ -909,6 +907,11 @@ struct RsTranscriptPage: View {
     private var hotwordCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             RsCardTitle(text: "热词")
+            Text("你的称呼、常听到的人名、公司名和专有名词。转写和整理时会优先认成这些词。")
+                .font(.system(size: 13)).foregroundStyle(Rs.text2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 18)
+                .padding(.bottom, 12)
             HStack(spacing: 10) {
                 TextField("输入词语，多个用逗号隔开", text: .constant(""))
                     .font(Rs.subhead)
@@ -925,16 +928,12 @@ struct RsTranscriptPage: View {
 
     // 录音原话
     private var rawCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("录音原话").font(Rs.body).foregroundStyle(Rs.text)
-                Spacer(minLength: 0)
-                Text("\(app.todaySegments.count) 段 · 已转 \(app.todaySegments.filter { $0.state == .transcribed }.count)")
-                    .font(Rs.caption).foregroundStyle(Rs.text3)
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 14)
-            .padding(.bottom, 10)
+        VStack(alignment: .leading, spacing: 10) {
+            RsSectionLabel(title: "录音原话",
+                           trailing: "\(app.todaySegments.count) 段 · 已转 \(app.todaySegments.filter { $0.state == .transcribed }.count)")
+            RsSegControl(options: ["今天", "昨天", "前天"], index: .constant(0), fit: true)
+                .padding(.leading, 4)
+            VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(app.todaySegments.prefix(6))) { seg in
                 HStack(alignment: .top, spacing: 12) {
                     Text(Fmt.hm.string(from: seg.startedAt))
@@ -950,8 +949,9 @@ struct RsTranscriptPage: View {
                 .padding(.vertical, 10)
                 RsRowDivider(inset: 18)
             }
+            }
+            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
         }
-        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
     }
 }
 
@@ -1206,6 +1206,7 @@ struct RsModelPage: View {
                 .padding(.horizontal, 18)
                 RsCardHint(text: "一直有人在说话时，到点也会先切一段，免得整场并成一条。")
                 RsRowDivider(inset: 18)
+                RsCardHint(text: "想马上看结果，在「今天」页点「现在整理」。每日回顾、每周回顾生成前会先整理一次。")
                 RsToggleRow(title: "整理前先思考",
                             note: "分条更准，一件事一条，不容易切碎；费用约为原来的 3～5 倍，整理也慢一些。",
                             on: Binding(get: { settings.deepThinking }, set: { settings.deepThinking = $0 }))
@@ -1216,7 +1217,46 @@ struct RsModelPage: View {
                 RsCardHint(text: "支持 DeepSeek、火山方舟、硅基流动；其他服务按它自己的默认。")
             }
             .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+
+            usageCard
         }
+    }
+
+    // 用量（原版 14-llm-c：今天 / 本周 / 30 天 + token + 花费）
+    @State private var usageTab = 0
+    private var usageCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("用量").font(.system(size: 17, weight: .semibold)).foregroundStyle(Rs.text)
+                Spacer(minLength: 0)
+                RsSegControl(options: ["今天", "本周", "30 天"], index: $usageTab, fit: true)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("10.5 万").font(.system(size: 26, weight: .semibold)).monospacedDigit().foregroundStyle(Rs.text)
+                Text("token · 8 次").font(.system(size: 13)).foregroundStyle(Rs.text2)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 12)
+            Text("输入 9.5 万 · 输出 9522").font(.system(size: 13)).foregroundStyle(Rs.text3)
+                .padding(.horizontal, 18).padding(.top, 6)
+            Text("花费 约 ¥0.27").font(.system(size: 15)).foregroundStyle(Rs.text)
+                .padding(.horizontal, 18).padding(.top, 6)
+            GeometryReader { geo in
+                HStack(spacing: 0) {
+                    Rectangle().fill(Rs.accent.opacity(0.55)).frame(width: geo.size.width * 0.86)
+                    Rectangle().fill(Color(hex: "8A7BE0").opacity(0.45))
+                }
+                .clipShape(Capsule())
+            }
+            .frame(height: 8)
+            .padding(.horizontal, 18)
+            .padding(.top, 12)
+            .padding(.bottom, 16)
+        }
+        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
     }
 
     // 整理用的大模型
