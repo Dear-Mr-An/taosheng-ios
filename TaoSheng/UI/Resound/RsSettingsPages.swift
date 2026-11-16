@@ -713,8 +713,7 @@ struct RsTranscriptPage: View {
             transcribeCard.id("tr-speech")
             cadenceCard
             switchCard
-            speakerCard
-            testCard
+            speakerTestCard
             hotwordCard
             rawCard.id("tr-raw")
         }
@@ -867,28 +866,24 @@ struct RsTranscriptPage: View {
         .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
     }
 
-    // 培训专题入口
-    private var speakerCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("临时不区分说话人").font(.system(size: 15, weight: .semibold)).foregroundStyle(Rs.text)
-            Text("上课、听讲座时开始一个「培训」专题：这段时间不分人，结束后出培训笔记")
-                .font(.system(size: 13)).foregroundStyle(Rs.text2)
-                .fixedSize(horizontal: false, vertical: true)
-            Button { } label: {
-                Text("开始培训专题 ›").font(.system(size: 14)).foregroundStyle(Rs.accent)
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 2)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
-    }
-
-    // 测试一下
-    private var testCard: some View {
+    // 培训专题入口 + 测试一下（原版是同一张卡，中间一条分隔线）
+    private var speakerTestCard: some View {
         VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("临时不区分说话人").font(.system(size: 15, weight: .semibold)).foregroundStyle(Rs.text)
+                Text("上课、听讲座时开始一个「培训」专题：这段时间不分人，结束后出培训笔记")
+                    .font(.system(size: 13)).foregroundStyle(Rs.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button { } label: {
+                    Text("开始培训专题 ›").font(.system(size: 14)).foregroundStyle(Rs.accent)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+            .padding(.bottom, 14)
+            RsRowDivider(inset: 18)
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("测试一下").font(Rs.body).foregroundStyle(Rs.text)
