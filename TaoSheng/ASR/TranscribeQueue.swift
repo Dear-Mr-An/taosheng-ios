@@ -54,8 +54,10 @@ final class TranscribeQueue: ObservableObject {
             refreshPending()
             return
         }
-        // 只在 WiFi 下转写：蜂窝/热点时不传，等连上 WiFi 再补
-        guard manual || NetWatcher.shared.canUpload else {
+        // 只在 WiFi 下转写：蜂窝/热点时不传，等连上 WiFi 再补。
+        // 本机识别（Apple Speech）不上传，离线也照跑，不受这条限制。
+        let offlineOK = !ASRRules.needsNetwork(kind: s.asrKind.rawValue)
+        guard manual || offlineOK || NetWatcher.shared.canUpload else {
             refreshPending()
             return
         }
@@ -201,7 +203,8 @@ final class TranscribeQueue: ObservableObject {
     /// 下一轮大约什么时候开始；没有待转写内容、或现在压根传不出去（没网 / 只等 WiFi）时为 nil，
     /// 界面就不会写出「约 0 分钟后下一轮」这种自己都不会发生的时刻。
     var nextRunAt: Date? {
-        guard pendingCount > 0, NetWatcher.shared.canUpload else { return nil }
+        let offlineOK = !ASRRules.needsNetwork(kind: Settings.shared.asrKind.rawValue)
+        guard pendingCount > 0, offlineOK || NetWatcher.shared.canUpload else { return nil }
         let base = lastRunAt ?? Date()
         let interval = Double(max(1, Settings.shared.transcribeIntervalMin)) * 60
         let next = base.addingTimeInterval(interval)

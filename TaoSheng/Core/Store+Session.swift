@@ -156,6 +156,19 @@ extension Store {
         }
     }
 
+    /// 全部会话（最近的在前）：专题记录不能只看当天，否则昨天的专题第二天就消失。
+    func sessions(limit: Int = 100) -> [ListenSession] {
+        queue.sync {
+            var st: OpaquePointer?
+            let sql = "SELECT \(Self.sessionCols) FROM listen_session ORDER BY started_at DESC LIMIT \(limit);"
+            guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
+            defer { sqlite3_finalize(st) }
+            var out: [ListenSession] = []
+            while sqlite3_step(st) == SQLITE_ROW { out.append(readSession(st)) }
+            return out
+        }
+    }
+
     func deleteSession(id: String) {
         queue.sync {
             var st: OpaquePointer?

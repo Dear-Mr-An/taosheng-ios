@@ -80,7 +80,11 @@ struct TaoShengApp: App {
                     if UserDefaults.standard.object(forKey: "captureWanted") == nil {
                         UserDefaults.standard.set(true, forKey: "captureWanted")
                     }
-                    if UserDefaults.standard.bool(forKey: "captureWanted") && !capture.isRunning {
+                    // 用户点过「停止」就不自动拉起：只有 captureWanted 且没被手动停过才起
+                    let wantStart = StopRules.shouldAutoStart(
+                        captureWanted: UserDefaults.standard.bool(forKey: "captureWanted"),
+                        userStopped: UserDefaults.standard.bool(forKey: "rsUserStopped"))
+                    if wantStart && !capture.isRunning {
                         capture.start()
                     }
                 }
@@ -89,7 +93,11 @@ struct TaoShengApp: App {
                     app.refresh()
                     RsQuiet.shared.checkNow()
                     ListenFlow.shared.checkTopicDeadline()
-                    if UserDefaults.standard.bool(forKey: "captureWanted") && !capture.isRunning {
+                    // 用户点过「停止」就不自动拉起：只有 captureWanted 且没被手动停过才起
+                    let wantStart = StopRules.shouldAutoStart(
+                        captureWanted: UserDefaults.standard.bool(forKey: "captureWanted"),
+                        userStopped: UserDefaults.standard.bool(forKey: "rsUserStopped"))
+                    if wantStart && !capture.isRunning {
                         capture.start()
                     }
                 }

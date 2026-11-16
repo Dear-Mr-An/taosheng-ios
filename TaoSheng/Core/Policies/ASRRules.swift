@@ -31,6 +31,50 @@ public enum ASRRules {
         let v = cadenceChoices[index]
         return v == 0 ? max(5, custom) : v
     }
+
+    /// 自定义转写地址以页面保存的 asrBaseURL 为准；
+    /// asrFullURL 只在老数据没有新地址时兜底，避免旧值悄悄覆盖用户刚改的地址。
+    public static func endpoint(base: String, legacyFull: String) -> String {
+        let b = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !b.isEmpty { return b }
+        return legacyFull.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 需要联网上传的引擎（本地 Apple 识别不需要网络门禁）
+    public static func needsNetwork(kind: String) -> Bool {
+        kind != "appleSpeech"
+    }
+
+    /// OpenAI 兼容接口 2xx 的响应怎么算「真的识别成功」。
+    /// 只认 JSON 里非空 text，或明确 text/plain 的非空纯文本；
+    /// HTML、{"error":…}、{text:""} 都要按坏回复算，保留 failed 可重试。
+    public enum Reply: Equatable {
+        case text(String)
+        case bad(String)
+    }
+
+    public static func parseReply(contentType: String, body: Data) -> Reply {
+        let ctype = contentType.lowercased()
+        if let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+            if let text = obj["text"] as? String {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return .text(trimmed) }
+                return .bad("返回的 text 是空的")
+            }
+            let detail = (obj["error"] as? [String: Any])?["message"] as? String
+                ?? (obj["error"] as? String)
+                ?? "返回里没有 text"
+            return .bad(detail)
+        }
+        if ctype.contains("text/plain"), let text = String(data: body, encoding: .utf8) {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return .text(trimmed) }
+            return .bad("纯文本响应是空的")
+        }
+        let raw = String(data: body, encoding: .utf8) ?? ""
+        let head = raw.trimmingCharacters(in: .whitespacesAndNewlines).prefix(60)
+        return .bad(head.isEmpty ? "空响应" : "不是识别结果：\(head)")
+    }
 }
 
 /// 「有新待办就推」的判定：只推真正要做的事，事件不算。

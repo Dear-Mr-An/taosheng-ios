@@ -426,9 +426,10 @@ final class CaptureEngine: ObservableObject {
             // 就是 recordingMode），会话内外没有区别：0.6.4 之前会话里用 0.8 秒 / 20 秒的实时档，
             // 董事长真机上被这套阈值一路切碎、又因为等网络一直不转。现在整场节奏和平时一样。
             let gap = mode.silenceGap
-            // 「一直在说，最多等多久」：全局上限比专题默认更小时以它为准
-        let globalCap = Double(max(1, Settings.shared.sessionCapMin)) * 60
-        let maxSegment = min(mode.maxSegment, globalCap)
+            // 单段上限只看模式本身：「一直在说，最多等多久」是整理窗口的上限
+            // （一次整理最多带多少材料，见 DigestWindow.headCount），不是单段音频的时长上限，
+            // 不能拿它来切音频，否则 30/60/120 三档会把同一段话切成不同长度。
+            let maxSegment = mode.maxSegment
             let liveThreshold = mode.sensitivity(Settings.shared.sensitivity)
             let speaking = rms > liveThreshold
             if speaking {

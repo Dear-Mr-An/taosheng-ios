@@ -448,7 +448,7 @@ struct RsRecordingPage: View {
     @State private var notifOK = false
     @State private var bgAudioOK = false
     @State private var lowPower = false
-    @AppStorage("rsVoiceContext") private var voiceCtx = false
+
 
     var body: some View {
         RsSubPage(title: "录音与后台") {
@@ -473,10 +473,6 @@ struct RsRecordingPage: View {
                     .padding(.top, 4)
             }
 
-            VStack(alignment: .leading, spacing: 7) {
-                RsSectionLabel(title: "语音输入")
-                voiceInputCard
-            }
 
             importCard
             backendCard.id("rec-backend")
@@ -521,8 +517,17 @@ struct RsRecordingPage: View {
                     RsQuiet.shared.pause(minutes: 60)
                 }
                 RsBtn(text: "停止", filled: false, danger: false) {
-                    captureWanted = false
-                    if flow.isRecording { flow.stop() }
+                    // 用户明确停：普通聆听也要真正停下采集，回前台不再自动拉起
+                    let st = StopRules.stateAfterUserStop()
+                    captureWanted = st.captureWanted
+                    UserDefaults.standard.set(st.userStopped, forKey: "rsUserStopped")
+                    if flow.isRecording {
+                        flow.stop(reason: .userStop)
+                    } else {
+                        UserDefaults.standard.set(false, forKey: "captureWanted")
+                        CaptureEngine.shared.stop()
+                        CaptureEngine.shared.bindSession(nil, mode: nil)
+                    }
                 }
                 Spacer(minLength: 0)
             }
@@ -688,14 +693,6 @@ struct RsRecordingPage: View {
         .presentationDragIndicator(.visible)
     }
 
-    // 语音输入
-    private var voiceInputCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            RsToggleRow(title: "语音输入时记上下文", note: "说之前那几句一起发过去，听懂上下文；语音输入用来记事，不进原话。",
-                        on: $voiceCtx)
-        }
-        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
-    }
 
     // 自动导入文件夹（原版：卡外小标题，卡里一行「＋ 添加文件夹」，说明在卡外灰字）
     private var importCard: some View {
@@ -761,16 +758,31 @@ struct RsRecordingPage: View {
             return
         }
         var seen = Set(UserDefaults.standard.stringArray(forKey: "rsImportedFiles") ?? [])
-        let fresh = audio.filter { !seen.contains($0.lastPathComponent) }
+        // 去重键 = 文件夹里的相对路径 + 大小 + 修改时间：
+        // 只按文件名会把两个目录里的同名录音误判成同一个，改过内容也认不出来。
+        let rootPath = url.standardizedFileURL.path
+        func importKey(_ u: URL) -> String {
+            let attrs = try? FileManager.default.attributesOfItem(atPath: u.path)
+            let size = (attrs?[.size] as? NSNumber)?.intValue ?? 0
+            let mtime = Int((attrs?[.modificationDate] as? Date ?? .distantPast).timeIntervalSince1970)
+            var rel = u.standardizedFileURL.path
+            if rel.hasPrefix(rootPath) { rel = String(rel.dropFirst(rootPath.count)) }
+            return ImportRules.key(name: rel, size: size, modifiedEpoch: mtime)
+        }
+        let keys = Dictionary(uniqueKeysWithValues: audio.map { ($0, importKey($0)) })
+        let fresh = audio.filter { ImportRules.shouldImport(key: keys[$0] ?? "", seen: seen) }
         guard !fresh.isEmpty else {
             folderNote = "没有新录音，导入过的不会再导一次。"
             return
         }
         folderNote = "正在导入 \(fresh.count) 个录音…"
-        rsImportAudio(fresh) { msg in
-            for f in fresh { seen.insert(f.lastPathComponent) }
+        rsImportAudio(fresh) { outcome in
+            // 只有真正导入成功的才记账，失败的留到下次再试
+            for f in outcome.added {
+                if let k = keys[f] { seen.insert(k) }
+            }
             UserDefaults.standard.set(Array(seen), forKey: "rsImportedFiles")
-            folderNote = msg
+            folderNote = outcome.message
         }
     }
 
@@ -898,6 +910,10 @@ struct RsTranscriptPage: View {
         .sheet(isPresented: $showHeaders) { headersSheet }
         .task { loadRaw() }
         .task(id: rawDay) { loadRaw() }
+        .onReceive(NotificationCenter.default.publisher(for: .taoshengDataChanged)) { _ in
+            loadRaw()
+            queue.refreshPending()
+        }
     }
 
     // MARK: 队列状态卡
@@ -999,7 +1015,8 @@ struct RsTranscriptPage: View {
                     .padding(.horizontal, 18)
                     HStack(spacing: 10) {
                         RsBtn(text: "更换", filled: false, small: true) {
-                            keyDraft = settings.doubaoApiKey
+                            // 不预填已保存的密钥：既不回显，也不会把另一家的 Key 带出来
+                            keyDraft = ""
                             showKey = true
                         }
                         if keyReady {
@@ -1045,7 +1062,7 @@ struct RsTranscriptPage: View {
             Text(keyTitle).font(Rs.headline).foregroundStyle(Rs.text)
             Text(settings.asrKind.hint).font(Rs.caption).foregroundStyle(Rs.text3)
                 .fixedSize(horizontal: false, vertical: true)
-            TextField("粘贴密钥", text: $keyDraft)
+            SecureField("粘贴密钥（不显示已保存的）", text: $keyDraft)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .padding(12)
@@ -1353,10 +1370,10 @@ struct RsTranscriptPage: View {
     // MARK: 导入
 
     private func importAudio(_ urls: [URL], done: ((String) -> Void)? = nil) {
-        rsImportAudio(urls) { msg in
-            importNote = msg
+        rsImportAudio(urls) { outcome in
+            importNote = outcome.message
             loadRaw()
-            done?(msg)
+            done?(outcome.message)
         }
     }
 }
@@ -1408,7 +1425,7 @@ struct RsVoicePage: View {
                 }
             }
             .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
-            RsFootNote(text: "在原话里长按一句，选「这是谁」，就能指定人物并学习声音。")
+            RsFootNote(text: "这一版只能按「人物」统计已有分段；「在原话里指认说话人」的入口还没做。")
 
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
@@ -1421,17 +1438,11 @@ struct RsVoicePage: View {
                 }
                 .padding(.horizontal, 18)
                 .padding(.top, 14)
-                RsCardHint(text: "本地转写时先分出不同的人。人多嘈杂时可能分错，长按原话可纠正。")
+                RsCardHint(text: "本地转写时先分出不同的人。人多嘈杂时可能分错，这一版还没有手动纠正的入口。")
             }
             .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
 
-            VStack(alignment: .leading, spacing: 0) {
-                RsCardTitle(text: "样本声音").id("vp-samples")
-                Text("暂无").font(Rs.body).foregroundStyle(Rs.text2)
-                    .padding(.horizontal, 18)
-                RsCardHint(text: "用来在人物详情里回放样本。清除后仍能照常认人，已有样本不能再回放。")
-            }
-            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+            Color.clear.frame(height: 1).id("vp-samples")
 
             Text("还有 \(max(0, app.todaySegments.count)) 段等着匹配声音")
                 .font(Rs.caption).foregroundStyle(Rs.text3)
@@ -1482,7 +1493,7 @@ struct RsEnvPage: View {
 
     var body: some View {
         RsSubPage(title: "环境音识别") {
-            Text("只分析已经录下的人声片段，在转写前判断一次；录音方式不变，旧录音不补算。全部在手机上完成，不上传。")
+            Text("转写完成以后，对已经录下的人声片段做一次粗粒度判断（很安静 / 像键盘 / 像音乐 / 像人声），把结果当作「当时的环境」写进整理提示词。不上传音频，也不下载模型：用的是本机的音量、过零率和高频占比几个简单特征，所以判断只有粗粒度几类，旧录音不补算。")
                 .font(Rs.caption).foregroundStyle(Rs.text3)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 4)
@@ -1491,7 +1502,7 @@ struct RsEnvPage: View {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("环境音识别").font(Rs.body).foregroundStyle(Rs.text)
-                        Text("打开后下载约 27 MB 的识别模型").font(Rs.caption).foregroundStyle(Rs.text3)
+                        Text("本地启发式判断，不需要下载模型").font(Rs.caption).foregroundStyle(Rs.text3)
                     }
                     Spacer(minLength: 0)
                     Toggle("", isOn: Binding(get: { settings.envSoundOn }, set: { settings.envSoundOn = $0 }))
@@ -1499,6 +1510,11 @@ struct RsEnvPage: View {
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 16)
+                RsRowDivider(inset: 18)
+                Text(settings.envSoundOn ? "已开启：新转写的片段会带环境标签。" : "未开启：整理提示词里不带环境信息。")
+                    .font(Rs.caption).foregroundStyle(Rs.text3)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
             }
             .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
         }
@@ -1509,13 +1525,20 @@ struct RsEnvPage: View {
 
 struct RsLocationPage: View {
     @ObservedObject private var settings = Settings.shared
-    @State private var tab = 0
     @State private var dayOffset = 0
-    @State private var showAmap = false
-    @State private var amapDraft = ""
-    @AppStorage("rsAmapKey") private var amapKey = ""
+    @State private var dayVisits: [PlaceVisit] = []
 
     private var shownDay: Date { Date().addingTimeInterval(-Double(dayOffset) * 86400) }
+    private var shownKey: String { DayKey.of(shownDay) }
+
+    /// 真实停留记录：没有记录就是空的，不再拿 0 装作统计好了
+    private var stats: LocationStats.Totals {
+        LocationStats.totals(dayVisits.map {
+            LocationStats.Visit(arriveAt: $0.arriveAt, leaveAt: $0.leaveAt,
+                                isHome: $0.isHome,
+                                latitude: $0.latitude, longitude: $0.longitude)
+        })
+    }
 
     var body: some View {
         RsSubPage(title: "足迹") {
@@ -1551,23 +1574,36 @@ struct RsLocationPage: View {
             .padding(.horizontal, 4)
 
             VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("这一天").font(.system(size: 15, weight: .semibold)).foregroundStyle(Rs.text)
-                    Spacer(minLength: 0)
-                    RsSegControl(options: ["时间轴", "路线"], index: $tab)
-                        .frame(width: 150)
+                Text("这一天").font(.system(size: 15, weight: .semibold)).foregroundStyle(Rs.text)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 14)
+                if dayVisits.isEmpty {
+                    Text("这一天没有位置记录")
+                        .font(Rs.subhead).foregroundStyle(Rs.text3)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 78)
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(dayVisits) { v in
+                            HStack(spacing: 10) {
+                                Text(Fmt.hm.string(from: v.arriveAt))
+                                    .font(Rs.caption).foregroundStyle(Rs.text3)
+                                    .frame(width: 46, alignment: .leading)
+                                Text(v.name.isEmpty ? (v.isHome ? "在家" : "外面") : v.name)
+                                    .font(Rs.subhead).foregroundStyle(Rs.text)
+                                Spacer(minLength: 0)
+                                Text(v.durationText).font(Rs.caption).foregroundStyle(Rs.text3)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 14)
                 }
-                .padding(.horizontal, 18)
-                .padding(.top, 14)
-                Text("这一天没有位置记录")
-                    .font(Rs.subhead).foregroundStyle(Rs.text3)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 78)
                 Spacer(minLength: 0)
                 HStack(spacing: 0) {
-                    locStat("0 分", "在家")
-                    locStat("0 分", "外出")
-                    locStat("0.0 km", "移动距离")
+                    locStat("\(stats.homeMinutes) 分", "在家")
+                    locStat("\(stats.awayMinutes) 分", "外出")
+                    locStat(String(format: "%.1f km", stats.kilometers), "移动距离")
                 }
                 .padding(.horizontal, 10)
                 .padding(.bottom, 18)
@@ -1578,48 +1614,13 @@ struct RsLocationPage: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 RsCardTitle(text: "显示地名")
-                RsCardHint(text: "把停留处的坐标发给手机系统的地理服务查地址；查过的地方存在本机，不重复查。")
-                RsRowDivider(inset: 18)
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("高德 Key（可选）").font(Rs.body).foregroundStyle(Rs.text)
-                        Text("不填用系统地理服务；国内建议填高德 Web 服务 Key").font(Rs.caption).foregroundStyle(Rs.text3)
-                    }
-                    Spacer(minLength: 0)
-                    RsBtn(text: amapKey.isEmpty ? "填写" : "已填写", filled: false) {
-                        amapDraft = amapKey
-                        showAmap = true
-                    }
-                }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 14)
+                RsCardHint(text: "停留处的坐标交给手机系统的地理服务查地址，查过的地方存在本机，不重复查。这一版只用系统地理服务，没有接第三方地图 Key。")
             }
+            .padding(.bottom, 4)
             .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
         }
-        .sheet(isPresented: $showAmap) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("高德 Key").font(Rs.headline).foregroundStyle(Rs.text)
-                Text("填高德开放平台的 Web 服务 Key，用来把坐标查成地名；不填就用系统地理服务。")
-                    .font(Rs.caption).foregroundStyle(Rs.text3)
-                    .fixedSize(horizontal: false, vertical: true)
-                TextField("粘贴 Key", text: $amapDraft)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Rs.fill))
-                HStack(spacing: 10) {
-                    RsBtn(text: "保存", filled: true) {
-                        amapKey = amapDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                        showAmap = false
-                    }
-                    RsBtn(text: "清除", filled: false) { amapKey = ""; showAmap = false }
-                    Spacer(minLength: 0)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(20)
-            .presentationDetents([.height(300)])
-            .presentationDragIndicator(.visible)
+        .task(id: dayOffset) {
+            dayVisits = Store.shared.places(day: shownKey)
         }
     }
 
@@ -2078,12 +2079,19 @@ struct RsModelPage: View {
             balanceText = "还没配置密钥"
             return
         }
+        guard settings.llmIsOfficial else {
+            balanceText = "当前服务商不支持余额查询（只支持 DeepSeek 官方）"
+            return
+        }
         balanceText = "正在查余额…"
         Task {
-            await account.refresh(key: settings.llmKey, force: true)
+            await account.refresh(key: settings.llmKey, base: settings.llmBaseURL, force: true)
             if let b = account.balance {
                 let granted = b.grantedText.map { " · 含赠送 \($0)" } ?? ""
-                balanceText = "余额 \(b.totalText)\(granted)"
+                let low = b.isLow(threshold: settings.balanceAlertThreshold)
+                    ? " · 低于提醒线 ¥\(Int(settings.balanceAlertThreshold))"
+                    : ""
+                balanceText = "余额 \(b.totalText)\(granted)\(low)"
             } else if let err = account.error {
                 balanceText = "余额查询失败：\(err)"
             } else {
@@ -2196,6 +2204,18 @@ struct RsUpdatePage: View {
         }
     }
 
+    /// 只比数字段：0 相同、-1 当前更新、1 发布页更新
+    static func compare(_ a: String, _ b: String) -> Int {
+        let x = a.split(separator: ".").map { Int($0) ?? 0 }
+        let y = b.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(x.count, y.count) {
+            let l = i < x.count ? x[i] : 0
+            let r = i < y.count ? y[i] : 0
+            if l != r { return l > r ? 1 : -1 }
+        }
+        return 0
+    }
+
     private func check() {
         guard !checking else { return }
         checking = true
@@ -2207,15 +2227,23 @@ struct RsUpdatePage: View {
                 let (data, _) = try await URLSession.shared.data(for: req)
                 let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
                 let tag = (obj?["tag_name"] as? String) ?? ""
+                let body = ((obj?["body"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 await MainActor.run {
                     checking = false
-                    latestTag = tag
-                    if tag.isEmpty {
-                        note = "没查到最新版本号，稍后再试。"
-                    } else if tag.trimmingCharacters(in: CharacterSet(charactersIn: "vV")) == current {
+                    latestTag = tag.isEmpty ? nil : tag
+                    guard !tag.isEmpty else {
+                        note = "没查到最新版本号：发布页还没有 release，或者接口返回里没有 tag_name。稍后再试。"
+                        return
+                    }
+                    let latest = tag.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
+                    switch Self.compare(latest, current) {
+                    case 0:
                         note = "已经是最新版本（\(tag)）。"
-                    } else {
-                        note = "最新是 \(tag)，当前是 \(current)。需要重新构建签名包再装。"
+                    case -1:
+                        note = "当前 \(current) 比发布页的 \(tag) 还新。"
+                    default:
+                        let brief = body.isEmpty ? "（发布说明是空的）" : String(body.prefix(200))
+                        note = "最新是 \(tag)，当前是 \(current)。发布说明：\(brief)"
                     }
                 }
             } catch {
@@ -2232,7 +2260,9 @@ struct RsUpdatePage: View {
 struct RsAppearancePage: View {
     @AppStorage("appearance") private var appearance = "auto"
 
-    private let options: [(String, String)] = [("auto", "自动"), ("light", "浅色"), ("dark", "深色")]
+    /// 这一版的界面颜色是按浅色写死的（RsKit 的颜色令牌没有深色值），所以只提供浅色，
+    /// 不宣称「自动跟随系统」——跟随以后深色系统下会一半浅一半深。
+    private let options: [(String, String)] = [("light", "浅色")]
 
     var body: some View {
         RsSubPage(title: "外观") {
@@ -2252,15 +2282,24 @@ struct RsAppearancePage: View {
                     .buttonStyle(.plain)
                 }
             }
-            RsFootNote(text: "自动跟随系统的浅色 / 深色。选完立刻就变。")
+            RsFootNote(text: "这一版只有浅色界面：界面颜色是按浅色写定的，还没有深色配色。")
         }
     }
 }
 /// 导入外部录音：拷进 Audio 目录、量时长、入库排队转写。两个设置页共用。
-func rsImportAudio(_ urls: [URL], done: ((String) -> Void)? = nil) {
+/// 逐个文件报结果：只有「复制成功 + 入库成功」才算导入成功，失败的带原因返回，下次还能重试。
+struct RsImportOutcome {
+    var added: [URL] = []
+    var failures: [(name: String, reason: String)] = []
+
+    var message: String {
+        ImportRules.summary(added: added.count, failedNames: failures.map { $0.name })
+    }
+}
+
+func rsImportAudio(_ urls: [URL], done: ((RsImportOutcome) -> Void)? = nil) {
     Task {
-        var added = 0
-        var failure: String?
+        var out = RsImportOutcome()
         for url in urls {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -2271,7 +2310,7 @@ func rsImportAudio(_ urls: [URL], done: ((String) -> Void)? = nil) {
                 try? FileManager.default.removeItem(at: dst)
                 try FileManager.default.copyItem(at: url, to: dst)
             } catch {
-                failure = "复制失败：\(error.localizedDescription)"
+                out.failures.append((url.lastPathComponent, "复制失败：\(error.localizedDescription)"))
                 continue
             }
             let asset = AVURLAsset(url: dst)
@@ -2295,14 +2334,17 @@ func rsImportAudio(_ urls: [URL], done: ((String) -> Void)? = nil) {
                 day: DayKey.of(now),
                 createdAt: now
             )
-            if Store.shared.insert(seg) { added += 1 }
+            if Store.shared.insert(seg) {
+                out.added.append(url)
+            } else {
+                try? FileManager.default.removeItem(at: dst)
+                out.failures.append((url.lastPathComponent, "入库失败"))
+            }
         }
-        let addedCount = added
-        let failureText = failure
+        let outcome = out
         await MainActor.run {
-            if addedCount > 0 { TranscribeQueue.shared.transcribeNow() }
-            let msg = failureText ?? (addedCount > 0 ? "导入 \(addedCount) 段，已排队转写" : "没有导入任何文件")
-            done?(msg)
+            if !outcome.added.isEmpty { TranscribeQueue.shared.transcribeNow() }
+            done?(outcome)
         }
     }
 }

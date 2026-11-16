@@ -150,7 +150,7 @@ struct RsListenSheet: View {
     /// 关掉抽屉（换成自定义抽屉后不再用环境 dismiss）
     var onClose: () -> Void = {}
 
-    @State private var sideNote: String?
+
 
     private let pauseChoices = [15, 30, 60, 120]
     private let eraseChoices = [10, 30, 60]
@@ -216,16 +216,7 @@ struct RsListenSheet: View {
             RsActionButton(title: kind.buttonTitle, enabled: !flow.working) {
                 start()
             }
-            HStack(spacing: 10) {
-                RsSideEntry(title: "预约专题", note: "到点自动开始") { sideNote = "预约专题要按日历排时间，这一版还没做。" }
-                RsSideEntry(title: "忘了点开始", note: "事后选一段时间") { sideNote = "事后补选要挑时间段重录，这一版还没做。" }
-            }
-            if let sideNote {
-                Text(sideNote)
-                    .font(Rs.caption)
-                    .foregroundStyle(Rs.text3)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            // 预约专题、忘了点开始都还没做——不摆只有提示的假入口（见 INDEX 的「未实现」）
         }
     }
 
@@ -322,7 +313,7 @@ struct RsTopicSheet: View {
 
             if tab == 0 { startPanel } else { recordList }
         }
-        .onAppear { sessions = Store.shared.sessions(day: DayKey.of(Date()), limit: 20) }
+        .onAppear { sessions = Store.shared.sessions(limit: 100) }
     }
 
     private var startPanel: some View {
@@ -339,10 +330,7 @@ struct RsTopicSheet: View {
                 flow.start(mode: kind.mode, topicName: name, endMinutes: endChoice)
                 onClose()
             }
-            HStack(spacing: 10) {
-                RsSideEntry(title: "预约专题", note: "到点自动开始") { }
-                RsSideEntry(title: "忘了点开始", note: "事后选一段时间") { }
-            }
+            // 预约专题 / 忘了点开始还没做，入口先不摆在面板上（见 INDEX 的「未实现」）
         }
     }
 
@@ -361,10 +349,10 @@ struct RsTopicSheet: View {
                             .frame(width: 40, height: 40)
                             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Rs.accentSoft))
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(s.mode.title)
+                            Text(TopicStore.name(sessionId: s.id) ?? s.mode.title)
                                 .font(Rs.headline)
                                 .foregroundStyle(Rs.text)
-                            Text("\(s.timeRangeText) · \(s.durationText) · \(s.mode.title)")
+                            Text("\(s.day) \(s.timeRangeText) · \(s.durationText) · \(s.mode.title)")
                                 .font(Rs.caption)
                                 .foregroundStyle(Rs.text3)
                         }

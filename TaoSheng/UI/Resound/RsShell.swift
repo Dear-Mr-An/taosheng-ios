@@ -4,13 +4,11 @@ import SwiftUI
 // MARK: - 设置（SettingsScreen.kt）
 
 struct RsSettingsScreen: View {
-    @AppStorage("appearance") private var appearance = "auto"
-
     private var appearanceTitle: String {
         switch appearance {
         case "light": return "浅色"
-        case "dark": return "深色"
-        default: return "自动"
+        case "dark": return "深色（未提供）"
+        default: return "浅色"
         }
     }
     @ObservedObject private var settings = Settings.shared
@@ -24,93 +22,171 @@ struct RsSettingsScreen: View {
     var body: some View {
         NavigationStack {
             ScrollViewReader { scrollProxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("设置")
-                        .font(Rs.largeTitle)
-                        .foregroundStyle(Rs.text)
-                        .padding(.leading, 4)
-                    searchBar
-                    statusCard
-                    group("记录") {
-                        row(RsRecordingPage(), title: "录音与后台", detail: shotListening ? "正在聆听" : captureLine,
-                            symbol: "mic.fill", tint: Rs.accent, alert: (captureStopped && !shotListening) ? Rs.critical : nil)
-                        line
-                        row(AudioRouteInfoView(), title: "外接设备", detail: audioRouteDetail,
-                            symbol: "iphone", tint: Color(hex: "F2994A"))
-                        line
-                        row(RsTranscriptPage(), title: "原话与转写", detail: asrDetail,
-                            symbol: "list.bullet", tint: Color(hex: "E0A030"))
-                            .id("row-transcript")
-                        line
-                        row(RsVoicePage(), title: "声纹与人物", detail: voiceDetail,
-                            symbol: "person.2.fill", tint: Color(hex: "E06A50"), alert: voiceReady ? nil : Rs.warning)
-                        line
-                        row(RsEnvPage(), title: "环境音识别", detail: settings.envSoundOn ? "已开启" : "未开启",
-                            symbol: "waveform", tint: Color(hex: "D4A017"))
-                        line
-                        row(RsLocationPage(), title: "足迹", detail: settings.locationOn ? "记录全天位置" : "未开启",
-                            symbol: "mappin", tint: Color(hex: "C9643A"))
-                    }
-                    group("整理") {
-                        row(RsModelPage(), title: "模型与整理时间", detail: shotListening ? "DeepSeek · ¥12.84" : modelLine,
-                            symbol: "sparkles", tint: Color(hex: "7C5CC4"))
-                        line
-                        row(SkillsView(), title: "整理技能", detail: shotListening ? "开了 3 个" : "开了 \(app.skills.filter { $0.enabled }.count) 个",
-                            symbol: "square.grid.2x2.fill", tint: Color(hex: "5B5BD6"))
-                        line
-                        row(ChannelsView(), title: "推送通道", detail: app.channels.isEmpty ? "只发手机通知" : "\(app.channels.count) 个通道",
-                            symbol: "paperplane.fill", tint: Color(hex: "3B82C4"))
-                    }
-                    group("数据") {
-                        row(BackupView(), title: "数据备份", detail: settings.backupKind == .none ? "未开启" : settings.backupKind.title,
-                            symbol: "cloud.fill", tint: Color(hex: "34A853"))
-                    }
-                    group("通用") {
-            row(RsAppearancePage(), title: "外观", detail: appearanceTitle,
-                symbol: "circle.lefthalf.filled", tint: Color(hex: "6E5FA6"))
-            RsRowDivider(inset: 54)
-            row(RsUpdatePage(), title: "版本更新", detail: "\(version) · 检查更新",
-                symbol: "arrow.up.circle.fill", tint: Color(hex: "4F86C6"))
-            RsRowDivider(inset: 54)
-                        row(ReviewSettingsView(), title: "回顾与提醒", detail: "每天 \(settings.reviewHour):00",
-                            symbol: "text.badge.checkmark", tint: Color(hex: "D9A02B"))
-                        line
-                        row(AboutView(), title: "关于涛声", detail: version, symbol: "info.circle.fill", tint: Color(hex: "8A847C"))
-                    }
-                    group("高级与诊断") {
-                        row(HotwordView(), title: "热词识别", detail: app.hotwords.isEmpty ? "未添加" : "\(app.hotwords.count) 个词",
-                            symbol: "character.book.closed.fill", tint: Color(hex: "6E5FA6"))
-                        line
-                        row(PrivacyView(), title: "隐私与数据", detail: "原录音保留 \(settings.keepAudioDays) 天",
-                            symbol: "lock.shield.fill", tint: Color(hex: "8C7652"))
-                        line
-                        row(RsAdvancedPage(), title: "整理要求与诊断", detail: settings.digestRequirement.isEmpty ? "未设置" : "已写",
-                            symbol: "stethoscope", tint: Color(hex: "5B6B7C"))
-                    }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("设置")
+                            .font(Rs.largeTitle)
+                            .foregroundStyle(Rs.text)
+                            .padding(.leading, 4)
+                        searchBar
+                        statusCard
 
-                    Text("录音、转写和整理结果都只存在这台手机上，没有账号，也没有我们的服务器。")
-                        .font(Rs.caption)
-                        .foregroundStyle(Rs.text3)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.top, 4)
-                    Color.clear.frame(height: Rs.shellBottom + 20)
+                        if !query.isEmpty && filtered.isEmpty {
+                            Text("没有找到「\(query)」。换个词试试，比如「录」「转写」「备份」。")
+                                .font(Rs.subhead)
+                                .foregroundStyle(Rs.text3)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 4)
+                                .padding(.top, 12)
+                        } else if query.isEmpty {
+                            ForEach(groupOrder, id: \.self) { g in
+                                let rows = items.filter { $0.group == g }
+                                if !rows.isEmpty {
+                                    group(g) {
+                                        ForEach(Array(rows.enumerated()), id: \.element.id) { idx, it in
+                                            if idx > 0 { line }
+                                            rowFor(it)
+                                                .id(it.id == "transcript" ? "row-transcript" : it.id)
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            group("搜索结果") {
+                                ForEach(Array(filtered.enumerated()), id: \.element.id) { idx, it in
+                                    if idx > 0 { line }
+                                    rowFor(it)
+                                        .id(it.id == "transcript" ? "row-transcript" : it.id)
+                                }
+                            }
+                        }
+
+                        Text("录音、转写和整理结果都只存在这台手机上，没有账号，也没有我们的服务器。")
+                            .font(Rs.caption)
+                            .foregroundStyle(Rs.text3)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.top, 4)
+                        Color.clear.frame(height: Rs.shellBottom + 20)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
-            }
-            .background(Rs.bg)
-            .scrollIndicators(.hidden)
-            .task {
-                guard ShotMode.screen == "rs-settings-b" else { return }
-                try? await Task.sleep(nanoseconds: 900_000_000)
-                withAnimation(nil) { scrollProxy.scrollTo("row-transcript", anchor: .top) }
-            }
+                .background(Rs.bg)
+                .scrollIndicators(.hidden)
+                .task {
+                    guard ShotMode.screen == "rs-settings-b" else { return }
+                    try? await Task.sleep(nanoseconds: 900_000_000)
+                    withAnimation(nil) { scrollProxy.scrollTo("row-transcript", anchor: .top) }
+                }
             }
             .navigationBarHidden(true)
         }
     }
 
+    /// 一行设置：标题、右侧详情、图标、警示色，全部真实取自当前状态
+    private struct SItem: Identifiable {
+        let id: String
+        let group: String
+        let title: String
+        let detail: String
+        let symbol: String
+        let tint: Color
+        var alert: Color? = nil
+    }
+
+    private var groupOrder: [String] { ["记录", "整理", "数据", "通用", "高级与诊断"] }
+
+    private var items: [SItem] {
+        [
+            SItem(id: "recording", group: "记录", title: "录音与后台",
+                  detail: shotListening ? "正在聆听" : captureLine,
+                  symbol: "mic.fill", tint: Rs.accent,
+                  alert: (captureStopped && !shotListening) ? Rs.critical : nil),
+            SItem(id: "device", group: "记录", title: "外接设备", detail: audioRouteDetail,
+                  symbol: "iphone", tint: Color(hex: "F2994A")),
+            SItem(id: "transcript", group: "记录", title: "原话与转写", detail: asrDetail,
+                  symbol: "list.bullet", tint: Color(hex: "E0A030")),
+            SItem(id: "voice", group: "记录", title: "声纹与人物", detail: voiceDetail,
+                  symbol: "person.2.fill", tint: Color(hex: "E06A50"),
+                  alert: voiceReady ? nil : Rs.warning),
+            SItem(id: "env", group: "记录", title: "环境音识别",
+                  detail: settings.envSoundOn ? "已开启" : "未开启",
+                  symbol: "waveform", tint: Color(hex: "D4A017")),
+            SItem(id: "location", group: "记录", title: "足迹",
+                  detail: settings.locationOn ? "记录全天位置" : "未开启",
+                  symbol: "mappin", tint: Color(hex: "C9643A")),
+            SItem(id: "model", group: "整理", title: "模型与整理时间",
+                  detail: shotListening ? "DeepSeek · ¥12.84" : modelLine,
+                  symbol: "sparkles", tint: Color(hex: "7C5CC4")),
+            SItem(id: "skills", group: "整理", title: "整理技能",
+                  detail: shotListening ? "开了 3 个" : "开了 \(app.skills.filter { $0.enabled }.count) 个",
+                  symbol: "square.grid.2x2.fill", tint: Color(hex: "5B5BD6")),
+            SItem(id: "channels", group: "整理", title: "推送通道",
+                  detail: app.channels.isEmpty ? "只发手机通知" : "\(app.channels.count) 个通道",
+                  symbol: "paperplane.fill", tint: Color(hex: "3B82C4")),
+            SItem(id: "backup", group: "数据", title: "数据备份",
+                  detail: settings.backupKind == .none ? "未开启" : settings.backupKind.title,
+                  symbol: "cloud.fill", tint: Color(hex: "34A853")),
+            SItem(id: "appearance", group: "通用", title: "外观", detail: appearanceTitle,
+                  symbol: "circle.lefthalf.filled", tint: Color(hex: "6E5FA6")),
+            SItem(id: "update", group: "通用", title: "版本更新", detail: "\(version) · 检查更新",
+                  symbol: "arrow.up.circle.fill", tint: Color(hex: "4F86C6")),
+            SItem(id: "review", group: "通用", title: "回顾与提醒", detail: "每天 \(settings.reviewHour):00",
+                  symbol: "text.badge.checkmark", tint: Color(hex: "D9A02B")),
+            SItem(id: "about", group: "通用", title: "关于涛声", detail: version,
+                  symbol: "info.circle.fill", tint: Color(hex: "8A847C")),
+            SItem(id: "hotwords", group: "高级与诊断", title: "热词识别",
+                  detail: app.hotwords.isEmpty ? "未添加" : "\(app.hotwords.count) 个词",
+                  symbol: "character.book.closed.fill", tint: Color(hex: "6E5FA6")),
+            SItem(id: "privacy", group: "高级与诊断", title: "隐私与数据",
+                  detail: "原录音保留 \(settings.keepAudioDays) 天",
+                  symbol: "lock.shield.fill", tint: Color(hex: "8C7652")),
+            SItem(id: "advanced", group: "高级与诊断", title: "整理要求与诊断",
+                  detail: settings.digestRequirement.isEmpty ? "未设置" : "已写",
+                  symbol: "stethoscope", tint: Color(hex: "5B6B7C"))
+        ]
+    }
+
+    /// 标题、详情、分组名都参与搜索
+    private var filtered: [SItem] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return items }
+        return items.filter {
+            $0.title.localizedCaseInsensitiveContains(q)
+                || $0.detail.localizedCaseInsensitiveContains(q)
+                || $0.group.localizedCaseInsensitiveContains(q)
+        }
+    }
+
+    @ViewBuilder
+    private func rowFor(_ it: SItem) -> some View {
+        row(destination(it.id), title: it.title, detail: it.detail,
+            symbol: it.symbol, tint: it.tint, alert: it.alert)
+    }
+
+    @ViewBuilder
+    private func destination(_ id: String) -> some View {
+        switch id {
+        case "recording": RsRecordingPage()
+        case "device": AudioRouteInfoView()
+        case "transcript": RsTranscriptPage()
+        case "voice": RsVoicePage()
+        case "env": RsEnvPage()
+        case "location": RsLocationPage()
+        case "model": RsModelPage()
+        case "skills": SkillsView()
+        case "channels": ChannelsView()
+        case "backup": BackupView()
+        case "appearance": RsAppearancePage()
+        case "update": RsUpdatePage()
+        case "review": ReviewSettingsView()
+        case "about": AboutView()
+        case "hotwords": HotwordView()
+        case "privacy": PrivacyView()
+        default: RsAdvancedPage()
+        }
+    }
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
     }
@@ -213,14 +289,9 @@ struct RsSettingsScreen: View {
     private var stabilityText: String {
         // 截图模式跟原版一致：连续稳定 0 天 · 今天中断 2 次
         if shotListening { return "连续稳定 0 天 · 今天中断 2 次" }
-        let d = UserDefaults.standard
-        if d.object(forKey: "rsInstallAt") == nil {
-            d.set(Date().timeIntervalSince1970, forKey: "rsInstallAt")
-        }
-        let at = d.double(forKey: "rsInstallAt")
-        let days = at > 0 ? max(0, Int((Date().timeIntervalSince1970 - at) / 86_400)) : 0
-        let breaks = d.integer(forKey: "rsBreaksToday")
-        return "连续稳定 \(days) 天 · 今天中断 \(breaks) 次"
+        // 这一版没有记录「录音中断」的事件流，也不再拿安装天数冒充实测：
+        // 有真实数字之前就如实写「未完成」，不写「连续稳定 N 天」。
+        return "状态检查未完成 · 还没有中断统计"
     }
     /// 一行：彩色圆角方块图标 + 标题 + 右侧状态 + ›（SettingsHome.kt SRow）
     private func row<D: View>(_ dest: D, title: String, detail: String,
@@ -409,7 +480,7 @@ struct RsShell: View {
                 .zIndex(1)
         }
         .background(Rs.bg.ignoresSafeArea())
-        .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
+        .preferredColorScheme(.light)
         .overlay {
             if let e = eventPanel.event {
                 RsBottomSheet(tall: true, onClose: { eventPanel.close() }) {

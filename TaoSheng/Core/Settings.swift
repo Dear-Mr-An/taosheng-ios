@@ -232,15 +232,26 @@ final class Settings: ObservableObject {
             doubaoResourceId = savedResource
         }
 
-        let dsMigrated = DeepSeekConfiguration.migrated(
-            baseURL: d.string(forKey: "llmBaseURL") ?? DeepSeekConfiguration.baseURL,
-            model: d.string(forKey: "llmModel") ?? "",
-            key: Secrets.get("llmKey") ?? "",
-            providersJSON: d.string(forKey: "providersJSON") ?? "",
-            allowLegacyProviders: !d.bool(forKey: "deepSeekConfigurationSaved"))
-        llmBaseURL = DeepSeekConfiguration.baseURL
-        llmModel = dsMigrated.model
-        llmKey = dsMigrated.key
+        // 页面允许改任意服务商，所以这里必须尊重用户存的地址与模型；
+        // 只有「老库里没有保存过地址」时才走 DeepSeek 迁移（把旧 providersJSON 里的官方配置捡回来）。
+        let savedBase = LLMRoute.normalize(d.string(forKey: "llmBaseURL") ?? "")
+        let savedModel = d.string(forKey: "llmModel") ?? ""
+        let savedKey = Secrets.get("llmKey") ?? ""
+        if savedBase.isEmpty {
+            let migrated = DeepSeekConfiguration.migrated(
+                baseURL: DeepSeekConfiguration.baseURL,
+                model: savedModel,
+                key: savedKey,
+                providersJSON: d.string(forKey: "providersJSON") ?? "",
+                allowLegacyProviders: !d.bool(forKey: "deepSeekConfigurationSaved"))
+            llmBaseURL = LLMRoute.deepSeekBase
+            llmModel = migrated.model
+            llmKey = migrated.key
+        } else {
+            llmBaseURL = savedBase
+            llmModel = savedModel
+            llmKey = savedKey
+        }
 
         digestRequirement = d.string(forKey: "digestRequirement") ?? ""
         deepThinking = d.bool(forKey: "deepThinking")
@@ -250,7 +261,8 @@ final class Settings: ObservableObject {
         autoDigest = d.object(forKey: "autoDigest") as? Bool ?? true
         digestHour = d.object(forKey: "digestHour") as? Int ?? 21
         let savedInterval = d.object(forKey: "digestIntervalMin") as? Int ?? 30
-        digestIntervalMin = Settings.digestIntervalOptions.contains(savedInterval) ? savedInterval : 30
+        // 自定义间隔（35/45/90…）也要活着：预设只决定显示哪一档，不限制存下来的值
+        digestIntervalMin = (5...720).contains(savedInterval) ? savedInterval : 30
         // 0.6.5 之前只有 digestByInterval；没有 digestTimingRaw 的老库按旧值推出「按间隔 / 按时间点」，
         // 全新安装（两个键都没有）默认「转写完就整理」——董事长的用法就是转出字就整理。
         if let savedTiming = d.string(forKey: "digestTimingRaw") {
@@ -352,8 +364,15 @@ final class Settings: ObservableObject {
         d.set(true, forKey: "deepSeekConfigurationSaved")
     }
 
+    /// 执行时真正用的配置：页面存什么就用什么，不再固定成官方地址与 deepseek-flash。
     var effectiveLLM: (base: String, model: String, key: String) {
-        (DeepSeekConfiguration.baseURL, DeepSeekConfiguration.normalizedModel(llmModel),
-         llmKey.trimmingCharacters(in: .whitespacesAndNewlines))
+        let base = LLMRoute.resolveBase(stored: llmBaseURL)
+        let official = LLMRoute.isOfficialDeepSeek(base)
+        return (base,
+                LLMRoute.resolveModel(stored: llmModel, official: official),
+                llmKey.trimmingCharacters(in: .whitespacesAndNewlines))
     }
+
+    /// 当前服务商是不是 DeepSeek 官方（决定能不能查余额、能不能用官方 Key）
+    var llmIsOfficial: Bool { LLMRoute.isOfficialDeepSeek(LLMRoute.resolveBase(stored: llmBaseURL)) }
 }

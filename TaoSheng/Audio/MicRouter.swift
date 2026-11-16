@@ -54,29 +54,36 @@ final class MicRouter {
         AVAudioSession.sharedInstance().currentRoute.inputs.first?.uid ?? ""
     }
 
-    /// 应用偏好设备；偏好设备不在线时自动落回系统默认
+    /// 有没有外接输入（USB / 蓝牙 / 耳机 / 车载）
+    func hasExternal() -> Bool {
+        guard let list = AVAudioSession.sharedInstance().availableInputs else { return false }
+        return list.contains { $0.portType != .builtInMic }
+    }
+
+    /// 应用偏好设备。空 UID = 明确要手机麦克风（不是「随便」）；
+    /// 「自动」= 有外接用外接、没有就手机麦克风；指定设备掉线才落回手机麦克风。
     func applyPreferred() {
         let session = AVAudioSession.sharedInstance()
         let uid = Settings.shared.preferredInputUID
-        guard !uid.isEmpty, uid != "builtin" else {
+        let list = session.availableInputs ?? []
+        let builtIn = list.first { $0.portType == .builtInMic }
+        switch MicRules.choice(uid: uid, hasExternal: hasExternal()) {
+        case .systemDefault:
             try? session.setPreferredInput(nil)
-            return
-        }
-        // 「自动」：有外接（USB / 蓝牙 / 耳机）就用它，没有就用手机麦克风
-        if uid == "auto" {
-            if let list = session.availableInputs,
-               let ext = list.first(where: { $0.portType != .builtInMic }) {
+        case .builtIn:
+            try? session.setPreferredInput(builtIn)
+        case .external:
+            if let ext = list.first(where: { $0.portType != .builtInMic }) {
                 try? session.setPreferredInput(ext)
             } else {
-                try? session.setPreferredInput(nil)
+                try? session.setPreferredInput(builtIn)
             }
-            return
+        case .specific(let id):
+            if let target = list.first(where: { $0.uid == id }) {
+                try? session.setPreferredInput(target)
+            } else {
+                try? session.setPreferredInput(builtIn)
+            }
         }
-        guard let list = session.availableInputs,
-              let target = list.first(where: { $0.uid == uid }) else {
-            try? session.setPreferredInput(nil)
-            return
-        }
-        try? session.setPreferredInput(target)
     }
 }

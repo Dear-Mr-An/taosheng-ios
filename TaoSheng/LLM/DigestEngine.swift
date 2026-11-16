@@ -78,6 +78,11 @@ final class DigestEngine: ObservableObject {
         let day = DayKey.of(now)
         // 连续几段之间别每几秒就整一次：同一分钟内复用已经跑过的那次
         if let last = lastAttempt[day], now.timeIntervalSince(last) < 20 { return }
+        // 「停多久算说完了」真门禁：还在说、或还有段没转写完，就先不动
+        let lastEnd = Store.shared.segments(day: day, limit: 5000).map { $0.endedAt }.max()
+        guard DigestWindow.ready(lastEnd: lastEnd, now: now,
+                                 idleMin: s.sessionIdleMin,
+                                 pendingSegments: TranscribeQueue.shared.pendingCount) else { return }
         let days = Store.shared.undigestedDays(through: day)
         guard !days.isEmpty else { return }
         lastAttempt[day] = now
@@ -167,10 +172,14 @@ final class DigestEngine: ObservableObject {
             : Store.shared.undigestedSegments(day: day, limit: -1))
             .filter { $0.sessionId == nil || $0.sessionId?.isEmpty == true }
         guard !rows.isEmpty else { return (0, 0) }
+        // 「一直在说，最多等多久」：一轮最多带 cap 分钟的材料，剩下的留到下一轮
+        let capCount = DigestWindow.headCount(starts: rows.map { $0.startedAt }, capMin: s.sessionCapMin)
+        let capped = Array(rows.prefix(capCount))
+        guard !capped.isEmpty else { return (0, 0) }
 
         // 按时间上连续的模式分批，避免上午和晚上的同模式跨越会议被合并。
         var batches: [[Segment]] = []
-        for row in rows {
+        for row in capped {
             if let last = batches.last, last.count < 200, last.last?.captureMode == row.captureMode {
                 batches[batches.count - 1].append(row)
             } else {
@@ -226,15 +235,9 @@ final class DigestEngine: ObservableObject {
 
     private func digestRows(_ rows: [Segment], day: String, system: String) async throws -> BatchResult {
         let useSituation = Settings.shared.usePlaceInDigest
-        var lines = Self.buildLines(rows, envTags: useSituation && Settings.shared.envSoundOn ? Store.shared.envTags(day: day) : [:])
-        if useSituation {
-            let places = Store.shared.places(day: day)
-            for (index, row) in rows.enumerated() {
-                if let place = places.first(where: { $0.arriveAt <= row.endedAt && $0.leaveAt >= row.startedAt }) {
-                    lines[index] += "（地点：\(place.name)）"
-                }
-            }
-        }
+        let lines = Self.buildLines(rows,
+                                    envTags: useSituation && Settings.shared.envSoundOn ? Store.shared.envTags(day: day) : [:],
+                                    places: useSituation ? Store.shared.places(day: day) : [])
         let unfinished = Store.shared.openItemContents(days: 60)
         let ignored = Store.shared.ignoredItemContents(days: 60)
 
@@ -410,7 +413,8 @@ final class DigestEngine: ObservableObject {
 
     // MARK: - 工具
 
-    static func buildLines(_ rows: [Segment], envTags: [String: String] = [:]) -> [String] {
+    static func buildLines(_ rows: [Segment], envTags: [String: String] = [:],
+                          places: [PlaceVisit] = []) -> [String] {
         var out: [String] = []
         var lastDay: String?
         // 「停多久算说完了」：两段之间停得够久，就在提示里标出话题边界，
@@ -429,6 +433,11 @@ final class DigestEngine: ObservableObject {
             var line = "[\(i + 1)] \(hms(r.startedAt)) \(who)：\(r.transcript)"
             if let tag = envTags[r.id], !tag.isEmpty, tag != "人声", tag != "安静" {
                 line += "（环境：\(tag)）"
+            }
+            // 地点按这一段的 id / 时间区间挂，不能用「第几个原话」当下标：
+            // 上面可能插了话题分隔行，下标会和 rows 错位，地点就串到别的事上了。
+            if let place = places.first(where: { $0.arriveAt <= r.endedAt && $0.leaveAt >= r.startedAt }) {
+                line += "（地点：\(place.name)）"
             }
             out.append(line)
         }

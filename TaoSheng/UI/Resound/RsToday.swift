@@ -105,6 +105,8 @@ struct RsTodayScreen: View {
     var autoSheet: String? = nil
     /// 面板打开时告诉外层，好把自己盖到 TabBar 上面
     var onPanel: (Bool) -> Void = { _ in }
+    /// 「◉ 专题」要打开专题面板，不能和状态行的「正在聆听」共用同一个开关
+    var onOpenTopic: () -> Void = {}
     @State private var cachedEvents: [MemoryEvent] = []
 
     /// 今天直接读 AppState（刷新完成后自动跟着变），其它天用一次查询的缓存
@@ -122,6 +124,7 @@ struct RsTodayScreen: View {
                 RsOverviewCard(onPending: {
                     withAnimation(.easeOut(duration: 0.2)) { filter = 0 }
                 }, onOpenListen: { showListen = true },
+               onOpenTopic: { showTopic = true },
                    activeOverride: ShotMode.screen == "rs-today" ? true : nil)
                 if !pending.isEmpty { pendingSection }
                 timelineSection
@@ -320,6 +323,7 @@ struct RsOverviewCard: View {
 
     var onPending: () -> Void = {}
     var onOpenListen: () -> Void = {}
+    var onOpenTopic: () -> Void = {}
     /// 截图模式用：模拟器没有麦克风，按原版显示「正在聆听」和暂停键
     var activeOverride: Bool? = nil
 
@@ -382,7 +386,7 @@ struct RsOverviewCard: View {
                 .frame(height: 22)
                 .frame(maxWidth: 110)
             Spacer(minLength: 8)
-            RsHeroPill(text: "◉ 专题") { onOpenListen() }
+            RsHeroPill(text: "◉ 专题") { onOpenTopic() }
             Spacer().frame(width: 6)
             roundKey
         }

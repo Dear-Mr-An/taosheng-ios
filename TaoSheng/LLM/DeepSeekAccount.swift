@@ -21,8 +21,14 @@ final class DeepSeekAccount: ObservableObject {
         loading = false
     }
 
-    func refresh(key: String, force: Bool = false) async {
+    /// base 只有官方 DeepSeek 才允许查余额：别的服务商不发请求，避免把 Key 送给 DeepSeek。
+    func refresh(key: String, base: String, force: Bool = false) async {
         guard !Task.isCancelled else { return }
+        guard LLMRoute.balanceSupported(base: base) else {
+            reset()
+            error = "余额查询只支持 DeepSeek 官方接口"
+            return
+        }
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
         if currentKey != key {
             reset()

@@ -123,7 +123,8 @@ struct RsAdvancedPage: View {
             let date = Calendar.current.date(byAdding: .day, value: -offset, to: Date()) ?? Date()
             let day = DayKey.of(date)
             let segs = Store.shared.segments(day: day, limit: 2000)
-            let items = Store.shared.items(day: day, openOnly: false)
+            // 按日「件数」取整理表（memory_item），不再读旧的 item 表
+            let items = Store.shared.items(day: day, status: nil, category: nil, limit: 2000)
             if segs.isEmpty && items.isEmpty { continue }
             out.append((offset == 0 ? "今天" : offset == 1 ? "昨天" : Fmt.df("M月d日").string(from: date),
                         segs.count, items.count))

@@ -12,10 +12,7 @@ struct LLMClient {
     }
 
     func complete(system: String, user: String, temperature: Double = 0.3, thinking: Bool = false) async throws -> String {
-        var base = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if base.hasSuffix("/") { base.removeLast() }
-        if !base.hasSuffix("/chat/completions") { base += "/chat/completions" }
-        guard let url = URL(string: base) else {
+        guard let url = LLMRoute.chatURL(base: baseURL) else {
             throw LLMError.http(0, "接口地址不对：\(baseURL)")
         }
 

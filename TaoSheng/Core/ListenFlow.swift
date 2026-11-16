@@ -83,6 +83,7 @@ final class ListenFlow: ObservableObject {
         Settings.shared.captureMode = mode
         CaptureEngine.shared.bindSession(s.id, mode: mode)
         UserDefaults.standard.set(true, forKey: "captureWanted")
+        UserDefaults.standard.set(false, forKey: "rsUserStopped")
         current = s
         phaseText = nil
         note = nil
@@ -126,9 +127,18 @@ final class ListenFlow: ObservableObject {
         }
     }
 
-    func stop() {
+    /// 结束这一场：reason 决定之后要不要接着普通聆听。
+    /// - sessionEnd：专题到点 / 用户点「结束」本场（之后按「默认一直聆听」恢复普通收音）
+    /// - userStop：用户明确要停采集，那就一直停着，回前台也不再自动拉起
+    func stop(reason: StopReason = .sessionEnd) {
         guard var s = current, s.state == .recording else { return }
-        UserDefaults.standard.set(false, forKey: "captureWanted")
+        if reason == .userStop {
+            let st = StopRules.stateAfterUserStop()
+            UserDefaults.standard.set(st.captureWanted, forKey: "captureWanted")
+            UserDefaults.standard.set(st.userStopped, forKey: "rsUserStopped")
+        } else {
+            UserDefaults.standard.set(false, forKey: "captureWanted")
+        }
         CaptureEngine.shared.stop()
         CaptureEngine.shared.bindSession(nil, mode: nil)
         topicTimer?.invalidate()
@@ -261,6 +271,20 @@ final class ListenFlow: ObservableObject {
         working = false
         AppState.shared.refresh()
         NotificationCenter.default.post(name: .taoshengDataChanged, object: nil)
+        resumeAlwaysListeningIfNeeded()
+    }
+
+    /// 这一场结束之后：默认一直聆听时把普通收音接回来；
+    /// 用户自己点过「停止」就不接（那是明确的意思）。
+    private func resumeAlwaysListeningIfNeeded() {
+        let userStopped = UserDefaults.standard.bool(forKey: "rsUserStopped")
+        let always = StopRules.shouldResumeAfterSessionEnd(reason: .sessionEnd, alwaysListening: true)
+        guard always, !userStopped, !ShotMode.active else { return }
+        UserDefaults.standard.set(true, forKey: "captureWanted")
+        if !CaptureEngine.shared.isRunning {
+            CaptureEngine.shared.bindSession(nil, mode: nil)
+            CaptureEngine.shared.start()
+        }
     }
 
     /// 把整场分好的说话人写回每一段：原话页、时间线里那些按段显示的地方

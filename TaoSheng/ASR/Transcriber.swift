@@ -6,6 +6,7 @@ enum TranscribeError: LocalizedError {
     case notConfigured
     case http(Int, String)
     case empty
+    case badReply(String)
     case speechUnavailable(String)
 
     var errorDescription: String? {
@@ -13,6 +14,7 @@ enum TranscribeError: LocalizedError {
         case .notConfigured: return "转写服务还没配置（设置 → 转写）"
         case .http(let code, let body): return "转写接口返回 \(code)：\(body.prefix(180))"
         case .empty: return "这段没有识别出文字"
+        case .badReply(let b): return "转写接口返回的内容不是识别结果：\(b.prefix(120))"
         case .speechUnavailable(let m): return "系统语音识别不可用：\(m)"
         }
     }
@@ -117,14 +119,13 @@ struct OpenAICompatibleTranscriber: Transcriber {
         guard (200..<300).contains(http.statusCode) else {
             throw TranscribeError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
-        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let text = obj["text"] as? String {
-            return TranscriptResult(text: text.trimmingCharacters(in: .whitespacesAndNewlines))
+        // 2xx 也可能是错误页：只接受「JSON 里有非空 text」或「明确 text/plain 的纯文本」，
+        // 别的（HTML、{"error":…}、{text:""}）一律按坏回复处理，保留 failed 状态可重试。
+        let ctype = http.value(forHTTPHeaderField: "Content-Type") ?? ""
+        switch ASRRules.parseReply(contentType: ctype, body: data) {
+        case .text(let text): return TranscriptResult(text: text)
+        case .bad(let why): throw TranscribeError.badReply(why)
         }
-        if let text = String(data: data, encoding: .utf8) {
-            return TranscriptResult(text: text.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        throw TranscribeError.empty
     }
 }
 
@@ -308,8 +309,8 @@ enum TranscriberFactory {
                                      resourceId: s.doubaoResourceId)
         case .openAICompatible:
             guard s.asrReady else { return nil }
-            let base = s.asrFullURL.trimmingCharacters(in: .whitespacesAndNewlines)
-            return OpenAICompatibleTranscriber(baseURL: base.isEmpty ? s.asrBaseURL : base,
+            let base = ASRRules.endpoint(base: s.asrBaseURL, legacyFull: s.asrFullURL)
+            return OpenAICompatibleTranscriber(baseURL: base,
                                                apiKey: s.asrKey, model: s.asrModel, language: s.asrLanguage)
         }
     }
