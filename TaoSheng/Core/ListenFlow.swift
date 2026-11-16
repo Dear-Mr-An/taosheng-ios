@@ -240,6 +240,7 @@ final class ListenFlow: ObservableObject {
             PushEngine.shared.pushSession(session: s, title: digest.title,
                                           conclusion: NoteRules.conclusion(digest.summary),
                                           items: digest.items)
+            PushEngine.shared.pushTodos(digest.items)
 
             s.stateRaw = SessionState.done.rawValue
             s.eventId = digest.eventId

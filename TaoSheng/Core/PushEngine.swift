@@ -76,7 +76,21 @@ final class PushEngine {
     }
 
     func pushReview(_ r: ReviewRecord) {
+        guard Settings.shared.pushOnReview else { return }
         broadcast(title: "涛声 · \(r.day) \(r.kind.title)", body: "# \(r.headline)\n\n\(r.text)")
+    }
+
+    /// 「有新待办就推」：整理出新待办时单独推一条，和日常整理推送分开。
+    func pushTodos(_ items: [MemoryItem]) {
+        guard Settings.shared.pushOnTodo else { return }
+        let list = items.filter { $0.category != "事件" }
+        guard !list.isEmpty else { return }
+        var md = "# 涛声 · 新待办 \(list.count) 条\n\n"
+        for i in list {
+            md += "- \(i.category)：\(i.content)\n"
+        }
+        notifyLocal(title: "涛声 · 新待办 \(list.count) 条", body: list.first?.content ?? "")
+        broadcast(title: "涛声 · 新待办", body: md)
     }
 
     func broadcast(title: String, body: String) {

@@ -316,6 +316,7 @@ final class DigestEngine: ObservableObject {
             ))
         }
         Store.shared.insertItems(newItems)
+        PushEngine.shared.pushTodos(newItems)
 
         // 5b. 有明确时间的待办顺手排提醒：先算真实提醒时间，再判断是否过期，
         //     只有日期的（今天完成/明天交）落在 9 点，不会因为 00:00 被判过期而丢掉。
