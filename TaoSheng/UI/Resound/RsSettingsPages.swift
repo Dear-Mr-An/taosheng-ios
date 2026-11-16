@@ -1345,6 +1345,11 @@ struct RsTranscriptPage: View {
         rawSegs = Store.shared.segments(day: day, limit: 60)
     }
 
+    private func cardBody<C: View>(@ViewBuilder content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 0) { content() }
+            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+    }
+
     // MARK: 导入
 
     private func importAudio(_ urls: [URL], done: ((String) -> Void)? = nil) {
@@ -1643,6 +1648,7 @@ struct RsModelPage: View {
     @State private var addModel = ""
     @State private var addKey = ""
     @State private var balanceText = "余额未查询"
+    @StateObject private var account = DeepSeekAccount()
     @State private var checkNote: String?
     @State private var checking = false
 
@@ -2068,16 +2074,21 @@ struct RsModelPage: View {
     }
 
     private func refreshBalance() {
+        guard settings.llmReady else {
+            balanceText = "还没配置密钥"
+            return
+        }
         balanceText = "正在查余额…"
         Task {
-            var text = ""
-            do {
-                let info = try await DeepSeekBalance.fetch(key: settings.llmKey)
-                text = "余额 ¥\(info.total) · 含赠送 ¥\(info.granted)"
-            } catch {
-                text = "余额查询失败：\(error.localizedDescription)"
+            await account.refresh(key: settings.llmKey, force: true)
+            if let b = account.balance {
+                let granted = b.grantedText.map { " · 含赠送 \($0)" } ?? ""
+                balanceText = "余额 \(b.totalText)\(granted)"
+            } else if let err = account.error {
+                balanceText = "余额查询失败：\(err)"
+            } else {
+                balanceText = "余额未查询"
             }
-            await MainActor.run { balanceText = text }
         }
     }
 }
