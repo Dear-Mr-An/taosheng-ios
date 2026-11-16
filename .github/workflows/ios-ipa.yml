@@ -17,7 +17,7 @@ permissions:
 jobs:
   ipa:
     name: 构建未签名 IPA
-    runs-on: macos-15
+    runs-on: macos-14
     timeout-minutes: 40
 
     steps:
