@@ -45,7 +45,14 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           if [ -f project.yml ]; then ROOT="."; else ROOT="ios"; fi
           cd "$ROOT"
-          swift test 2>&1 | tail -n 120
+          set +e
+          swift test > /tmp/swift-test.log 2>&1
+          STATUS=$?
+          set -e
+          tail -n 40 /tmp/swift-test.log
+          echo "== failed cases =="
+          grep -E "failed \([0-9]|: error:" /tmp/swift-test.log | head -n 20 || true
+          exit $STATUS
 
       - name: 生成 Xcode 工程
         run: |
