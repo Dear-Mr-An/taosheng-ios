@@ -34,7 +34,8 @@ public enum ASRRules {
 }
 
 /// 「有新待办就推」的判定：只推真正要做的事，事件不算。
-public enum PushRules {
+/// 注意：`PushRules` 这个名字已经被推送通道的纯逻辑占用，这里叫 `PushGate`。
+public enum PushGate {
     public static func todoItems(_ categories: [String]) -> [Int] {
         var out: [Int] = []
         for (idx, c) in categories.enumerated() where c != "事件" { out.append(idx) }

@@ -23,10 +23,10 @@ final class ASRRulesTests: XCTestCase {
     }
 
     func testPushTodoRules() {
-        XCTAssertFalse(PushRules.shouldPushTodo(enabled: false, categories: ["待办"]))
-        XCTAssertFalse(PushRules.shouldPushTodo(enabled: true, categories: ["事件"]))
-        XCTAssertTrue(PushRules.shouldPushTodo(enabled: true, categories: ["事件", "待办"]))
-        XCTAssertEqual(PushRules.todoItems(["事件", "约定", "灵感"]), [1, 2])
+        XCTAssertFalse(PushGate.shouldPushTodo(enabled: false, categories: ["待办"]))
+        XCTAssertFalse(PushGate.shouldPushTodo(enabled: true, categories: ["事件"]))
+        XCTAssertTrue(PushGate.shouldPushTodo(enabled: true, categories: ["事件", "待办"]))
+        XCTAssertEqual(PushGate.todoItems(["事件", "约定", "灵感"]), [1, 2])
     }
 
     func testWipeCoversAllSecrets() {
