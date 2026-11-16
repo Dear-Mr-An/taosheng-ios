@@ -231,6 +231,7 @@ struct RsMemoryScreen: View {
                 header
                 if byDay {
                     calendarCard
+                    Color.clear.frame(height: 1).id("review-top")
                     reviewCard
                     cardsSection.id("cards")
                     timelineSection.id("timeline")
@@ -253,9 +254,9 @@ struct RsMemoryScreen: View {
             case "rs-memory-all":
                 // 原版 15-memory-all 那一屏：回顾卡在顶端，下面是「卡片 2 张」与时间线
                 try? await Task.sleep(nanoseconds: 800_000_000)
-                withAnimation(nil) { proxy.scrollTo("review", anchor: .top) }
+                withAnimation(nil) { proxy.scrollTo("review-top", anchor: .top) }
                 try? await Task.sleep(nanoseconds: 400_000_000)
-                withAnimation(nil) { proxy.scrollTo("review", anchor: .top) }
+                withAnimation(nil) { proxy.scrollTo("review-top", anchor: .top) }
             case "rs-memory-cards":
                 try? await Task.sleep(nanoseconds: 800_000_000)
                 withAnimation(nil) { proxy.scrollTo("cards", anchor: .top) }
