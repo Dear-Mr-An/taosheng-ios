@@ -4,13 +4,7 @@ import SwiftUI
 // MARK: - 设置（SettingsScreen.kt）
 
 struct RsSettingsScreen: View {
-    private var appearanceTitle: String {
-        switch appearance {
-        case "light": return "浅色"
-        case "dark": return "深色（未提供）"
-        default: return "浅色"
-        }
-    }
+    private var appearanceTitle: String { "浅色" }
     @ObservedObject private var settings = Settings.shared
     @ObservedObject private var app = AppState.shared
     @ObservedObject private var capture = CaptureEngine.shared

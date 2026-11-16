@@ -30,7 +30,7 @@ struct LLMSettingsView: View {
                 .environmentObject(settings)
         }
         .task(id: settings.llmKey) {
-            await account.refresh(key: settings.llmKey)
+            await account.refresh(key: settings.llmKey, base: settings.llmBaseURL)
         }
         .onDisappear { invalidateCheck() }
     }
@@ -72,7 +72,7 @@ struct LLMSettingsView: View {
                     Button(checking ? "检测中…" : "检测连接") { checkLLM() }
                         .disabled(checking)
                     Button(account.loading ? "查询中…" : "刷新余额") {
-                        Task { await account.refresh(key: settings.llmKey, force: true) }
+                        Task { await account.refresh(key: settings.llmKey, base: settings.llmBaseURL, force: true) }
                     }
                     .disabled(account.loading)
                     Spacer(minLength: 0)
@@ -263,7 +263,7 @@ struct LLMSettingsView: View {
                 try Task.checkCancellation()
                 checkOK = (JSONExtract.object(from: reply)?["ok"] as? Bool) == true
                 checkMessage = checkOK ? "连接正常 · JSON 整理能力通过" : "连接成功，但未返回要求的 JSON，请重试"
-                await account.refresh(key: config.key, force: true)
+                await account.refresh(key: config.key, base: config.base, force: true)
             } catch {
                 guard !Task.isCancelled else { return }
                 checkOK = false
