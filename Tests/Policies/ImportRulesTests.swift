@@ -16,7 +16,7 @@ final class ImportRulesTests: XCTestCase {
         XCTAssertEqual(ImportRules.summary(added: 2, failedNames: []), "导入 2 段，已排队转写")
         XCTAssertEqual(ImportRules.summary(added: 0, failedNames: []), "没有导入任何文件")
         let s = ImportRules.summary(added: 1, failedNames: ["a.m4a", "b.m4a"])
-        XCTAssertTrue(s.contains("1 个失败"))
+        XCTAssertTrue(s.contains("2 个失败"))
         XCTAssertTrue(s.contains("a.m4a"))
     }
 
