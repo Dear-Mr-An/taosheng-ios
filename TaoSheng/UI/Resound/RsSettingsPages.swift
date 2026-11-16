@@ -767,7 +767,7 @@ struct RsRecordingPage: View {
             return
         }
         folderNote = "正在导入 \(fresh.count) 个录音…"
-        importAudio(fresh) { msg in
+        rsImportAudio(fresh) { msg in
             for f in fresh { seen.insert(f.lastPathComponent) }
             UserDefaults.standard.set(Array(seen), forKey: "rsImportedFiles")
             folderNote = msg
@@ -1236,7 +1236,7 @@ struct RsTranscriptPage: View {
         testNote = "正在转写 \(seg.fileName)…"
         Task.detached {
             do {
-                guard let engine = Transcriber.make() else {
+                guard let engine = TranscriberFactory.make() else {
                     await MainActor.run { testing = false; testNote = "当前服务商是「只录音，不转写」。" }
                     return
                 }
@@ -1348,63 +1348,14 @@ struct RsTranscriptPage: View {
     // MARK: 导入
 
     private func importAudio(_ urls: [URL], done: ((String) -> Void)? = nil) {
-        importNote = "正在导入…"
-        Task {
-            var added = 0
-            var failure: String?
-            for url in urls {
-                let scoped = url.startAccessingSecurityScopedResource()
-                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                let ext = url.pathExtension.isEmpty ? "m4a" : url.pathExtension
-                let name = "import-\(UUID().uuidString).\(ext)"
-                let dst = Store.audioDir.appendingPathComponent(name)
-                do {
-                    try? FileManager.default.removeItem(at: dst)
-                    try FileManager.default.copyItem(at: url, to: dst)
-                } catch {
-                    failure = "复制失败：\(error.localizedDescription)"
-                    continue
-                }
-                let asset = AVURLAsset(url: dst)
-                var seconds = 60.0
-                if let d = try? await asset.load(.duration) {
-                    let s = CMTimeGetSeconds(d)
-                    if s.isFinite && s > 0 { seconds = s }
-                }
-                let size = (try? FileManager.default.attributesOfItem(atPath: dst.path)[.size] as? Int) ?? 0
-                let now = Date()
-                let seg = Segment(
-                    id: UUID().uuidString,
-                    startedAt: now.addingTimeInterval(-seconds),
-                    endedAt: now,
-                    duration: seconds,
-                    fileName: name,
-                    byteSize: size ?? 0,
-                    transcript: "",
-                    speaker: "",
-                    state: .pending,
-                    day: DayKey.of(now),
-                    createdAt: now
-                )
-                if Store.shared.insert(seg) { added += 1 }
-            }
-            let addedCount = added
-            await MainActor.run {
-                importNote = failure ?? (addedCount > 0 ? "导入 \(addedCount) 段，已排队转写" : "没有导入任何文件")
-                if addedCount > 0 {
-                    queue.transcribeNow()
-                    loadRaw()
-                }
-                done?(importNote ?? "")
-            }
+        rsImportAudio(urls) { msg in
+            importNote = msg
+            loadRaw()
+            done?(msg)
         }
     }
-
-    private func cardBody<C: View>(@ViewBuilder content: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 0) { content() }
-            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
-    }
 }
+
 // MARK: - 声纹与人物（VoiceprintUi.kt）
 
 struct RsVoicePage: View {
@@ -2215,10 +2166,10 @@ struct RsUpdatePage: View {
 
     var body: some View {
         RsSubPage(title: "版本更新") {
-            RsGroup("当前版本") {
+            RsGroup(title: "当前版本") {
                 RsValueRow(title: "涛声 \(current)（\(build)）", value: "未签名测试包") { }
             }
-            RsGroup("检查更新") {
+            RsGroup(title: "检查更新") {
                 RsValueRow(title: "检查更新", value: checking ? "正在检查…" : "点一下检查") {
                     check()
                 }
@@ -2274,7 +2225,7 @@ struct RsAppearancePage: View {
 
     var body: some View {
         RsSubPage(title: "外观") {
-            RsGroup("主题") {
+            RsGroup(title: "主题") {
                 ForEach(Array(options.enumerated()), id: \.offset) { idx, opt in
                     if idx > 0 { RsRowDivider(inset: 18) }
                     Button { appearance = opt.0 } label: {
@@ -2291,6 +2242,55 @@ struct RsAppearancePage: View {
                 }
             }
             RsFootNote(text: "自动跟随系统的浅色 / 深色。选完立刻就变。")
+        }
+    }
+}
+/// 导入外部录音：拷进 Audio 目录、量时长、入库排队转写。两个设置页共用。
+func rsImportAudio(_ urls: [URL], done: ((String) -> Void)? = nil) {
+    Task {
+        var added = 0
+        var failure: String?
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let ext = url.pathExtension.isEmpty ? "m4a" : url.pathExtension
+            let name = "import-\(UUID().uuidString).\(ext)"
+            let dst = Store.audioDir.appendingPathComponent(name)
+            do {
+                try? FileManager.default.removeItem(at: dst)
+                try FileManager.default.copyItem(at: url, to: dst)
+            } catch {
+                failure = "复制失败：\(error.localizedDescription)"
+                continue
+            }
+            let asset = AVURLAsset(url: dst)
+            var seconds = 60.0
+            if let d = try? await asset.load(.duration) {
+                let s = CMTimeGetSeconds(d)
+                if s.isFinite && s > 0 { seconds = s }
+            }
+            let size = (try? FileManager.default.attributesOfItem(atPath: dst.path)[.size] as? Int) ?? 0
+            let now = Date()
+            let seg = Segment(
+                id: UUID().uuidString,
+                startedAt: now.addingTimeInterval(-seconds),
+                endedAt: now,
+                duration: seconds,
+                fileName: name,
+                byteSize: size ?? 0,
+                transcript: "",
+                speaker: "",
+                state: .recorded,
+                day: DayKey.of(now),
+                createdAt: now
+            )
+            if Store.shared.insert(seg) { added += 1 }
+        }
+        let addedCount = added
+        await MainActor.run {
+            if addedCount > 0 { TranscribeQueue.shared.transcribeNow() }
+            let msg = failure ?? (addedCount > 0 ? "导入 \(addedCount) 段，已排队转写" : "没有导入任何文件")
+            done?(msg)
         }
     }
 }

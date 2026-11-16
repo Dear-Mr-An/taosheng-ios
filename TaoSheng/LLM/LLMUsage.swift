@@ -60,36 +60,3 @@ enum LLMUsage {
         return "\(n)"
     }
 }
-
-/// DeepSeek 余额查询（GET /user/balance）
-enum DeepSeekBalance {
-    struct Info {
-        var total: String
-        var granted: String
-    }
-
-    static func fetch(key: String) async throws -> Info {
-        let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !k.isEmpty else { throw LLMError.notConfigured }
-        guard let url = URL(string: "https://api.deepseek.com/user/balance") else {
-            throw LLMError.http(0, "余额接口地址不对")
-        }
-        var req = URLRequest(url: url)
-        req.httpMethod = "GET"
-        req.setValue("Bearer \(k)", forHTTPHeaderField: "Authorization")
-        req.timeoutInterval = 30
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-            throw LLMError.http(code, String(data: data, encoding: .utf8) ?? "")
-        }
-        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw LLMError.badReply("余额返回不是 JSON")
-        }
-        let list = obj["balance_infos"] as? [[String: Any]] ?? []
-        let cny = list.first { ($0["currency"] as? String) == "CNY" } ?? list.first
-        let total = (cny?["total_balance"] as? String) ?? "未知"
-        let granted = (cny?["granted_balance"] as? String) ?? "0.00"
-        return Info(total: total, granted: granted)
-    }
-}

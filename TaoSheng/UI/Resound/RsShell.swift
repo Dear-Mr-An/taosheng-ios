@@ -19,7 +19,6 @@ struct RsSettingsScreen: View {
     @ObservedObject private var queue = TranscribeQueue.shared
     @ObservedObject private var flow = ListenFlow.shared
 
-    @AppStorage("appearance") private var appearance = "auto"
     @State private var query = ""
 
     var body: some View {
