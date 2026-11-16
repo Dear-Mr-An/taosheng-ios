@@ -45,9 +45,9 @@ final class StopRulesTests: XCTestCase {
 
     func testUserStopAlsoMarksWantedOff() {
         let s = StopRules.stateAfterUserStop()
-        XCTAssertFalse(s.wanted)
+        XCTAssertFalse(s.captureWanted)
         XCTAssertTrue(s.userStopped)
-        XCTAssertFalse(StopRules.shouldAutoStart(captureWanted: s.wanted, userStopped: s.userStopped))
+        XCTAssertFalse(StopRules.shouldAutoStart(captureWanted: s.captureWanted, userStopped: s.userStopped))
     }
 
     func testSessionEndRestoresAlwaysListening() {
