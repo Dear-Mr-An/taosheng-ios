@@ -2288,7 +2288,7 @@ func rsImportAudio(_ urls: [URL], done: ((String) -> Void)? = nil) {
                 endedAt: now,
                 duration: seconds,
                 fileName: name,
-                byteSize: size ?? 0,
+                byteSize: size,
                 transcript: "",
                 speaker: "",
                 state: .recorded,
@@ -2298,9 +2298,10 @@ func rsImportAudio(_ urls: [URL], done: ((String) -> Void)? = nil) {
             if Store.shared.insert(seg) { added += 1 }
         }
         let addedCount = added
+        let failureText = failure
         await MainActor.run {
             if addedCount > 0 { TranscribeQueue.shared.transcribeNow() }
-            let msg = failure ?? (addedCount > 0 ? "导入 \(addedCount) 段，已排队转写" : "没有导入任何文件")
+            let msg = failureText ?? (addedCount > 0 ? "导入 \(addedCount) 段，已排队转写" : "没有导入任何文件")
             done?(msg)
         }
     }
