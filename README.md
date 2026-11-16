@@ -1,3 +1,61 @@
+## 0.8.0（build 40）：设置里的功能逐项接通
+
+这一版不做界面调整，只把「设置里看着能点、实际没接上」的地方接成真的：每个开关、输入框、按钮都落到 Settings / UserDefaults / Keychain / Store 上，并且有真实的消费者（转写队列、整理引擎、录音引擎、位置引擎、推送）。
+
+### 一、暂停跨进程恢复（真实 bug）
+原来 `RsQuiet` 启动时发现暂停时间已过，只把 `rsQuietUntil` 删掉，没有把 `captureWanted` 设回 true，也没有启动录音——暂停 15 分钟、杀掉 App、过期后重开，录音仍然是停的。
+
+现在：
+- 新增 `TaoSheng/Core/Policies/QuietRules.swift`：`onLaunch(savedUntil:heldByPause:now:)` 返回 `stillPaused / expiredResume / idle`；纯函数，可单测。
+- `RsQuiet.init()` 按规则处理：`.expiredResume` 时清两个键、`captureWanted = true`、非截图模式且没在跑时 `CaptureEngine.start()`。
+- `pause()` 记 `rsQuietHeldWanted = true`，只有「确实被暂停按住过」的才恢复，不会把用户手动停掉的录音又拉起来。
+- `TaoShengApp` 启动时 `_ = RsQuiet.shared`（在 captureWanted 判断之前执行），回前台时 `checkNow()` 到点即恢复。
+- 单测 `Tests/Policies/QuietRulesTests.swift` 5 例，含「正好到点算过期」。
+
+### 二、原话与转写（全部接真实设置）
+- 语音转写分段（豆包 / 本地 / 自定义）写 `settings.asrKind`；密钥按引擎写对字段——豆包写 `doubaoApiKey`，自定义写 `asrKey`（原来一律写 `asrKey`，豆包引擎根本读不到）。
+- 自定义档补 `asrBaseURL` / `asrModel` 输入；「自定义请求头」真的编辑 `asrCustomHeaders`。
+- 「多久转写一次」映射 `transcribeIntervalMin`（实时 1 / 15 / 30 / 自定义 5…240），`TranscribeQueue.nextRunAt` 读同一个值，重进页面保持。
+- 「导入录音」走系统文件选择器，拷进 `Store.audioDir`、读真实时长、写 `Segment(state: .recorded)`、落库并立刻排队转写。
+- 「开始培训专题」直接 `ListenFlow.start(mode: .training)`；「测试」用当前引擎对最近一段真实音频跑一次转写，显示成功片段或失败原因。
+- 热词输入框接 `addHotword` / `deleteHotword`，并加「整理时用热词」开关（`hotwordEnabled`）。
+- 「录音原话」按今天/昨天/前天查 `Store.segments(day:)`，不再是写死的行。
+
+### 三、模型与整理时间（全部接真实设置与引擎）
+- 三档整理时机写 `digestTiming`；间隔写 `digestIntervalMin`；时间点写 `digestHour`；`DigestSchedule` / `DigestEngine` 消费同一份配置。
+- 新增 `sessionIdleMin`（停多久算说完了）与 `sessionCapMin`（一直在说最多等多久）：前者进入 `DigestEngine.buildLines` 的换话题分隔，后者在 `CaptureEngine` 里与模式上限取小值，真正决定切段。
+- 服务商「编辑」写 `llmBaseURL / llmModel / llmKey`；「检测」用当前配置真发一次请求；「刷新余额」读 DeepSeek 官方余额接口，未配置显示「还没配置密钥」，失败显示原因；「添加服务商」写备用 `llm2*`（Keychain），「出问题时自动换备用」绑 `llmFailoverOn`，`LLMAuto.completeAny` 主服务商失败时真的切备用重跑。
+- 用量卡接 `LLMUsage`（按天记 prompt/completion，`LLMClient` 解析 `usage` 时写入），今天/本周/30 天都算真实数字，没有调用就显示「这段时间还没有调用大模型」。
+- 余额提醒阈值绑 `balanceAlertThreshold`。
+
+### 四、专题闭环
+- `TopicRules`：`endAt(start:minutes:)`、`shouldAutoFinish(endAt:now:isRecording:)`、`displayName(_:kind:)`，4 组单测。
+- `RsTopicSheet` 开始专题时把名字与「什么时候结束」一起传进 `ListenFlow.start(mode:topicName:endMinutes:)`，`TopicStore` 按会话 id 存下来。
+- 到点由主线程 `Timer` 自动 `stop()`；App 被杀重开后回前台会 `checkTopicDeadline()` 补一次（计划时间已过且还在录就当场收尾）。
+- 专题名进入 `SessionDigest.run(topicName:)`：提示词里标明专题名，产出事件的标题直接用专题名，记录列表里能认出是哪一场。
+
+### 五、录音与后台 / 声纹 / 足迹
+- 录音输入两行真实绑 `preferredInputUID`（`""` 手机麦克风、`"auto"` 自动先外接）；`MicRouter.applyPreferred()` 新增 `auto`：有非 `builtInMic` 的输入就切过去，没有就用手机麦克风。点「外接设备」打开 `MicRouter.inputs()` 列表选取。
+- 「＋ 添加文件夹」走系统目录选择器，写 `autoImportFolder` 并扫描一次（m4a/mp3/wav/aac/caf/aiff/aif/flac/mp4），去重后逐段导入并排队转写。
+- 后台设置四项目前按真实状态算：麦克风权限（`AVAudioSession.recordPermission`）、通知权限（`UNUserNotificationCenter`）、后台音频（`UIBackgroundModes` 含 audio）、低电量模式（`isLowPowerModeEnabled` 取反）。完成数随真实状态变化，未完成项给「去设置」跳系统设置页。
+- 声纹：「添加人物」「删除人物」接 `AppState`；「本地多人分段」绑 `speakerSplitOn`（不再是页面本地状态）。
+- 足迹：开关 set 里立刻 `LocationEngine.syncWithSettings()`；日期行 ‹ › 真翻页（最多回看 30 天）；高德 Key 用 `@AppStorage` 持久化，写入/清除都有反馈。
+
+### 六、通用组与诊断
+- 「外观」：自动 / 浅色 / 深色写 `appearance`，`RsShell` 根上 `.preferredColorScheme` 真实生效。
+- 「版本更新」：显示当前版本与 build，查 GitHub 最新 release 的 `tag_name` 做比对，失败给原因。
+- 「高级与诊断 → 整理要求与诊断」：整理要求是多行文本，写进去会拼到整理提示词末尾（`用户额外要求`）；同一页还给按日统计（最近 7 天真实段数 / 件数）、守护记录（是否在收音、这次从什么时候开始、今天中断次数）、麦克风占用（当前输入名 / 采样率 / 声道 / 权限）、导出诊断文本（`ShareLink` 分享）。
+
+### 七、验证
+- `build-ipa`（提交 `aa68806`）：0 条 Swift warning，`swift test` **49 项全过**（新增 QuietRules 5、TopicRules 4、ASRRules/PushGate/WipeRules 共 4 组）。
+- 交付 `dist/TaoSheng-v0.8.0.ipa`（未签名，`0.8.0` / `40` / `MinimumOSVersion 16.0`，无 `_CodeSignature`）。
+
+### 八、还没闭环（如实列出）
+1. 整理技能页、推送通道页、备份页、回顾与提醒页、隐私与数据页仍是 0.6.x 旧页：开关与表单在，但没有按这一轮的「保存位置—消费者—验证」标准逐项核对；`ChannelsView` 的坚果云账号在刷新后可能丢，`BackupView` 的恢复范围没写明。
+2. 「高级与诊断」（整理要求、按日统计、守护记录、麦克风占用、导出）还没做。
+3. 环境音识别只做了开关与持久化，没做模型下载进度与状态反馈。
+4. 预约专题（到点自动开始）、忘了点开始（事后选一段时间）仍只有入口与说明。
+5. 备份的自动策略、隐私的自动清理调度、「清空所有数据」是否包含 Keychain 项，都还没落到实现与文案一致。
 # 涛声 iOS
 
 界面与功能参考 Android 原版 [0xCoach/TaoSheng](https://github.com/0xCoach/TaoSheng) 0.4.0（FSL-1.1-MIT，仅供个人使用）的 SwiftUI 重写，iOS 16+，无第三方运行依赖。
