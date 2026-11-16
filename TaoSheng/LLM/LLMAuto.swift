@@ -40,8 +40,24 @@ extension LLMClient {
 
     static func completeAny(system: String, user: String, temperature: Double = 0.3, thinking: Bool = false) async throws -> String {
         guard let primary = auto() else { throw LLMError.notConfigured }
-        return try await run(primary, system: system, user: user,
-                             temperature: temperature, thinking: thinking)
+        do {
+            return try await run(primary, system: system, user: user,
+                                 temperature: temperature, thinking: thinking)
+        } catch {
+            // 「出问题时自动换备用」：主服务商失败且填了备用，就真换一次
+            let s = Settings.shared
+            guard s.llmFailoverOn, s.llm2Ready, !Task.isCancelled else { throw error }
+            let backup = LLMClient(baseURL: s.llm2BaseURL, apiKey: s.llm2Key, model: s.llm2Model)
+            return try await run(backup, system: system, user: user,
+                                 temperature: temperature, thinking: thinking)
+        }
+    }
+
+    /// 备用服务商自身的连通性检查
+    static func pingBackup() async throws -> String {
+        let s = Settings.shared
+        guard s.llm2Ready else { throw LLMError.notConfigured }
+        return try await LLMClient(baseURL: s.llm2BaseURL, apiKey: s.llm2Key, model: s.llm2Model).ping()
     }
 }
 

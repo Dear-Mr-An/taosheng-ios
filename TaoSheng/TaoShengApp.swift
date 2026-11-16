@@ -74,6 +74,8 @@ struct TaoShengApp: App {
                     ReminderEngine.shared.rescheduleQuick(quicks)
                     MicRouter.shared.applyPreferred()
                     LocationEngine.shared.syncWithSettings()
+                    // 暂停跨进程恢复：到期的暂停在这里把 captureWanted 拉回 true（必须在下面判断录音前跑）
+                    _ = RsQuiet.shared
                     // 原版默认一直在听：首次启动就把 captureWanted 置 true，之后由用户暂停/恢复决定
                     if UserDefaults.standard.object(forKey: "captureWanted") == nil {
                         UserDefaults.standard.set(true, forKey: "captureWanted")
@@ -85,6 +87,7 @@ struct TaoShengApp: App {
                 .onChange(of: scenePhase) { phase in
                     guard phase == .active else { return }
                     app.refresh()
+                    RsQuiet.shared.checkNow()
                     if UserDefaults.standard.bool(forKey: "captureWanted") && !capture.isRunning {
                         capture.start()
                     }

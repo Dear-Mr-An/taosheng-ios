@@ -410,11 +410,18 @@ final class DigestEngine: ObservableObject {
     static func buildLines(_ rows: [Segment], envTags: [String: String] = [:]) -> [String] {
         var out: [String] = []
         var lastDay: String?
+        // 「停多久算说完了」：两段之间停得够久，就在提示里标出话题边界，
+        // 让整理不要把上午和下午的两件事并成一条。
+        let idleGap = Double(max(1, Settings.shared.sessionIdleMin)) * 60
+        var lastEnd: Date?
         for (i, r) in rows.enumerated() {
             if let ld = lastDay, ld != r.day {
                 out.append("—— 新录音 ——")
+            } else if let le = lastEnd, r.startedAt.timeIntervalSince(le) >= idleGap {
+                out.append("—— 中间隔了 \(Int(r.startedAt.timeIntervalSince(le) / 60)) 分钟，换话题 ——")
             }
             lastDay = r.day
+            lastEnd = r.endedAt
             let who = r.speaker.isEmpty ? "说话人1" : r.speaker
             var line = "[\(i + 1)] \(hms(r.startedAt)) \(who)：\(r.transcript)"
             if let tag = envTags[r.id], !tag.isEmpty, tag != "人声", tag != "安静" {

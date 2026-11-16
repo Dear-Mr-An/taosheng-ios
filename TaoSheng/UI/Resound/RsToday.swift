@@ -13,13 +13,30 @@ final class RsQuiet: ObservableObject {
     private var timer: Timer?
 
     private init() {
-        let saved = UserDefaults.standard.object(forKey: "rsLastPauseMinutes") as? Int
+        let d = UserDefaults.standard
+        let saved = d.object(forKey: "rsLastPauseMinutes") as? Int
         lastPauseMinutes = saved ?? 30
-        if let t = UserDefaults.standard.object(forKey: "rsQuietUntil") as? Date, t > Date() {
+
+        // 暂停跨进程恢复：杀掉 App 再打开时，按「到期 / 没到期」决定要不要把录音拉回来。
+        // 原来的实现到期只删了日期，captureWanted 还是 false，用户点过「暂停 15 分钟」再杀掉 App，
+        // 过了半小时回来仍然不录 —— 这里补上「到期恢复」。
+        let savedUntil = d.object(forKey: "rsQuietUntil") as? Date
+        let heldByPause = d.bool(forKey: "rsQuietHeldWanted")
+        switch QuietRules.onLaunch(savedUntil: savedUntil, heldByPause: heldByPause, now: Date()) {
+        case .stillPaused(let t):
             until = t
             scheduleWatch()
-        } else {
-            UserDefaults.standard.removeObject(forKey: "rsQuietUntil")
+        case .expiredResume:
+            d.removeObject(forKey: "rsQuietUntil")
+            d.removeObject(forKey: "rsQuietHeldWanted")
+            d.set(true, forKey: "captureWanted")
+            // 截图模式不起麦克风；真机上跟 TaoShengApp 启动流程一样把录音拉回来。
+            if !ShotMode.active && !CaptureEngine.shared.isRunning {
+                CaptureEngine.shared.start()
+            }
+        case .idle:
+            d.removeObject(forKey: "rsQuietUntil")
+            d.removeObject(forKey: "rsQuietHeldWanted")
         }
     }
 
@@ -37,6 +54,7 @@ final class RsQuiet: ObservableObject {
         until = t
         UserDefaults.standard.set(t, forKey: "rsQuietUntil")
         UserDefaults.standard.set(false, forKey: "captureWanted")
+        UserDefaults.standard.set(true, forKey: "rsQuietHeldWanted")
         CaptureEngine.shared.stop()
         scheduleWatch()
     }
@@ -46,8 +64,15 @@ final class RsQuiet: ObservableObject {
         timer?.invalidate()
         timer = nil
         UserDefaults.standard.removeObject(forKey: "rsQuietUntil")
+        UserDefaults.standard.removeObject(forKey: "rsQuietHeldWanted")
         UserDefaults.standard.set(true, forKey: "captureWanted")
         if !CaptureEngine.shared.isRunning { CaptureEngine.shared.start() }
+    }
+
+    /// 回到前台时补一次到期检查：后台挂着的时候计时器会被系统压住。
+    func checkNow() {
+        guard let u = until, u <= Date() else { return }
+        resume()
     }
 
     private func scheduleWatch() {

@@ -48,6 +48,11 @@ struct LLMClient {
               let content = msg["content"] as? String else {
             throw LLMError.badReply(String(data: data, encoding: .utf8) ?? "")
         }
+        // 用量按接口返回的 usage 记账，「用量」卡读同一份数据
+        if let usage = obj["usage"] as? [String: Any] {
+            LLMUsage.record(prompt: usage["prompt_tokens"] as? Int ?? 0,
+                            completion: usage["completion_tokens"] as? Int ?? 0)
+        }
         guard choice["finish_reason"] as? String != "length" else {
             throw LLMError.badReply("输出过长被截断，请减少本次整理内容后重试")
         }

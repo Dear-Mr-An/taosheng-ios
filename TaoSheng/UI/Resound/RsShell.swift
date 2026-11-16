@@ -4,6 +4,15 @@ import SwiftUI
 // MARK: - 设置（SettingsScreen.kt）
 
 struct RsSettingsScreen: View {
+    @AppStorage("appearance") private var appearance = "auto"
+
+    private var appearanceTitle: String {
+        switch appearance {
+        case "light": return "浅色"
+        case "dark": return "深色"
+        default: return "自动"
+        }
+    }
     @ObservedObject private var settings = Settings.shared
     @ObservedObject private var app = AppState.shared
     @ObservedObject private var capture = CaptureEngine.shared
@@ -59,6 +68,12 @@ struct RsSettingsScreen: View {
                             symbol: "cloud.fill", tint: Color(hex: "34A853"))
                     }
                     group("通用") {
+            row(RsAppearancePage(), title: "外观", detail: appearanceTitle,
+                symbol: "circle.lefthalf.filled", tint: Color(hex: "6E5FA6"))
+            RsRowDivider(inset: 54)
+            row(RsUpdatePage(), title: "版本更新", detail: "\(version) · 检查更新",
+                symbol: "arrow.up.circle.fill", tint: Color(hex: "4F86C6"))
+            RsRowDivider(inset: 54)
                         row(ReviewSettingsView(), title: "回顾与提醒", detail: "每天 \(settings.reviewHour):00",
                             symbol: "text.badge.checkmark", tint: Color(hex: "D9A02B"))
                         line
@@ -310,6 +325,7 @@ struct RsShell: View {
     @State private var tab: Int
 
     @State private var panelOpen = false
+    @AppStorage("appearance") private var appearance = "auto"
     /// 事件详情面板（点时间线上任何一件事都走这里，面板挂在最外层才盖得住 TabBar）
     @ObservedObject private var eventPanel = RsEventPanel.shared
 
@@ -391,6 +407,7 @@ struct RsShell: View {
                 .zIndex(1)
         }
         .background(Rs.bg.ignoresSafeArea())
+        .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
         .overlay {
             if let e = eventPanel.event {
                 RsBottomSheet(tall: true, onClose: { eventPanel.close() }) {

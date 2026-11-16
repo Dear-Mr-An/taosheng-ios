@@ -426,7 +426,9 @@ final class CaptureEngine: ObservableObject {
             // 就是 recordingMode），会话内外没有区别：0.6.4 之前会话里用 0.8 秒 / 20 秒的实时档，
             // 董事长真机上被这套阈值一路切碎、又因为等网络一直不转。现在整场节奏和平时一样。
             let gap = mode.silenceGap
-            let maxSegment = mode.maxSegment
+            // 「一直在说，最多等多久」：全局上限比专题默认更小时以它为准
+        let globalCap = Double(max(1, Settings.shared.sessionCapMin)) * 60
+        let maxSegment = min(mode.maxSegment, globalCap)
             let liveThreshold = mode.sensitivity(Settings.shared.sensitivity)
             let speaking = rms > liveThreshold
             if speaking {

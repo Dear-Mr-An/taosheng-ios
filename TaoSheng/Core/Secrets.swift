@@ -5,7 +5,7 @@ import Security
 enum Secrets {
     private static let service = "app.taosheng.secrets"
 
-    private static let managedKeys = ["asrKey", "doubaoApiKey", "llmKey", "backupPass"]
+    private static let managedKeys = ["asrKey", "doubaoApiKey", "llmKey", "llm2Key", "backupPass"]
 
     static func get(_ key: String) -> String? {
         var q: [String: Any] = [

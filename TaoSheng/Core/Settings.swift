@@ -185,6 +185,20 @@ final class Settings: ObservableObject {
     @Published var locationOn: Bool { didSet { d.set(locationOn, forKey: "locationOn") } }
     @Published var usePlaceInDigest: Bool { didSet { d.set(usePlaceInDigest, forKey: "usePlaceInDigest") } }
 
+    // MARK: 0.8.0 新增：会话切分与备用服务商
+
+    /// 两段对话之间停多久就算「前面那段说完了」（分钟）。整理时按它标出话题边界。
+    @Published var sessionIdleMin: Int { didSet { d.set(sessionIdleMin, forKey: "sessionIdleMin") } }
+    /// 一直有人在说话时最多等多久先切一段（分钟）。
+    @Published var sessionCapMin: Int { didSet { d.set(sessionCapMin, forKey: "sessionCapMin") } }
+    /// 主服务商失败时自动换备用
+    @Published var llmFailoverOn: Bool { didSet { d.set(llmFailoverOn, forKey: "llmFailoverOn") } }
+    @Published var llm2BaseURL: String { didSet { d.set(llm2BaseURL, forKey: "llm2BaseURL") } }
+    @Published var llm2Model: String { didSet { d.set(llm2Model, forKey: "llm2Model") } }
+    @Published var llm2Key: String { didSet { Secrets.set("llm2Key", llm2Key) } }
+
+    var llm2Ready: Bool { !llm2Key.isEmpty && !llm2BaseURL.isEmpty && !llm2Model.isEmpty }
+
     private init() {
         // 老版本把密钥明文写在 UserDefaults 里，启动时顺手搬进钥匙串并抹掉明文
         Secrets.migrateFromDefaults(d)
@@ -276,6 +290,12 @@ final class Settings: ObservableObject {
         envSoundOn = d.object(forKey: "envSoundOn") as? Bool ?? false
         locationOn = d.object(forKey: "locationOn") as? Bool ?? false
         usePlaceInDigest = d.object(forKey: "usePlaceInDigest") as? Bool ?? false
+        sessionIdleMin = d.object(forKey: "sessionIdleMin") as? Int ?? 10
+        sessionCapMin = d.object(forKey: "sessionCapMin") as? Int ?? 60
+        llmFailoverOn = d.object(forKey: "llmFailoverOn") as? Bool ?? false
+        llm2BaseURL = d.string(forKey: "llm2BaseURL") ?? ""
+        llm2Model = d.string(forKey: "llm2Model") ?? ""
+        llm2Key = Secrets.get("llm2Key") ?? ""
 
         // 初始化赋值不触发 didSet，显式保存规范化配置；旧服务商记录保留但不再参与请求。
         d.set(llmBaseURL, forKey: "llmBaseURL")
