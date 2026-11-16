@@ -62,6 +62,16 @@ final class MicRouter {
             try? session.setPreferredInput(nil)
             return
         }
+        // 「自动」：有外接（USB / 蓝牙 / 耳机）就用它，没有就用手机麦克风
+        if uid == "auto" {
+            if let list = session.availableInputs,
+               let ext = list.first(where: { $0.portType != .builtInMic }) {
+                try? session.setPreferredInput(ext)
+            } else {
+                try? session.setPreferredInput(nil)
+            }
+            return
+        }
         guard let list = session.availableInputs,
               let target = list.first(where: { $0.uid == uid }) else {
             try? session.setPreferredInput(nil)
