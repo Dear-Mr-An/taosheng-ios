@@ -13,14 +13,16 @@ import AVFoundation
 final class LocalModelStore: ObservableObject {
     static let shared = LocalModelStore()
 
-    /// 国内镜像在前，原站兜底
+    /// HuggingFace 直链实测 200 且长度对得上（239 233 841 B / 315 894 B）；
+    /// hf-mirror 目前对这两个文件是 308 跳回原站（没有真正镜像），所以放第二个兜底，
+    /// URLSession 会自己跟随 308，国内网络下多试一次也不亏。
     static let modelSources = [
-        "https://hf-mirror.com/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.int8.onnx",
-        "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.int8.onnx"
+        "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.int8.onnx",
+        "https://hf-mirror.com/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.int8.onnx"
     ]
     static let tokensSources = [
-        "https://hf-mirror.com/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt",
-        "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt"
+        "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt",
+        "https://hf-mirror.com/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt"
     ]
 
     @Published private(set) var phase: LocalModelRules.Phase = .absent

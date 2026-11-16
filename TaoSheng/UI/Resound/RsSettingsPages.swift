@@ -1020,7 +1020,8 @@ struct RsTranscriptPage: View {
         VStack(alignment: .leading, spacing: 12) {
             RsCardTitle(text: "语音转写")
             RsSegControl(options: ["豆包", "本地", "自定义"], index: sourceBinding)
-                .padding(.horizontal, 18)            if settings.asrKind == .appleSpeech {
+                .padding(.horizontal, 18)
+            if settings.asrKind == .appleSpeech {
                 RsRowDivider(inset: 18)
                 localModelBlock
             }

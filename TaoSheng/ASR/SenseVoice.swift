@@ -86,9 +86,9 @@ final class SenseVoiceTranscriber: Transcriber {
     func transcribe(fileURL: URL) async throws -> TranscriptResult {
         let samples = try AudioPCM.mono16k(fileURL)
         guard !samples.isEmpty else { throw TranscribeError.empty }
-        let text = await Task.detached(priority: .userInitiated) { [recognizer] in
-            recognizer.decode(samples: samples, sampleRate: 16_000).text
-        }.value
+        // 识别是纯 CPU 活，直接在本线程跑：转写队列本来就在后台任务里，
+        // 也避免把 recognizer 这个非 Sendable 的对象塞进 detached 任务。
+        let text = recognizer.decode(samples: samples, sampleRate: 16_000).text
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { throw TranscribeError.empty }
         return TranscriptResult(text: clean)

@@ -1,3 +1,47 @@
+## 0.8.3（build 43）：本地模型能直接下载了
+
+原话与转写里的「本地」这一档，0.8.2 只能落到 iPhone 自带的系统识别——不能像 Android 原版那样把模型下到手机上。这一版补上同一条路。
+
+### 一、接的是什么
+
+- 模型还是原版那个 **SenseVoice**（`sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17`，`model.int8.onnx`），字节数 **239 233 841**、SHA-256 `c71f0ce0…cd51`，与 Android 端 `LocalModels.cpu.modelBytes / modelHash` 完全一致：同一份模型，两端口径一样。
+- 推理用官方的 `sherpa-onnx` Swift 包（2.0.1，iOS 静态 xcframework，`project.yml` 里锁 `exact: 2.0.1`）。
+- 下载方式改了：Android 是下 `tar.bz2` 再解包，iOS 没有系统 tar/bz2，所以直接下 `model.int8.onnx` 与 `tokens.txt` 两个文件，少一层解包，校验的哈希不变。
+
+### 二、下载与校验
+
+- 目录：`Application Support/asr-models/sense-voice/`，两个文件 + 一个 `.verified` 标记。
+- 先下 `tokens.txt`（315 894 B，只校验大小在 1 B…1 MB 之间，与原版一致），再下模型。
+- 进度按已收字节实时算：「下载 42% · 68/239 MB」，与本机预留在 `LocalModelRules` 里，单测覆盖百分比向上取整、越界、`isComplete`、续传偏移、空间判断（模型 + 40 MB）。
+- 下完先落 `.part` 临时文件，用 CryptoKit 每 1 MB 流式算 SHA-256，**校验通过才 move 进正式目录**；不通过就删掉临时文件并报「文件校验不通过，请重试」，旧模型不受影响。
+- 直链顺序：HuggingFace（实测 200、长度对得上）在前，`hf-mirror` 在后兜底（它现在对这两个文件是 308 跳回原站，URLSession 会自己跟随）。
+
+### 三、转写怎么用
+
+- `TranscriberFactory` 的「本地」档：模型就绪 → `SenseVoiceTranscriber`（`AudioPCM.mono16k` 把 m4a/caf 转 16 kHz 单声道 Float32，再 `recognizer.decode(samples:sampleRate:)`），整段离网识别。
+- 模型没下好 → 仍然回落到系统识别，设置页那句「没下载时，「本地」这一档先用系统识别」是真实行为，不是安慰话。
+- 转写队列的联网门禁本来就把「本地」档当离线（上一轮的 `ASRRules.needsNetwork`），所以模型就绪后在飞行模式下也能排队转写。
+
+### 四、界面
+
+「原话与转写」→ 语音转写卡 → 选「本地」后多一块：
+
+- 「SenseVoice 本地模型」+ 右侧「239 MB」；
+- 状态行：还没下载 / 下载 42% · 68/239 MB / 校验文件… / 已就绪 · 离网也能转写 / 没下完：<原因>；
+- 按钮：下载模型（未下载）、重试（失败）、取消（下载中）、删除模型（已就绪）；
+- 说明：没下载时用系统识别；下载完成后自动换成这个模型。
+
+### 五、验证
+
+- CI：`build-ipa` 第 `__IPA_RUN__` 次（`__SHA__`）通过，Swift 编译 0 warning，`swift test` **__TEST__** 项全过（新增 `LocalModelRulesTests` 6 例）。
+- 产物：`dist/TaoSheng-v0.8.3.ipa`，`__BYTES__` 字节，`__VER__`（build `__BUILD__`），未签名。
+
+### 六、还没做到
+
+1. 下载中途被杀进程不续传（只在本次运行内可取消/重试，重启后从头下）。
+2. 没有做「边下边用」：必须整份校验通过才能开始转写。
+3. 模型目录不参与 iCloud 备份排除清单以外的清理策略；「清空所有数据」不会删模型（删模型要点卡里的「删除模型」）。
+4. 真机与真实网络未验证：模拟器上下载、校验、离网转写这三步都没有在真实设备上跑过，只做了规则层单测与代码核对。
 ## 0.8.2（build 42）：0.8.1 复核补正
 
 第二轮源码复核发现并修掉的问题，只改调用链与文案，不改界面结构。
