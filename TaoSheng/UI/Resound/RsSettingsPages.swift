@@ -871,6 +871,7 @@ struct RsTranscriptPage: View {
     @ObservedObject private var settings = Settings.shared
     @ObservedObject private var app = AppState.shared
     @ObservedObject private var queue = TranscribeQueue.shared
+    @StateObject private var model = LocalModelStore.shared
 
     @State private var showKey = false
     @State private var keyDraft = ""
@@ -879,6 +880,43 @@ struct RsTranscriptPage: View {
     @State private var hotDraft = ""
     @State private var rawDay = 0
     @State private var rawSegs: [Segment] = []
+    /// 本地模型的下载卡：原版在「本地」档下就能直接下模型，这里补上同一条路。
+    /// 只下 model.int8.onnx 与 tokens.txt（字节数与 SHA-256 和 Android 端同一个模型）。
+    @ViewBuilder
+    private var localModelBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("SenseVoice 本地模型").font(Rs.body).foregroundStyle(Rs.text)
+                Spacer(minLength: 0)
+                Text(LocalModelRules.sizeText(Int64(LocalModelRules.modelBytes)))
+                    .font(Rs.caption).foregroundStyle(Rs.text3)
+            }
+            Text(LocalModelRules.phaseText(model.phase))
+                .font(Rs.subhead)
+                .foregroundStyle(model.phase == .ready ? Rs.good : Rs.text3)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                switch model.phase {
+                case .downloading:
+                    RsBtn(text: "取消", filled: false) { model.cancel() }
+                case .ready:
+                    RsBtn(text: "删除模型", filled: false) { model.delete() }
+                default:
+                    RsBtn(text: model.phase == .absent ? "下载模型" : "重试") { model.start() }
+                }
+                Spacer(minLength: 0)
+            }
+            Text(model.phase == .ready
+                 ? "已经可以离网转写：录音照常分段，转写时不再联网。"
+                 : "没下载时，「本地」这一档先用系统识别；下载完成后自动换成这个模型，离网也能转写。")
+                .font(Rs.caption)
+                .foregroundStyle(Rs.text3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 18)
+        .padding(.bottom, 14)
+        .task { model.refresh() }
+    }
     @State private var testing = false
     @State private var testNote: String?
     @State private var showImporter = false
@@ -982,7 +1020,10 @@ struct RsTranscriptPage: View {
         VStack(alignment: .leading, spacing: 12) {
             RsCardTitle(text: "语音转写")
             RsSegControl(options: ["豆包", "本地", "自定义"], index: sourceBinding)
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 18)            if settings.asrKind == .appleSpeech {
+                RsRowDivider(inset: 18)
+                localModelBlock
+            }
             RsRowDivider(inset: 18)
             Button { headersDraft = settings.asrCustomHeaders; showHeaders = true } label: {
                 HStack {

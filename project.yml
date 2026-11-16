@@ -21,6 +21,11 @@ settings:
     VALIDATE_WORKSPACE: "NO"
     ENABLE_USER_SCRIPT_SANDBOXING: "NO"
 
+packages:
+  sherpa-onnx:
+    url: https://github.com/k2-fsa/sherpa-onnx
+    exact: 2.0.1
+
 targets:
   TaoSheng:
     type: application
@@ -37,12 +42,15 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: app.taosheng.TaoSheng
         PRODUCT_NAME: TaoSheng
         TARGETED_DEVICE_FAMILY: "1"
-        MARKETING_VERSION: "0.8.2"
-        CURRENT_PROJECT_VERSION: "42"
+        MARKETING_VERSION: "0.8.3"
+        CURRENT_PROJECT_VERSION: "43"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SUPPORTS_MACCATALYST: "NO"
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: "NO"
+    dependencies:
+      - package: sherpa-onnx
+        product: sherpa-onnx
     scheme:
       testTargets: []
       gatherCoverageData: false

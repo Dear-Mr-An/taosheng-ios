@@ -300,6 +300,15 @@ enum TranscriberFactory {
         case .off:
             return nil
         case .appleSpeech:
+            // 「本地」这一档：模型下好了就用 SenseVoice 整段离网识别；
+            // 没下模型时不假装能离网，退到系统识别并在设置页写明。
+            #if canImport(SherpaOnnx)
+            if LocalModelStore.readyOnDisk,
+               let local = SenseVoiceTranscriber(modelURL: LocalModelStore.modelFile,
+                                                 tokensURL: LocalModelStore.tokensFile) {
+                return local
+            }
+            #endif
             return AppleSpeechTranscriber(language: s.asrLanguage)
         case .doubao:
             guard s.asrReady else { return nil }
