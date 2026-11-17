@@ -24,7 +24,8 @@ struct RsBottomSheet<Content: View>: View {
                 withAnimation(.easeOut(duration: 0.24)) { appeared = true }
             }
         }
-        .ignoresSafeArea(edges: .bottom)
+        // 只忽略底部容器安全区：键盘弹起时面板要跟着上移，否则抽屉里的输入框会被键盘盖住
+        .ignoresSafeArea(.container, edges: .bottom)
     }
 
     private func close() {
@@ -67,6 +68,57 @@ struct RsBottomSheet<Content: View>: View {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { drag = 0 }
                 }
             }
+    }
+}
+
+// MARK: - 轻提示
+
+/// 复制、导出、保存、删除这类点完界面不一定有变化的操作，用它告诉人成没成。
+/// 挂在 RsShell 最外层，哪一页、哪个抽屉里调用都能看到。
+final class RsToast: ObservableObject {
+    static let shared = RsToast()
+    @Published private(set) var text: String?
+    private var hideWork: DispatchWorkItem?
+    private init() {}
+
+    func show(_ message: String) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.show(message) }
+            return
+        }
+        hideWork?.cancel()
+        text = message
+        let work = DispatchWorkItem { [weak self] in self?.text = nil }
+        hideWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2, execute: work)
+    }
+}
+
+struct RsToastLayer: View {
+    @ObservedObject private var toast = RsToast.shared
+
+    var body: some View {
+        VStack {
+            if let t = toast.text {
+                Text(t)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 11)
+                    .background(Capsule(style: .continuous).fill(Rs.text.opacity(0.9)))
+                    .shadow(color: Color.black.opacity(0.15), radius: 12, x: 0, y: 6)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .accessibilityAddTraits(.isStaticText)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity)
+        .animation(.easeOut(duration: 0.2), value: toast.text)
+        .allowsHitTesting(false)
     }
 }
 

@@ -10,6 +10,8 @@ struct RsSettingsScreen: View {
     @ObservedObject private var capture = CaptureEngine.shared
     @ObservedObject private var queue = TranscribeQueue.shared
     @ObservedObject private var flow = ListenFlow.shared
+    @ObservedObject private var quiet = RsQuiet.shared
+    @ObservedObject private var digest = DigestEngine.shared
 
     @State private var query = ""
 
@@ -100,7 +102,8 @@ struct RsSettingsScreen: View {
             SItem(id: "device", group: "记录", title: "外接设备", detail: audioRouteDetail,
                   symbol: "iphone", tint: Color(hex: "F2994A")),
             SItem(id: "transcript", group: "记录", title: "原话与转写", detail: asrDetail,
-                  symbol: "list.bullet", tint: Color(hex: "E0A030")),
+                  symbol: "list.bullet", tint: Color(hex: "E0A030"),
+                  alert: (settings.asrReady || shotListening) ? nil : Rs.warning),
             SItem(id: "voice", group: "记录", title: "声纹与人物", detail: voiceDetail,
                   symbol: "person.2.fill", tint: Color(hex: "E06A50"),
                   alert: voiceReady ? nil : Rs.warning),
@@ -112,7 +115,8 @@ struct RsSettingsScreen: View {
                   symbol: "mappin", tint: Color(hex: "C9643A")),
             SItem(id: "model", group: "整理", title: "模型与整理时间",
                   detail: shotListening ? "DeepSeek · ¥12.84" : modelLine,
-                  symbol: "sparkles", tint: Color(hex: "7C5CC4")),
+                  symbol: "sparkles", tint: Color(hex: "7C5CC4"),
+                  alert: (settings.llmReady || shotListening) ? nil : Rs.warning),
             SItem(id: "skills", group: "整理", title: "整理技能",
                   detail: shotListening ? "开了 3 个" : "开了 \(app.skills.filter { $0.enabled }.count) 个",
                   symbol: "square.grid.2x2.fill", tint: Color(hex: "5B5BD6")),
@@ -188,10 +192,13 @@ struct RsSettingsScreen: View {
     /// 原版这一行写的是「豆包 · 每 30 分钟」，未配置时才提示
     private var asrDetail: String {
         let m = settings.transcribeIntervalMin
-        let every = m < 60 ? "每 \(m) 分钟" : "每 \(m / 60) 小时"
+        let every = (m >= 60 && m % 60 == 0) ? "每 \(m / 60) 小时" : "每 \(m) 分钟"
+        if !settings.asrReady && !shotListening {
+            if settings.asrKind == .off { return "只录音，不转写" }
+            return queue.pendingCount > 0 ? "未配置 · 待转写 \(queue.pendingCount) 段" : "\(asrProvider) · 未配置"
+        }
         if queue.busy { return "正在转写 · \(every)" }
         if queue.pendingCount > 0 { return "待转写 \(queue.pendingCount) 段" }
-        if !settings.asrReady { return "\(asrProvider) · \(every)" }
         return "\(asrProvider) · \(every)"
     }
 
@@ -257,37 +264,49 @@ struct RsSettingsScreen: View {
     }
 
     private var statusCard: some View {
-        HStack(spacing: 12) {
+        let h = health
+        let tint = h.level == 0 ? Rs.good : (h.level == 1 ? Rs.warning : Rs.critical)
+        return HStack(alignment: .top, spacing: 12) {
             ZStack {
-                Circle().fill(Rs.good.opacity(0.14)).frame(width: 28, height: 28)
-                Image(systemName: "checkmark")
+                Circle().fill(tint.opacity(0.14)).frame(width: 28, height: 28)
+                Image(systemName: h.level == 0 ? "checkmark" : "exclamationmark")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Rs.good)
+                    .foregroundStyle(tint)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("一切正常")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(h.title)
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(Rs.text)
-                Text(stabilityText)
+                Text(h.detail)
                     .font(.system(size: 13))
                     .foregroundStyle(Rs.text3)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Spacer(minLength: 0)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .padding(.top, 3)
+            Spacer(minLength: 0)
         }
         .padding(EdgeInsets(top: 11, leading: 14, bottom: 11, trailing: 14))
         .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card)
             .shadow(color: Rs.shadow, radius: 10, x: 0, y: 4))
+        .accessibilityElement(children: .combine)
     }
 
-    /// 原版状态卡第二行：连续稳定 X 天 · 今天中断 Y 次
-    private var stabilityText: String {
-        // 截图模式跟原版一致：连续稳定 0 天 · 今天中断 2 次
-        if shotListening { return "连续稳定 0 天 · 今天中断 2 次" }
-        // 这一版没有记录「录音中断」的事件流，也不再拿安装天数冒充实测：
-        // 有真实数字之前就如实写「未完成」，不写「连续稳定 N 天」。
-        return "状态检查未完成 · 还没有中断统计"
+    /// 状态卡按真实状态说话：录音停了、转写或模型没配、上次整理失败，都不能写「一切正常」。
+    /// level：0 正常 / 1 提醒 / 2 出问题。这一版没有「录音中断」的统计，不写「连续稳定 N 天」。
+    private var health: (title: String, detail: String, level: Int) {
+        let allGood: (title: String, detail: String, level: Int) = ("一切正常", "正在聆听 · 转写和整理都已配好", 0)
+        if shotListening { return allGood }
+        if let e = capture.lastError, !e.isEmpty { return ("录音出了问题", e, 2) }
+        if quiet.isQuiet { return ("已暂停聆听", "到 \(quiet.resumeText) 自动恢复", 1) }
+        if captureStopped {
+            let why = capture.yieldReason.flatMap { $0.isEmpty ? nil : $0 } ?? "回到「今天」点主卡右上角的 ▶ 继续"
+            return ("没在聆听", why, 2)
+        }
+        if !settings.asrReady { return ("转写还没配好", settings.asrReadyHint + "，录下的话暂时变不成文字", 1) }
+        if !settings.llmReady { return ("整理模型还没配", "原话照常转写，配好模型才会整理成事件和待办", 1) }
+        if let e = digest.lastError, !e.isEmpty { return ("上次整理没成功", e, 1) }
+        return allGood
     }
     /// 一行：彩色圆角方块图标 + 标题 + 右侧状态 + ›（SettingsHome.kt SRow）
     private func row<D: View>(_ dest: D, title: String, detail: String,
@@ -397,6 +416,7 @@ struct RsShell: View {
     @AppStorage("appearance") private var appearance = "auto"
     /// 事件详情面板（点时间线上任何一件事都走这里，面板挂在最外层才盖得住 TabBar）
     @ObservedObject private var eventPanel = RsEventPanel.shared
+    @ObservedObject private var kb = KeyboardObserver.shared
 
     init(shot: String? = nil) {
         self.shot = shot
@@ -472,9 +492,14 @@ struct RsShell: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .zIndex((panelOpen || eventPanel.event != nil) ? 2 : 0)
 
-            RsTabBar(tab: $tab)
-                .zIndex(1)
+            // 键盘弹起时把 TabBar 收起来，否则它会被顺着顶到键盘上方，压在输入框下面占一行
+            if !kb.isVisible {
+                RsTabBar(tab: $tab)
+                    .zIndex(1)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
+        .animation(.easeOut(duration: 0.18), value: kb.isVisible)
         .background(Rs.bg.ignoresSafeArea())
         .preferredColorScheme(.light)
         .overlay {
@@ -483,8 +508,18 @@ struct RsShell: View {
                     RsEventSheet(event: e, onClose: { eventPanel.close() })
                         .environmentObject(AppState.shared)
                 }
+                .id(e.id)
                 .zIndex(3)
             }
+        }
+        .overlay { RsToastLayer() }
+        // 事件详情里点「问问」：问题先写进 AppState（问问页此刻可能还不存在），再切到问问
+        .onReceive(NotificationCenter.default.publisher(for: .taoshengAskPrefill)) { note in
+            if let q = note.userInfo?["q"] as? String, !q.isEmpty {
+                AppState.shared.askPending = q
+            }
+            eventPanel.close()
+            withAnimation(.easeOut(duration: 0.2)) { tab = 1 }
         }
     }
 }
