@@ -7,10 +7,12 @@ struct RsAskScreen: View {
     /// 面板打开时告诉外壳把内容层提到 TabBar 之上，否则胶囊会浮在「问过的」上面
     var onPanel: (Bool) -> Void = { _ in }
 
+    @ObservedObject private var kb = KeyboardObserver.shared
     @State private var input = ""
     @State private var showHistory = false
+    @FocusState private var focused: Bool
 
-    private let suggestions = ["游戏音效提到什么？", "短剧重复播放哪些内容？", "绝密图纸面临什么风险？", "佣兵为何去夏国？"]
+    private let suggestions = ["今天都聊了些什么？", "这两天提到过哪些待办？", "上周我答应老王什么了？", "上次聊的报价是怎么说的？"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -32,6 +34,17 @@ struct RsAskScreen: View {
         }
         .onChange(of: showHistory) { onPanel($0) }
         .onDisappear { onPanel(false) }
+        // 预填问题（事件详情里点「问问」）由 RsShell 写进 AppState.askPending：
+        // 切过来时已经有值走 onAppear，已经停在问问页、值后到走 onChange
+        .onAppear { takePending() }
+        .onChange(of: app.askPending) { _ in takePending() }
+    }
+
+    private func takePending() {
+        guard let q = app.askPending, !q.isEmpty else { return }
+        app.askPending = nil
+        input = q
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { focused = true }
     }
 
     private var header: some View {
@@ -70,7 +83,7 @@ struct RsAskScreen: View {
                 .foregroundStyle(Rs.text2)
                 .fixedSize(horizontal: false, vertical: true)
             FlowChips(items: suggestions) { s in
-                input = s
+                focused = false
                 app.ask(s)
             }
             .padding(.top, 6)
@@ -98,45 +111,74 @@ struct RsAskScreen: View {
                             .font(Rs.subhead)
                             .foregroundStyle(Rs.critical)
                     }
+                    Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
             }
+            .scrollDismissesKeyboard(.interactively)
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                }
+            }
             .onChange(of: app.askMessages.count) { _ in
-                if let last = app.askMessages.last {
-                    withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+            .onChange(of: app.askSending) { _ in
+                withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+            .onChange(of: kb.isVisible) { visible in
+                guard visible else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
             }
         }
     }
 
+    private var canSend: Bool {
+        !app.askSending && !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func send() {
+        let q = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 上一个回答还没回来时 app.ask 会直接忽略，这时清空输入框等于把问题吞掉
+        guard !q.isEmpty, !app.askSending else { return }
+        input = ""
+        app.ask(q)
+    }
+
     private var composer: some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .bottom, spacing: 10) {
             TextField("念念不忘，必有回响...", text: $input, axis: .vertical)
                 .font(Rs.body)
                 .lineLimit(1...4)
+                .focused($focused)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 13)
-                .background(Capsule(style: .continuous).fill(Rs.card))
-            Button {
-                let q = input.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !q.isEmpty else { return }
-                input = ""
-                app.ask(q)
-            } label: {
+                .background(RoundedRectangle(cornerRadius: 23, style: .continuous).fill(Rs.card))
+            Button { send() } label: {
                 ZStack {
-                    Circle().fill(Rs.accentSoft)
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Rs.accent)
+                    Circle().fill(canSend ? Rs.accent : Rs.accentSoft)
+                    if app.askSending {
+                        ProgressView().tint(Rs.accent)
+                    } else {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(canSend ? Color.white : Rs.accent.opacity(0.45))
+                    }
                 }
                 .frame(width: 46, height: 46)
             }
             .buttonStyle(RsSpringButtonStyle())
+            .disabled(!canSend)
+            .accessibilityLabel(app.askSending ? "正在回答" : "发送")
         }
         .padding(.horizontal, 16)
         .padding(.top, 6)
-        .padding(.bottom, Rs.shellBottom + 4)
+        // 键盘弹起时 TabBar 已经收起，不用再给它留位置
+        .padding(.bottom, kb.isVisible ? 8 : Rs.shellBottom + 4)
     }
 }
 
@@ -232,6 +274,9 @@ struct RsMemoryScreen: View {
     @State private var showMonth = false
     @State private var categorySel = 0
     @State private var dayItems: [DigestItem] = []
+    @State private var reviewBusy = false
+    @State private var showReview = false
+    @State private var cardBusy = false
 
     private var dayKey: String { DayKey.of(selectedDay) }
 
@@ -292,8 +337,7 @@ struct RsMemoryScreen: View {
             Spacer(minLength: 0)
             if byDay {
             Button {
-                let md = app.exportMarkdown(day: dayKey)
-                UIPasteboard.general.string = md
+                exportDay()
             } label: {
                 Text("导出")
                     .font(.system(size: 13, weight: .semibold))
@@ -347,14 +391,21 @@ struct RsMemoryScreen: View {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Rs.text2)
+                        .frame(width: 34, height: 30)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("上一周")
                 Button { shiftWeek(1) } label: {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Rs.text3)
+                        .foregroundStyle(canGoForward ? Rs.text2 : Rs.text3.opacity(0.4))
+                        .frame(width: 34, height: 30)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(!canGoForward)
+                .accessibilityLabel("下一周")
             }
             HStack(spacing: 0) {
                 ForEach(["一", "二", "三", "四", "五", "六", "日"], id: \.self) { w in
@@ -413,10 +464,18 @@ struct RsMemoryScreen: View {
         return stride(from: 0, to: cells.count, by: 7).map { Array(cells[$0..<min($0 + 7, cells.count)]) }
     }
 
+    /// 当前这周已经包含今天时不再往后翻：未来的日子不会有记录
+    private var canGoForward: Bool {
+        guard let last = currentWeek.compactMap({ $0 }).last else { return false }
+        return last < Calendar.current.startOfDay(for: Date())
+    }
+
     private func shiftWeek(_ delta: Int) {
         guard let d = Calendar.current.date(byAdding: .day, value: 7 * delta, to: selectedDay) else { return }
-        selectedDay = d
-        monthAnchor = d
+        // 往后翻时如果落到了未来，就停在今天
+        let target = min(d, Date())
+        selectedDay = target
+        monthAnchor = target
         load()
     }
 
@@ -426,6 +485,8 @@ struct RsMemoryScreen: View {
         let hasData = app.days.contains(DayKey.of(d))
         return Button {
             selectedDay = d
+            // 一周跨月时点到另一个月的日子，标题里的月份要跟着变
+            monthAnchor = d
         } label: {
             VStack(spacing: 3) {
                 Text("\(cal.component(.day, from: d))")
@@ -441,32 +502,108 @@ struct RsMemoryScreen: View {
         .buttonStyle(.plain)
     }
 
+    /// app.dayReview 跟着 refreshDay 异步刷新，切日子的一瞬间还是上一天的，按日期再对一遍
+    private var review: ReviewRecord? {
+        guard let r = app.dayReview, r.day == dayKey else { return nil }
+        return r
+    }
+
     private var reviewCard: some View {
-        HStack(alignment: .center, spacing: 10) {
+        let r = review
+        let hint: String
+        if reviewBusy {
+            hint = "正在写这天的回顾…"
+        } else if let r {
+            hint = r.headline.isEmpty ? "已经生成，点右边查看" : r.headline
+        } else {
+            hint = "每晚会自动生成，也可以现在先生成一版"
+        }
+        return HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(app.dayReview == nil ? "这天还没有回顾" : "这天的回顾")
+                Text(r == nil ? "这天还没有回顾" : "这天的回顾")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(Rs.text)
-                Text(app.dayReview == nil ? "每晚会自动生成，也可以现在先生成一版" : "已经生成，点右边再看一遍")
+                Text(hint)
                     .font(Rs.subhead)
                     .foregroundStyle(Rs.text2)
+                    .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
             Button {
-                Task { _ = try? await ReviewEngine.shared.generateDaily(day: dayKey); app.refresh() }
+                if r != nil { showReview = true } else { generateReview() }
             } label: {
-                Text(app.dayReview == nil ? "生成回顾" : "再看")
+                Text(reviewBusy ? "正在写…" : (r == nil ? "生成回顾" : "查看"))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 9)
-                    .background(Capsule(style: .continuous).fill(Rs.accent))
+                    .background(Capsule(style: .continuous).fill(Rs.accent.opacity(reviewBusy ? 0.6 : 1)))
             }
             .buttonStyle(RsSpringButtonStyle())
+            .disabled(reviewBusy)
         }
         .padding(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 14))
         .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.accentSoft))
+        .contentShape(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous))
+        .onTapGesture { if r != nil { showReview = true } }
+        .sheet(isPresented: $showReview) {
+            if let r = review { reviewSheet(r) }
+        }
+    }
+
+    private func reviewSheet(_ r: ReviewRecord) -> some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if !r.headline.isEmpty {
+                        Text(r.headline)
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundStyle(Rs.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Text(r.text)
+                        .font(.system(size: 15))
+                        .lineSpacing(5)
+                        .foregroundStyle(Rs.text)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("生成于 " + Fmt.monthDayTime.string(from: r.createdAt))
+                        .font(Rs.caption)
+                        .foregroundStyle(Rs.text3)
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .background(Rs.bg)
+            .navigationTitle(DayKey.display(r.day) + "的回顾")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { showReview = false }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button(reviewBusy ? "正在写…" : "重新生成") { generateReview() }
+                        .disabled(reviewBusy)
+                }
+            }
+        }
+    }
+
+    private func generateReview() {
+        guard !reviewBusy else { return }
+        reviewBusy = true
+        let day = dayKey
+        Task { @MainActor in
+            do {
+                _ = try await ReviewEngine.shared.generateDaily(day: day)
+                app.refresh()
+                RsToast.shared.show("回顾写好了")
+            } catch {
+                RsToast.shared.show("回顾没生成成功：\(error.localizedDescription)")
+            }
+            reviewBusy = false
+        }
     }
 
     private var skillCards: [SkillCard] {
@@ -539,7 +676,7 @@ struct RsMemoryScreen: View {
                 Button {
                     generateCard()
                 } label: {
-                    Text("+ 生成")
+                    Text(cardBusy ? "生成中…" : "+ 生成")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(Rs.accent)
                         .padding(.horizontal, 12)
@@ -547,6 +684,7 @@ struct RsMemoryScreen: View {
                         .background(Capsule(style: .continuous).fill(Rs.accentSoft))
                 }
                 .buttonStyle(RsSpringButtonStyle())
+                .disabled(cardBusy)
             } content: {
                 if skillCards.isEmpty {
                     Text("开了技能以后，会议、收工打卡这些卡片会出现在这里")
@@ -572,12 +710,10 @@ struct RsMemoryScreen: View {
     private var timelineSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             memSection(title: "时间线", trailing: "\(ShotMode.active ? 42 : events.count) 件事") {
-                Text("↓ 早的在上")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Rs.text2)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Capsule(style: .continuous).fill(Rs.card))
+                // 只是说明排序，不能点；以前做成白底胶囊看着像按钮
+                Text("早的在上")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Rs.text3)
             } content: {
                 HStack(spacing: 8) {
                     RsChip(text: "全部", on: filter == 0) { filter = 0 }
@@ -585,6 +721,17 @@ struct RsMemoryScreen: View {
                     Spacer(minLength: 0)
                 }
                 .padding(.bottom, 12)
+                if groups.isEmpty {
+                    Text(filter == 1 ? "这一天没有媒体类的事" : (Calendar.current.isDateInToday(selectedDay)
+                        ? "今天还没有整理出来的事。录下的话转写后会自动整理，也可以在「今天」点「现在整理」。"
+                        : "这一天没有整理出来的事。"))
+                        .font(Rs.subhead)
+                        .foregroundStyle(Rs.text3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                        .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+                }
                 ForEach(groups, id: \.name) { g in
                     VStack(alignment: .leading, spacing: 8) {
                         Text("\(g.name) · \(g.items.count) 件")
@@ -776,11 +923,33 @@ struct RsMemoryScreen: View {
 
     /// 「+ 生成」：用第一个开着的整理技能给这一天做一张卡
     private func generateCard() {
-        guard let sk = app.skills.first(where: { $0.enabled }) else { return }
-        Task {
-            _ = try? await SkillEngine.shared.run(sk, day: dayKey)
-            app.refresh()
+        guard !cardBusy else { return }
+        guard let sk = app.skills.first(where: { $0.enabled }) else {
+            RsToast.shared.show("还没有开着的整理技能，先到「设置 › 整理技能」打开一个")
+            return
         }
+        cardBusy = true
+        let day = dayKey
+        Task { @MainActor in
+            do {
+                let card = try await SkillEngine.shared.run(sk, day: day)
+                app.refresh()
+                RsToast.shared.show(card.isNothing ? "「\(sk.name)」看过了，这一天没有可写的" : "生成好了：\(sk.name)")
+            } catch {
+                RsToast.shared.show("没生成成功：\(error.localizedDescription)")
+            }
+            cardBusy = false
+        }
+    }
+
+    private func exportDay() {
+        let md = app.exportMarkdown(day: dayKey)
+        // 只有标题行时说明这天什么都没有，弹分享面板只会分享一个空壳
+        guard md.count >= 40 else {
+            RsToast.shared.show("这一天还没有可导出的内容")
+            return
+        }
+        ShareSheet.present(items: [md])
     }
 }
 
@@ -822,6 +991,7 @@ struct RsTodoScreen: View {
     @State private var tab = 0        // 0 待确认 / 1 进行中 / 2 已完成
     @State private var showAdd = false
     @State private var addText = ""
+    @State private var confirmIgnoreAll = false
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -833,7 +1003,11 @@ struct RsTodoScreen: View {
                         .padding(.leading, 4)
                     tabs
                     if tab == 0 && !app.pendingItems.isEmpty { bulkRow }
-                    groupedCards
+                    if rows.isEmpty {
+                        emptyState
+                    } else {
+                        groupedCards
+                    }
                     Color.clear.frame(height: Rs.shellBottom + 40)
                 }
                 .padding(.horizontal, 16)
@@ -854,14 +1028,33 @@ struct RsTodoScreen: View {
             .buttonStyle(RsSpringButtonStyle())
             .padding(.trailing, 18)
             .padding(.bottom, Rs.shellBottom + 6)
+            .accessibilityLabel("新待办")
         }
         .sheet(isPresented: $showAdd) {
             RsAddTodoSheet(text: $addText) {
-                app.addItem(content: addText)
+                app.addItem(content: addText.trimmingCharacters(in: .whitespacesAndNewlines))
                 addText = ""
                 tab = 1
             }
             .presentationDetents([.medium])
+        }
+    }
+
+    private var emptyState: some View {
+        Text(emptyText)
+            .font(Rs.subhead)
+            .foregroundStyle(Rs.text3)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+    }
+
+    private var emptyText: String {
+        switch tab {
+        case 0: return "没有等你确认的。整理时从原话里找到的待办和约定会先放在这里。"
+        case 1: return "没有进行中的待办。点右下角的 + 可以自己记一条。"
+        default: return "还没有完成的待办。"
         }
     }
 
@@ -888,7 +1081,7 @@ struct RsTodoScreen: View {
             }
             .buttonStyle(RsSpringButtonStyle())
             Button {
-                for it in app.pendingItems { app.setItemStatus(it.id, status: .ignored) }
+                confirmIgnoreAll = true
             } label: {
                 Text("全部忽略")
                     .font(.system(size: 13, weight: .semibold))
@@ -899,6 +1092,13 @@ struct RsTodoScreen: View {
             }
             .buttonStyle(RsSpringButtonStyle())
             Spacer(minLength: 0)
+        }
+        .confirmationDialog("把 \(app.pendingItems.count) 条待确认的都忽略掉？", isPresented: $confirmIgnoreAll,
+                            titleVisibility: .visible) {
+            Button("全部忽略", role: .destructive) {
+                for it in app.pendingItems { app.setItemStatus(it.id, status: .ignored) }
+            }
+            Button("取消", role: .cancel) {}
         }
     }
 
@@ -922,7 +1122,7 @@ struct RsTodoScreen: View {
                     .padding(.leading, 4)
                 RsCard(padding: EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0)) {
                     ForEach(Array(items.enumerated()), id: \.element.id) { i, it in
-                        RsTodoRow(item: it, done: tab == 2, showCheck: tab != 0)
+                        RsTodoRow(item: it, done: tab == 2, showCheck: tab != 0, pending: tab == 0)
                         if i < items.count - 1 {
                             Rectangle().fill(Rs.separator).frame(height: 0.5)
                                 .padding(.leading, 18).padding(.trailing, 18)
@@ -953,6 +1153,8 @@ struct RsTodoRow: View {
     let item: MemoryItem
     var done: Bool = false
     var showCheck: Bool = true
+    /// 待确认的条目在行内给「忽略 / 接受」，否则只能整批接受或整批忽略
+    var pending: Bool = false
     @ObservedObject private var app = AppState.shared
 
     var body: some View {
@@ -964,8 +1166,11 @@ struct RsTodoRow: View {
                     Image(systemName: done ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 20, weight: .regular))
                         .foregroundStyle(done ? Rs.good : Rs.text3)
+                        // 图标只有 20pt，向外放大点击区但不改变布局
+                        .contentShape(Rectangle().inset(by: -10))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(done ? "标为未完成" : "标为完成")
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text(item.content)
@@ -987,11 +1192,35 @@ struct RsTodoRow: View {
                             .foregroundStyle(Rs.accent)
                     }
                 }
+                if pending {
+                    HStack(spacing: 8) {
+                        Spacer(minLength: 0)
+                        rowPill("忽略", filled: false) {
+                            app.setItemStatus(item.id, status: .ignored)
+                        }
+                        rowPill(item.category == "约定" ? "记下" : "接受", filled: true) {
+                            app.setItemStatus(item.id, status: .accepted)
+                        }
+                    }
+                    .padding(.top, 2)
+                }
             }
             Spacer(minLength: 0)
         }
         .padding(EdgeInsets(top: 12, leading: 18, bottom: 12, trailing: 18))
         .opacity(done ? 0.55 : 1)
+    }
+
+    private func rowPill(_ text: String, filled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(filled ? Color.white : Rs.text2)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 6)
+                .background(Capsule(style: .continuous).fill(filled ? Rs.accent : Rs.fill))
+        }
+        .buttonStyle(RsSpringButtonStyle())
     }
 
     private var metaText: String? {
@@ -1013,19 +1242,28 @@ struct RsAddTodoSheet: View {
     @Binding var text: String
     var onAdd: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @FocusState private var focused: Bool
+
+    /// 多行输入框里只敲了换行也算空：只去空格的话会记下一条看不见的待办
+    private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
         RsSheetBody(title: "新待办") {
             TextField("要做什么？", text: $text, axis: .vertical)
                 .font(Rs.body)
                 .lineLimit(1...4)
+                .focused($focused)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
                 .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Rs.fill))
-            RsActionButton(title: "记下", enabled: !text.trimmingCharacters(in: .whitespaces).isEmpty) {
+            RsActionButton(title: "记下", enabled: !trimmed.isEmpty) {
                 onAdd()
                 dismiss()
             }
+        }
+        .onAppear {
+            // sheet 还在弹出动画里时设焦点会被忽略
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { focused = true }
         }
     }
 }
