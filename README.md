@@ -17,9 +17,9 @@
 
 ### 三、验证
 
-- 新增 `Tests/Policies/SpeakerModelRulesTests.swift` 5 例：模型字节/哈希固定、按维度取阈值、取样窗口（不足 1.5 秒、单窗、30 秒 8 窗贴尾）、下载文案与空间判断。
-- CI：待跑。
-- 产物：待填。
+- 新增 `Tests/Policies/SpeakerModelRulesTests.swift` 4 例：模型字节/哈希固定、按维度取阈值、取样窗口（不足 1.5 秒、单窗、30 秒 8 窗贴尾）、下载文案与空间判断。
+- CI：第 `168` 次（`0894e81`）通过，`swift test` **96** 项全过。
+- 产物：`dist/TaoSheng-v0.8.5.ipa`，`13 705 549` 字节，`0.8.5`（build `45`），未签名。
 
 ### 四、还没做到
 
