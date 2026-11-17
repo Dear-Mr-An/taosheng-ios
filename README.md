@@ -1,3 +1,32 @@
+## 0.8.5（build 45）：认人换成 CAM++ 192 维，模型运行时下载
+
+补 0.8.4 遗留的第一条：认人一直是本机 48 维 log-mel 均值/标准差，区分度有限。
+
+### 一、模型：和原版同一份 CAM++
+
+- `3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx`，**28 281 138 B**，SHA-256 `f682b514…fd11`，与 Android 端 `assets/voiceprint/campplus.onnx` 逐字节一致（本地对同一文件复算过哈希）。
+- 不随包带：放在「设置 → 声纹与人物」运行时下载。直链 HuggingFace 优先、hf-mirror 兜底；先落 `.part`，每 1 MB 流式算 SHA-256，校验通过才 move 进 `Application Support/voiceprint/campplus/`，失败不碰旧文件。进度、空间判断、取消沿用 0.8.3 的 SenseVoice 那套，`ModelDownloadDelegate` 两边共用一份。
+- 推理走 sherpa-onnx 的 `SpeakerEmbeddingExtractor`（16 kHz 单声道）；整段均匀取最多 8 个 3 秒窗（原版 `SpeakerPrecheck` 同款），各算一次、取平均再归一化。
+
+### 二、认人规则
+
+- 阈值照原版：CAM++ 相似度 ≥ **0.65** 且与第二名拉开 **0.08** 才报名字（`VoiceprintThresholds.SURE`、`SpeakerIdentity.match`）；未知说话人聚簇门槛 **0.70**（原版 `FastClusteringConfig`）。
+- 没下载模型时仍走 48 维粗特征（阈值 0.82、聚簇 0.80），行为与 0.8.4 一致，不下载也能用。
+- 两套向量维度不同，只在同维度样本里比较。下载完成后自动从原录音重算已有样本，并清掉维度不对的旧簇——不用重新指认每个人；原音频已删除的样本只能作废。
+- 启动时若模型早已就绪、上次没来得及重算，会补跑一次；重复触发是幂等的。
+
+### 三、验证
+
+- 新增 `Tests/Policies/SpeakerModelRulesTests.swift` 5 例：模型字节/哈希固定、按维度取阈值、取样窗口（不足 1.5 秒、单窗、30 秒 8 窗贴尾）、下载文案与空间判断。
+- CI：待跑。
+- 产物：待填。
+
+### 四、还没做到
+
+1. 原版完整分人（pyannote 分段 + CAM++ 聚类）仍未搬；现在的「说话人 1/2/3」仍是转写标签 + 本机声纹聚类。
+2. 真机未验：CAM++ 在 iPhone 上的耗时与内存、旧样本重算速度，需要在真机上过一遍。
+3. VAD 边界不变：音乐里的人声、电视对白仍可能被当成说话。
+
 ## 0.8.4（build 44）：只录人声，认人不再瞎猜
 
 反馈是「什么声音都采集」。查下来确实如此：换 Resound 界面时，人声判断退化成了一条音量阈值。

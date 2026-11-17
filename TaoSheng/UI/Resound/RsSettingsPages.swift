@@ -1444,6 +1444,7 @@ struct RsTranscriptPage: View {
 struct RsVoicePage: View {
     @ObservedObject private var app = AppState.shared
     @ObservedObject private var settings = Settings.shared
+    @StateObject private var speakerModel = SpeakerModelStore.shared
     @State private var showAdd = false
     @State private var nameDraft = ""
     @State private var pendingDelete: Person?
@@ -1486,7 +1487,41 @@ struct RsVoicePage: View {
                 }
             }
             .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
-            RsFootNote(text: "这一版只能按「人物」统计已有分段；「在原话里指认说话人」的入口还没做。")
+            RsFootNote(text: "指认说话人的入口在「原话与转写 → 录音原话」每行右边；指认后这段声音会算作这个人的一条样本。")
+
+            // MARK: 认人模型（CAM++）
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Text("认人模型 CAM++").font(Rs.body).foregroundStyle(Rs.text)
+                    Spacer(minLength: 0)
+                    Text(SpeakerModelRules.sizeText(Int64(SpeakerModelRules.modelBytes)))
+                        .font(Rs.caption).foregroundStyle(Rs.text3)
+                }
+                Text(SpeakerModelRules.phaseText(speakerModel.phase))
+                    .font(Rs.subhead)
+                    .foregroundStyle(speakerModel.phase == .ready ? Rs.good : Rs.text3)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    switch speakerModel.phase {
+                    case .downloading:
+                        RsBtn(text: "取消", filled: false) { speakerModel.cancel() }
+                    case .ready:
+                        RsBtn(text: "删除模型", filled: false) { speakerModel.delete() }
+                    default:
+                        RsBtn(text: speakerModel.phase == .absent ? "下载模型" : "重试") { speakerModel.start() }
+                    }
+                    Spacer(minLength: 0)
+                }
+                Text(speakerModel.phase == .ready
+                     ? "认人用 192 维声纹，和原版同一个模型；原有的声音样本已经自动重算。"
+                     : "没下载时按本机 48 维粗特征认人，能分出熟人和陌生人，但区分度有限。下载后自动换成 192 维，已有样本会就地重算，不用重新指认。")
+                    .font(Rs.caption)
+                    .foregroundStyle(Rs.text3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(16)
+            .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
+            .task { speakerModel.refresh() }
 
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {

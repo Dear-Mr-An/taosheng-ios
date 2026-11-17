@@ -204,7 +204,7 @@ final class LocalModelStore: ObservableObject {
             let cfg = URLSessionConfiguration.default
             cfg.timeoutIntervalForRequest = 60
             cfg.timeoutIntervalForResource = 60 * 30
-            let delegate = DownloadDelegate(
+            let delegate = ModelDownloadDelegate(
                 target: target,
                 progress: { [weak self] received, total in
                     let totalBytes = total > 0 ? total : Int64(LocalModelRules.modelBytes)
@@ -242,8 +242,9 @@ final class LocalModelStore: ObservableObject {
     }
 }
 
-/// 下载回调只在这里转成「进度 / 结果」，不直接碰界面状态
-private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
+/// 下载回调只在这里转成「进度 / 结果」，不直接碰界面状态。
+/// SenseVoice 与 CAM++ 共用这一份，避免两套下载代码逐渐走样。
+final class ModelDownloadDelegate: NSObject, URLSessionDownloadDelegate {
     private let target: URL
     private let progress: (Int64, Int64) -> Void
     private let finish: (String?) -> Void

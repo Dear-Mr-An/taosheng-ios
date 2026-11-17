@@ -176,7 +176,7 @@ final class TranscribeQueue: ObservableObject {
             let score = Voiceprint.cosine(v, c.vector)
             if score > bestScore { bestScore = score; bestNo = c.no }
         }
-        if bestNo > 0 && bestScore >= 0.80 {
+        if bestNo > 0 && bestScore >= Voiceprint.clusterThreshold(for: v) {
             Store.shared.setSpeaker(id: segmentId, speaker: "说话人\(bestNo)")
             Store.shared.updateCluster(day: clusterKey, no: bestNo, vector: v)
         } else {

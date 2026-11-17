@@ -1,24 +1,118 @@
 import Foundation
 import AVFoundation
 import Accelerate
+#if canImport(SherpaOnnx)
+import SherpaOnnx
+#endif
 
-/// 本机声纹：24 维 log-mel 均值 + 标准差 = 48 维向量，余弦相似度认人。
-/// 比不上云端 CAM++，但纯本机、不出设备、够分出「我 / 熟人 / 陌生人」。
+/// 本机声纹：有 CAM++ 模型时用 192 维 embedding（与原版 Android 同一个模型），
+/// 没下载模型时回落到 24 维 log-mel 均值 + 标准差 = 48 维粗特征。
+/// 两种向量都只在本机算，不出设备；维度不同的样本互不比较。
 enum Voiceprint {
 
     static let frameSize = 512
     static let hopSize = 256
     static let melBands = 24
-    static let threshold: Double = 0.82
 
     // MARK: - 提取
 
-    /// 抽查窗长（秒）。整段开头可能是静音或音乐，只看前 60 秒容易把「噪声」当音色；
+    /// 抽查窗长（秒）。整段开头可能是静音或音乐，只看开头容易把「噪声」当音色；
     /// 照原版 SpeakerPrecheck 的做法，在整段里均匀取几处，各算一次再平均。
+    /// CAM++ 用 3 秒窗（原版同款），48 维粗特征沿用 4 秒窗。
     static let windowSeconds: Double = 4
     static let maxWindows = 8
 
+    /// 当前实际用的维度（库里已有样本也按这个判断能不能比）
+    static var dim: Int {
+        SpeakerModelStore.readyOnDisk ? SpeakerModelRules.embeddingDim : SpeakerModelRules.fallbackDim
+    }
+
     static func vector(from url: URL) -> [Double]? {
+        // 模型就绪却算不出来时返回 nil，不退回 48 维：
+        // 库里已有 192 维样本，混着存只会让认人更乱。
+        if SpeakerModelStore.readyOnDisk {
+            return campplusVector(from: url)
+        }
+        return melVector(from: url)
+    }
+
+    // MARK: - CAM++ 192 维
+
+    #if canImport(SherpaOnnx)
+    private static let engineLock = NSLock()
+    private static var engine: SherpaOnnxSpeakerEmbeddingExtractorWrapper?
+    #endif
+
+    static func campplusVector(from url: URL) -> [Double]? {
+        #if canImport(SherpaOnnx)
+        guard let samples = try? AudioPCM.mono16k(url) else { return nil }
+        let starts = SpeakerModelRules.windowStarts(totalSamples: samples.count)
+        guard !starts.isEmpty else { return nil }
+        let win = Int(SpeakerModelRules.windowSeconds * 16_000)
+        let minLen = Int(SpeakerModelRules.minSeconds * 16_000)
+
+        var picked: [[Double]] = []
+        for start in starts {
+            let end = min(samples.count, start + win)
+            guard end - start >= minLen else { continue }
+            let slice = Array(samples[start..<end])
+            if let v = embed(slice) { picked.append(v) }
+        }
+        guard let first = picked.first else { return nil }
+        var avg = [Double](repeating: 0, count: first.count)
+        for v in picked where v.count == avg.count {
+            for i in 0..<avg.count { avg[i] += v[i] }
+        }
+        let k = Double(picked.count)
+        let out = l2(avg.map { $0 / k })
+        return out.allSatisfy { $0.isFinite } ? out : nil
+        #else
+        return nil
+        #endif
+    }
+
+    #if canImport(SherpaOnnx)
+    /// 模型只加载一次；推理也串行，避免多段转写同时加载 28 MB 权重。
+    private static func embed(_ samples: [Float]) -> [Double]? {
+        engineLock.lock()
+        defer { engineLock.unlock() }
+        guard let e = engine ?? loadEngine() else { return nil }
+        let stream = e.createStream()
+        stream.acceptWaveform(samples: samples, sampleRate: 16_000)
+        stream.inputFinished()
+        guard e.isReady(stream: stream) else { return nil }
+        let values = e.compute(stream: stream)
+        guard values.count == SpeakerModelRules.embeddingDim else { return nil }
+        return values.map { Double($0) }
+    }
+
+    private static func loadEngine() -> SherpaOnnxSpeakerEmbeddingExtractorWrapper? {
+        let path = SpeakerModelStore.modelFile.path
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        var config = sherpaOnnxSpeakerEmbeddingExtractorConfig(
+            model: path,
+            numThreads: 2,
+            debug: 0,
+            provider: "cpu"
+        )
+        let e = SherpaOnnxSpeakerEmbeddingExtractorWrapper(config: &config)
+        guard e.dim == SpeakerModelRules.embeddingDim else {
+            NSLog("涛声: CAM++ 输出 \(e.dim) 维，和预期的 \(SpeakerModelRules.embeddingDim) 维不一致，先不认人")
+            return nil
+        }
+        engine = e
+        return e
+    }
+    #endif
+
+    static func l2(_ v: [Double]) -> [Double] {
+        let norm = sqrt(v.reduce(0) { $0 + $1 * $1 }) + 1e-8
+        return v.map { $0 / norm }
+    }
+
+    // MARK: - 48 维粗特征（没模型时）
+
+    static func melVector(from url: URL) -> [Double]? {
         guard let file = try? AVAudioFile(forReading: url) else { return nil }
         let sr = file.processingFormat.sampleRate
         let total = file.length
@@ -185,7 +279,7 @@ enum Voiceprint {
 
     // MARK: - 认人
 
-    /// 用已登记的样本找最像的人
+    /// 用已登记的样本找最像的人。两套向量维度不同，只在同维度样本里比。
     static func match(_ vector: [Double], samples: [VoiceSample]) -> (personId: String, score: Double)? {
         var grouped: [String: [Double]] = [:]
         for s in samples where s.vector.count == vector.count {
@@ -193,7 +287,13 @@ enum Voiceprint {
         }
         let averages = grouped.map { (id: $0.key, score: $0.value.reduce(0, +) / Double($0.value.count)) }
         // 阈值 + 与第二名的差距，两条都过才算认出来（照 SpeakerIdentity.match）
+        let threshold = SpeakerModelRules.threshold(forDim: vector.count)
         guard let hit = SpeakerRules.bestName(averages, threshold: threshold) else { return nil }
         return (hit.id, hit.score)
+    }
+
+    /// 未知说话人归到已有一簇的门槛：CAM++ 用原版分人的 0.70，48 维粗特征用 0.80。
+    static func clusterThreshold(for vector: [Double]) -> Double {
+        SpeakerModelRules.clusterThreshold(forDim: vector.count)
     }
 }

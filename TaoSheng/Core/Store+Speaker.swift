@@ -100,6 +100,30 @@ extension Store {
         }
     }
 
+    /// 清掉维度不对的旧簇（例如换成 192 维 CAM++ 后，48 维的簇已经比不了）。
+    /// 保留同维度的簇，用户不用重新等录音重新聚。
+    func clearStaleClusters(keepingDim: Int) {
+        queue.sync {
+            guard let db else { return }
+            var stale: [String] = []
+            var st: OpaquePointer?
+            if sqlite3_prepare_v2(db, "SELECT id, vector FROM voice_cluster", -1, &st, nil) == SQLITE_OK, let q = st {
+                while sqlite3_step(q) == SQLITE_ROW {
+                    let dim = col(q, 1).split(separator: ",").count
+                    if dim != keepingDim { stale.append(col(q, 0)) }
+                }
+                sqlite3_finalize(q)
+            }
+            for id in stale {
+                var d: OpaquePointer?
+                guard sqlite3_prepare_v2(db, "DELETE FROM voice_cluster WHERE id=?", -1, &d, nil) == SQLITE_OK, let q = d else { continue }
+                bind(q, 1, id)
+                sqlite3_step(q)
+                sqlite3_finalize(q)
+            }
+        }
+    }
+
     /// 把某一天已经写进 segment.speaker 的「说话人N」重排成人名，用于用户事后指认
     func renameSpeaker(day: String, from: String, to: String) {
         queue.sync {

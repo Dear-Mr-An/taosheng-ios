@@ -74,6 +74,8 @@ final class AppState: ObservableObject {
         }
         seedIfNeeded()
         refresh()
+        // 模型早就下好、只是上次没来得及重算旧样本时，启动后补上
+        SpeakerModelStore.shared.refresh()
     }
 
     deinit {
