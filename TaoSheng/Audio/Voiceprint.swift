@@ -13,22 +13,44 @@ enum Voiceprint {
 
     // MARK: - 提取
 
+    /// 抽查窗长（秒）。整段开头可能是静音或音乐，只看前 60 秒容易把「噪声」当音色；
+    /// 照原版 SpeakerPrecheck 的做法，在整段里均匀取几处，各算一次再平均。
+    static let windowSeconds: Double = 4
+    static let maxWindows = 8
+
     static func vector(from url: URL) -> [Double]? {
         guard let file = try? AVAudioFile(forReading: url) else { return nil }
-        let sr0 = file.processingFormat.sampleRate
-        // 只取前 60 秒：一整段 10 分钟的录音全读进来要 ~40MB 峰值内存，
-        // 而声纹只要一段干净语音就够，前 60 秒足够代表这个人的音色。
-        let cap = min(Double(file.length), max(sr0 * 60, 1))
-        let length = AVAudioFrameCount(max(1, cap))
-        guard length > 0, file.length > 0 else { return nil }
-        guard let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: length) else { return nil }
-        do { try file.read(into: buf) } catch { return nil }
-        guard let chData = buf.floatChannelData else { return nil }
-        let n = Int(buf.frameLength)
-        guard n > frameSize else { return nil }
         let sr = file.processingFormat.sampleRate
-        let samples = Array(UnsafeBufferPointer(start: chData[0], count: n))
-        return vector(from: samples, sampleRate: sr)
+        let total = file.length
+        guard total > 0 else { return nil }
+        let win = AVAudioFramePosition(max(1, sr * windowSeconds))
+        let usable = min(win, total)
+        // 文件太短（不足一个窗）就按整段算
+        let count = total < win * 2 ? 1 : min(maxWindows, Int(total / win))
+        var picked: [[Double]] = []
+        for i in 0..<count {
+            // 均匀铺开：最后一块贴着结尾，避免越界
+            let start = count == 1 ? 0 : (total - usable) * AVAudioFramePosition(i) / AVAudioFramePosition(count - 1)
+            file.framePosition = start
+            guard let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(usable)) else { continue }
+            do { try file.read(into: buf) } catch { continue }
+            guard let chData = buf.floatChannelData else { continue }
+            let n = Int(buf.frameLength)
+            guard n > frameSize else { continue }
+            let samples = Array(UnsafeBufferPointer(start: chData[0], count: n))
+            if let v = vector(from: samples, sampleRate: sr) { picked.append(v) }
+        }
+        guard !picked.isEmpty else { return nil }
+        guard picked.count > 1 else { return picked[0] }
+        // 先各自归一化再取平均，最后再归一化一次：各窗音量不同也不影响方向
+        var avg = [Double](repeating: 0, count: picked[0].count)
+        for v in picked where v.count == avg.count {
+            for i in 0..<avg.count { avg[i] += v[i] }
+        }
+        let k = Double(picked.count)
+        avg = avg.map { $0 / k }
+        let out = normalize(avg)
+        return out.allSatisfy { $0.isFinite } ? out : nil
     }
 
     static func vector(from samples: [Float], sampleRate sr: Double) -> [Double]? {
@@ -165,19 +187,13 @@ enum Voiceprint {
 
     /// 用已登记的样本找最像的人
     static func match(_ vector: [Double], samples: [VoiceSample]) -> (personId: String, score: Double)? {
-        var best: (String, Double)? = nil
         var grouped: [String: [Double]] = [:]
         for s in samples where s.vector.count == vector.count {
-            let score = cosine(vector, s.vector)
-            grouped[s.personId, default: []].append(score)
+            grouped[s.personId, default: []].append(cosine(vector, s.vector))
         }
-        for (pid, scores) in grouped {
-            let avg = scores.reduce(0, +) / Double(scores.count)
-            if best == nil || avg > best!.1 {
-                best = (pid, avg)
-            }
-        }
-        guard let b = best, b.1 >= threshold else { return nil }
-        return (b.0, b.1)
+        let averages = grouped.map { (id: $0.key, score: $0.value.reduce(0, +) / Double($0.value.count)) }
+        // 阈值 + 与第二名的差距，两条都过才算认出来（照 SpeakerIdentity.match）
+        guard let hit = SpeakerRules.bestName(averages, threshold: threshold) else { return nil }
+        return (hit.id, hit.score)
     }
 }

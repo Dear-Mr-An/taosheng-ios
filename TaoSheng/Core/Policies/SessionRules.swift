@@ -164,6 +164,20 @@ public enum DoubaoResultParser {
 public enum SpeakerRules {
     public static func display(_ index: Int) -> String { "说话人\(index)" }
 
+    /// 认人时第一候选与第二候选至少要差这么多才敢报名字（照原版 SpeakerIdentity 的 0.08）。
+    /// 相似度不是概率：两个人声纹都接近时，留空让人指认比认错好。
+    public static let margin: Double = 0.08
+
+    /// `scores` 是「每个人一条平均分」。返回 nil 表示这一版不敢下结论。
+    public static func bestName(_ scores: [(id: String, score: Double)],
+                                threshold: Double,
+                                margin: Double = SpeakerRules.margin) -> (id: String, score: Double)? {
+        let ranked = scores.sorted { $0.score > $1.score }
+        guard let first = ranked.first, first.score >= threshold else { return nil }
+        if ranked.count > 1, first.score - ranked[1].score < margin { return nil }
+        return (first.id, first.score)
+    }
+
     /// 把原始标签按首现顺序编号；没有标签的统一归到编号 1（后续会被声纹兜底覆盖）。
     public static func numbering(_ spans: [UtteranceSpan]) -> [String: Int] {
         var map: [String: Int] = [:]
