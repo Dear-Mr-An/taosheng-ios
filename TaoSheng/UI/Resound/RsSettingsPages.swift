@@ -2500,7 +2500,7 @@ struct RsWhoSheet: View {
                     Text(note).font(Rs.caption).foregroundStyle(Rs.text3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                RsFootNote("指认之后，这段的声音会算作这个人的一条样本；样本够了，后面的录音会自动认出他。")
+                RsFootNote(text: "指认之后，这段的声音会算作这个人的一条样本；样本够了，后面的录音会自动认出他。")
             }
         }
     }
