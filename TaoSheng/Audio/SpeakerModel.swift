@@ -22,6 +22,9 @@ final class SpeakerModelStore: ObservableObject {
 
     private let fm = FileManager.default
     private var task: URLSessionDownloadTask?
+    /// 每次开始/取消/删除都 +1：旧的下载任务回来时凭这个数字判断自己是不是过期了，
+    /// 否则「下载中就点了删除」，慢一步的 run() 还会把模型写回磁盘。
+    private var generation = 0
     private var session: URLSession?
     private var running = false
 
@@ -77,6 +80,9 @@ final class SpeakerModelStore: ObservableObject {
             return
         }
         if running { return }
+        // 上次的失败原因留着：重进页面不该把「为什么没下成」清掉，
+        // 用户再点一次「重试」才会重新开始。
+        if case .failed = phase { return }
         setPhase(.absent)
     }
 
@@ -91,13 +97,16 @@ final class SpeakerModelStore: ObservableObject {
             return
         }
         running = true
+        generation += 1
+        let gen = generation
         setPhase(.downloading(received: 0, total: Int64(SpeakerModelRules.modelBytes)))
         Task.detached(priority: .utility) { [weak self] in
-            await self?.run()
+            await self?.run(gen: gen)
         }
     }
 
-    private func run() async {
+    private func run(gen: Int) async {
+        guard gen == generation else { return }
         _ = directory
         if SpeakerModelRules.isComplete(bytes: fileSize(Self.modelFile)), verify(at: Self.modelFile) {
             writeMark()
@@ -115,11 +124,19 @@ final class SpeakerModelStore: ObservableObject {
             setPhase(.failed(reason))
             return
         }
+        guard gen == generation else {
+            try? fm.removeItem(at: tmp)
+            return
+        }
         setPhase(.verifying)
         guard verify(at: tmp) else {
             try? fm.removeItem(at: tmp)
             running = false
             setPhase(.failed("文件校验不通过，请重试"))
+            return
+        }
+        guard gen == generation else {
+            try? fm.removeItem(at: tmp)
             return
         }
         do {
@@ -140,6 +157,7 @@ final class SpeakerModelStore: ObservableObject {
     }
 
     func cancel() {
+        generation += 1
         task?.cancel()
         task = nil
         session?.invalidateAndCancel()
@@ -151,6 +169,9 @@ final class SpeakerModelStore: ObservableObject {
     func delete() {
         cancel()
         try? fm.removeItem(at: directory)
+        // 权重不释放会一直占着 28 MB；维度换回去以后，旧的 192 维簇也已经比不了。
+        Voiceprint.releaseEngine()
+        Store.shared.clearStaleClusters(keepingDim: SpeakerModelRules.fallbackDim)
         setPhase(.absent)
     }
 

@@ -45,17 +45,20 @@ enum Voiceprint {
 
     static func campplusVector(from url: URL) -> [Double]? {
         #if canImport(SherpaOnnx)
-        guard let samples = try? AudioPCM.mono16k(url) else { return nil }
-        let starts = SpeakerModelRules.windowStarts(totalSamples: samples.count)
+        // 按窗读，不整段解码：一段 5 分钟的 PCM 有 19 MB，再复制一份就是 38 MB，
+        // 认人只需要每窗 3 秒（最多 8 窗 = 24 秒），没必要把整段读进内存。
+        guard let file = try? AVAudioFile(forReading: url), file.length > 0 else { return nil }
+        let sr = file.processingFormat.sampleRate
+        let total = Int(Double(file.length) / sr * 16_000)
+        let starts = SpeakerModelRules.windowStarts(totalSamples: total)
         guard !starts.isEmpty else { return nil }
-        let win = Int(SpeakerModelRules.windowSeconds * 16_000)
         let minLen = Int(SpeakerModelRules.minSeconds * 16_000)
 
         var picked: [[Double]] = []
         for start in starts {
-            let end = min(samples.count, start + win)
-            guard end - start >= minLen else { continue }
-            let slice = Array(samples[start..<end])
+            let at = Double(start) / 16_000
+            guard let slice = try? AudioPCM.mono16kSlice(url, at: at, length: SpeakerModelRules.windowSeconds),
+                  slice.count >= minLen else { continue }
             if let v = embed(slice) { picked.append(v) }
         }
         guard let first = picked.first else { return nil }
@@ -104,6 +107,16 @@ enum Voiceprint {
         return e
     }
     #endif
+
+    /// 删模型时调一下：不停掉引擎，内存里会一直留着 28 MB 权重。
+    /// 放在 `#if` 外面，好让 SpeakerModelStore 不必关心后端有没有编译进来。
+    static func releaseEngine() {
+        #if canImport(SherpaOnnx)
+        engineLock.lock()
+        engine = nil
+        engineLock.unlock()
+        #endif
+    }
 
     static func l2(_ v: [Double]) -> [Double] {
         let norm = sqrt(v.reduce(0) { $0 + $1 * $1 }) + 1e-8

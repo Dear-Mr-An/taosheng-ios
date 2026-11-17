@@ -1,3 +1,29 @@
+## 0.8.6（build 46）：0.8.5 认人链路的代码审查
+
+只审查 0.8.5 的改动（CAM++ 192 维 + 模型运行时下载 + 就地重算旧样本），修掉查出来的问题，不加新功能。
+
+### 一、审查确认没问题的
+
+1. **模型是同一份**：`3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx` 本机整份下载 28 281 138 B，SHA-256 `f682b514…fd11`，与 `src/app/src/main/assets/voiceprint/campplus.onnx` 完全一致。
+2. **样本重算不会撞主键**：`insertVoiceSample` 是 `INSERT OR REPLACE`，重算时沿用原样本 id，人物归属不变。
+3. **下载完整性**：`ModelDownloadDelegate` 的 `done` 幂等，落地前先删目标文件再 move；`VoiceprintMigration` 与 `speakerModel.refresh()` 都有 `running` 闸，重复触发不会并发出两份。
+4. **空向量不落库**：`RsWhoSheet` 对 `vector == nil` 有「这段音频太短或读不出来」的提示，不会写一条空样本。
+
+### 二、修掉的问题
+
+1. **【高】整段解码内存**：`Voiceprint.campplusVector` 原来用 `AudioPCM.mono16k(url)` 把整段读成 Float32——5 分钟的 16 kHz PCM 就是 19 MB，再复制一份接近 38 MB，重算一批旧样本时很容易被系统杀掉。改成 `AudioPCM.mono16kSlice(url:at:length:)` 每个 3 秒窗单独读（最多 8 窗 = 24 秒），峰值降到几 MB。
+2. **【中】搬不动的旧样本一直留着**：原录音已删或读不出来时，迁移只把 `unrecoverable` 加一，48 维样本留在库里——每次进设置页都会重试一遍，人物卡的「样本数」也是虚的。现在直接 `deleteVoiceSample`，日志写「重算 N 条，删除不可重算的 M 条」。
+3. **【中】删模型与重算的竞态**：迁移跑到一半用户点「删除模型」，`Voiceprint.vector` 会因模型不在而回落 48 维、把旧样本又写回去。现在循环每一步都 `guard SpeakerModelStore.readyOnDisk else { break }`。
+4. **【中】删模型不释放权重**：`SpeakerModelStore.delete()` 只删文件，28 MB 权重还留在内存里。现在会调 `Voiceprint.releaseEngine()`（顺手把只对 192 维有意义的旧簇清掉）。
+5. **【中】下载代次竞态**：下载中点了删除/取消，慢一步的 `run()` 回来仍可能把模型写回磁盘。新增 `generation`：开始、取消、删除各自加一，`run(gen:)` 在下载完成、校验前后都核对代次。
+6. **【低】失败原因被清空**：`refresh()` 以前会把上次的「为什么没下成」覆盖成「还没下载」。现在失败态保留，直到用户点「重试」。
+
+### 三、还没做
+
+1. 认人仍然只做「熟人 + 未知簇」，没有原版 `LocalSpeakerDiarizer` 那种整段会议的分人轨迹（要先接 seg 模型再聚簇）。
+2. `clearStaleClusters` 清掉旧簇后编号从「说话人 1」重新开始，历史分段里的「说话人 3」会和新编号并存。
+3. 迁移只在模型就绪、或设置页打开时触发；后台收听期间不会主动重算。
+4. 真机与大样本量（上千条样本）未压测；内存优化只按算法推算，没有实机 footprint 数据。
 ## 0.8.5（build 45）：认人换成 CAM++ 192 维，模型运行时下载
 
 补 0.8.4 遗留的第一条：认人一直是本机 48 维 log-mel 均值/标准差，区分度有限。

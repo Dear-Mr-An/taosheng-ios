@@ -7,6 +7,26 @@ enum AudioPCM {
         var errorDescription: String? { "这段音频打不开或者格式不支持" }
     }
 
+    /// 只读一段：声纹只要每段几秒钟，没必要为了取 8 个 3 秒窗把整段 5 分钟的 PCM 全读进来
+    /// （16 kHz 单声道 float32，5 分钟就是 19 MB，再复制一份就是 38 MB，真机上很容易被系统杀掉）。
+    static func mono16kSlice(_ url: URL, at seconds: Double, length sliceSeconds: Double) throws -> [Float] {
+        let file = try AVAudioFile(forReading: url)
+        let inFormat = file.processingFormat
+        let sr = inFormat.sampleRate
+        let startFrame = AVAudioFramePosition(max(0, seconds) * sr)
+        guard startFrame < file.length else { throw TranscribeError.empty }
+        let want = AVAudioFrameCount(max(1, min(sliceSeconds * sr, Double(file.length - startFrame))))
+        file.framePosition = startFrame
+        guard let inBuf = AVAudioPCMBuffer(pcmFormat: inFormat, frameCapacity: want) else {
+            throw Unsupported()
+        }
+        try file.read(into: inBuf)
+        if abs(sr - 16_000) < 0.5, inFormat.channelCount == 1, let data = inBuf.floatChannelData?[0] {
+            return Array(UnsafeBufferPointer(start: data, count: Int(inBuf.frameLength)))
+        }
+        return try convertToMono16k(inBuf, from: inFormat)
+    }
+
     static func mono16k(_ url: URL) throws -> [Float] {
         let file = try AVAudioFile(forReading: url)
         let inFormat = file.processingFormat
@@ -23,6 +43,12 @@ enum AudioPCM {
             return Array(UnsafeBufferPointer(start: data, count: Int(inBuf.frameLength)))
         }
 
+        return try convertToMono16k(inBuf, from: inFormat)
+    }
+
+    /// 重采样 + 混单声道。输入必须是已经读好的整块数据。
+    private static func convertToMono16k(_ inBuf: AVAudioPCMBuffer, from inFormat: AVAudioFormat) throws -> [Float] {
+        let frames = inBuf.frameLength
         guard let outFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
                                             sampleRate: 16_000,
                                             channels: 1,
