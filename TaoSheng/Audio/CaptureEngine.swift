@@ -2,7 +2,9 @@ import Foundation
 import Combine
 import AVFoundation
 
-/// 采集引擎：AVAudioEngine 常驻 tap → 能量 VAD 判断人声 → 有人的片段落成 wav 文件。
+/// 采集引擎：AVAudioEngine 常驻 tap → Silero 人声检测（VAD）判断有没有人说话 → 有人的片段落成 wav 文件。
+/// 人声检测与原版 Android 同一份模型（`silero_vad.onnx`），不再用音量阈值当「有人在说话」：
+/// 音量只能说明「有声」，音乐、电视、风扇、敲键盘都能过阈值，那正是「什么声音都采集」的原因。
 /// 后台靠 Info.plist 的 audio 后台模式 + 常驻音频会话维持（自签安装下可用）。
 final class CaptureEngine: ObservableObject {
     static let shared = CaptureEngine()
@@ -61,6 +63,25 @@ final class CaptureEngine: ObservableObject {
     private var converter: AVAudioConverter?
     private var converterRate: Double = 0
     private var converterChannels: AVAudioChannelCount = 0
+
+    // MARK: - 人声检测（Silero VAD）
+
+    /// 16 kHz 单声道浮点：VAD 与前滚缓冲都用这个格式，和落盘格式一致。
+    private let vadFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                          sampleRate: 16_000,
+                                          channels: 1,
+                                          interleaved: false)
+    private var vadConverter: AVAudioConverter?
+    private var vadConverterRate: Double = 0
+    private var vadConverterChannels: AVAudioChannelCount = 0
+    /// 模型缺失时是 nil，此时 `VadRules.isSpeech` 自动回落到能量阈值。
+    private var vad: VadGate?
+    /// 设置页要如实显示当前用的是哪种判断：Silero 人声，还是（模型缺失时）音量阈值。
+    @Published private(set) var vadReady = false
+    /// 段首前滚：最近 1 秒的 16 kHz 人声前音频，开段时先写进去（原版 `PRE_ROLL_SAMPLES`）。
+    private var preRoll: [Float] = []
+    /// 这一段的真人声样本数；到 1 秒才认为这段值得留（原版 `MIN_SPEECH_SAMPLES`）。
+    private var voicedSamples = 0
 
     var onSegmentSaved: ((Segment) -> Void)?
 
@@ -326,6 +347,12 @@ final class CaptureEngine: ObservableObject {
                 self.lastBufferAt = Date()
                 self.zeroFrames = 0
                 self.yieldedBySilence = false
+                // 人声检测与新一场同步重建：跨场残留的窗口/前滚会把上一场的尾巴算进这一场。
+                let gate = VadGate()
+                self.vad = gate
+                DispatchQueue.main.async { self.vadReady = gate != nil }
+                self.preRoll.removeAll()
+                self.voicedSamples = 0
                 return self.bufferGeneration
             }
             let mode = queue.sync { self.recordingMode }
@@ -345,7 +372,7 @@ final class CaptureEngine: ObservableObject {
         } catch {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
-            queue.sync { self.acceptingBuffers = false; self.closeSegment(force: true) }
+            queue.sync { self.acceptingBuffers = false; self.closeSegment(force: true); self.vad = nil; self.preRoll.removeAll(); self.voicedSamples = 0 }
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             lastError = "启动录音失败：\(error.localizedDescription)"
             NSLog("涛声: 启动失败 \(error)")
@@ -433,9 +460,21 @@ final class CaptureEngine: ObservableObject {
             // 不能拿它来切音频，否则 30/60/120 三档会把同一段话切成不同长度。
             let maxSegment = mode.maxSegment
             let liveThreshold = mode.sensitivity(Settings.shared.sensitivity)
-            let speaking = rms > liveThreshold
+            // 人声判断换成 Silero：先把这一块转成 16 kHz 单声道喂给模型，
+            // 模型缺失时才回落到音量阈值（`VadRules.isSpeech` 里统一处理）。
+            let pcm16 = self.convertForVad(copy) ?? []
+            let pcmRms = CaptureEngine.rms(pcm16)
+            let heardByVad = self.vad?.acceptsSpeech(pcm16)
+            let speaking = VadRules.isSpeech(rms: pcmRms, energyThreshold: liveThreshold, vad: heardByVad)
             if speaking {
                 self.lastVoiceAt = now
+                self.voicedSamples += pcm16.count
+            } else {
+                // 只有安静的时候才积累前滚：说话那一段本身要照常写，不能重复写一遍。
+                self.preRoll.append(contentsOf: pcm16)
+                if self.preRoll.count > VadRules.preRollSamples {
+                    self.preRoll = VadRules.trimmedPreRoll(self.preRoll)
+                }
             }
             let isSpeaking = self.lastVoiceAt.map { now.timeIntervalSince($0) <= gap } ?? false
             // level/isSpeaking 都是 @Published：每 85ms 写一次会让所有观察 CaptureEngine
@@ -452,8 +491,8 @@ final class CaptureEngine: ObservableObject {
             if self.file == nil && speaking {
                 self.openSegment(format: format, at: now)
             }
-            // openSegment 重置了标志；首个触发片段本身就包含有效人声。
-            if speaking && self.file != nil {
+            // openSegment 重置了标志；真人声攒够 1 秒才算「这段有内容」。
+            if self.file != nil, self.voicedSamples >= VadRules.minVoicedSamples {
                 self.wroteAnyVoice = true
             }
 
@@ -501,6 +540,46 @@ final class CaptureEngine: ObservableObject {
         backlogLock.unlock()
     }
 
+    // MARK: - 人声检测的输入
+
+    /// 音频线程之外的队列上调用：把硬件格式转成 16 kHz 单声道浮点，只给人声检测用。
+    /// 落盘仍走 `prepareForWrite`（16 kHz / 16 bit），两条转换互不影响。
+    private func convertForVad(_ buffer: AVAudioPCMBuffer) -> [Float]? {
+        guard let target = vadFormat else { return nil }
+        let inFmt = buffer.format
+        var source = buffer
+        if inFmt.sampleRate != target.sampleRate || inFmt.channelCount != target.channelCount || inFmt.commonFormat != .pcmFormatFloat32 {
+            if vadConverter == nil || vadConverterRate != inFmt.sampleRate || vadConverterChannels != inFmt.channelCount {
+                vadConverter = AVAudioConverter(from: inFmt, to: target)
+                vadConverterRate = inFmt.sampleRate
+                vadConverterChannels = inFmt.channelCount
+            }
+            guard let conv = vadConverter else { return nil }
+            let ratio = target.sampleRate / inFmt.sampleRate
+            let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 64
+            guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return nil }
+            var supplied = false
+            var err: NSError?
+            let input: AVAudioConverterInputBlock = { _, status in
+                if supplied { status.pointee = .noDataNow; return nil }
+                supplied = true
+                status.pointee = .haveData
+                return buffer
+            }
+            if conv.convert(to: out, error: &err, withInputFrom: input) == .error || err != nil { return nil }
+            source = out
+        }
+        guard let data = source.floatChannelData, source.frameLength > 0 else { return nil }
+        return Array(UnsafeBufferPointer(start: data[0], count: Int(source.frameLength)))
+    }
+
+    private static func rms(_ samples: [Float]) -> Double {
+        guard !samples.isEmpty else { return 0 }
+        var sum = 0.0
+        for v in samples { let d = Double(v); sum += d * d }
+        return (sum / Double(samples.count)).squareRoot()
+    }
+
     // MARK: - 段落文件
 
     /// 把硬件格式的 buffer 转成落盘格式（16k/16bit/mono）。转换器复用，避免每块重建丢历史。
@@ -546,13 +625,29 @@ final class CaptureEngine: ObservableObject {
             file = f
             fileURL = url
             segmentStart = date
-            // 新段默认「还没听到人声」，只有真的超过阈值才置 true；
+            // 新段默认「还没听到人声」，只有真人声攒够 1 秒才置 true；
             // 否则每段都算有人声，静音误触发开的空段也会入库去转写。
             wroteAnyVoice = false
+            voicedSamples = 0
+            // 段首前滚：把说话前那 1 秒也写进去，否则第一个字常被切掉（原版同）。
+            writePreRoll(to: f)
             NSLog("涛声: 新段 \(name)")
         } catch {
             NSLog("涛声: 建文件失败 \(error)")
         }
+    }
+
+    /// 把前滚缓冲写进新段：格式与落盘一致（16 kHz 单声道浮点），写完清空，避免下一段重复。
+    private func writePreRoll(to f: AVAudioFile) {
+        let samples = preRoll
+        preRoll.removeAll(keepingCapacity: true)
+        guard !samples.isEmpty, let format = writeFormat,
+              let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else { return }
+        buf.frameLength = AVAudioFrameCount(samples.count)
+        if let dst = buf.floatChannelData?[0] {
+            for i in 0..<samples.count { dst[i] = samples[i] }
+        }
+        do { try f.write(from: buf) } catch { NSLog("涛声: 写前滚失败 \(error)") }
     }
 
     private func closeSegment(force: Bool) {
@@ -561,8 +656,9 @@ final class CaptureEngine: ObservableObject {
         fileURL = nil
         segmentStart = nil
         // 每段都要重置，否则从第二段起 wroteAnyVoice 恒为真，空段全被放进来
-        let hadVoice = wroteAnyVoice
+        let hadVoice = wroteAnyVoice || VadRules.kept(voicedSamples: voicedSamples, force: false)
         wroteAnyVoice = false
+        voicedSamples = 0
         let end = Date()
         let duration = end.timeIntervalSince(start)
         // AVAudioFile 在释放时 flush 文件头，先释放再读大小

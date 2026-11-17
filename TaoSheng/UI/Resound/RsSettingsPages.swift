@@ -6,6 +6,8 @@ import UniformTypeIdentifiers
 
 struct RsSubPage<Content: View>: View {
     let title: String
+    /// 左上角返回文案：从设置进来的子页是「‹ 设置」，弹窗用「关闭」
+    var backTitle: String = "‹ 设置"
     @ViewBuilder var content: () -> Content
 
     @Environment(\.dismiss) private var dismiss
@@ -32,7 +34,7 @@ struct RsSubPage<Content: View>: View {
                 Button {
                     dismiss()
                 } label: {
-                    Text("‹ 设置")
+                    Text(backTitle)
                         .font(Rs.headline)
                         .foregroundStyle(Rs.accent)
                         .padding(.horizontal, 8)
@@ -509,6 +511,11 @@ struct RsRecordingPage: View {
             Text(listening ? "安静中 · 已持续 " + uptimeText : "点了「开始聆听」才会录")
                 .font(Rs.subhead)
                 .foregroundStyle(Rs.text2)
+            // 只录人声靠的是 Silero 人声检测（和原版同一个模型）；模型缺失时退回音量阈值，
+            // 那种情况会连音乐、电视一起录进来，必须让用户看得见。
+            Text(capture.vadReady ? "人声检测：Silero VAD · 只留说话声" : "人声检测：模型未加载 · 暂时按音量判断")
+                .font(Rs.caption)
+                .foregroundStyle(capture.vadReady ? Rs.text3 : Rs.warning)
             RsDotLine(active: listening)
                 .frame(height: 10)
                 .padding(.vertical, 2)
@@ -880,6 +887,8 @@ struct RsTranscriptPage: View {
     @State private var hotDraft = ""
     @State private var rawDay = 0
     @State private var rawSegs: [Segment] = []
+    /// 正在指认说话人的那段原话（声纹样本就从这里补）
+    @State private var whoSeg: Segment?
     /// 本地模型的下载卡：原版在「本地」档下就能直接下模型，这里补上同一条路。
     /// 只下 model.int8.onnx 与 tokens.txt（字节数与 SHA-256 和 Android 端同一个模型）。
     @ViewBuilder
@@ -946,6 +955,7 @@ struct RsTranscriptPage: View {
         }
         .sheet(isPresented: $showKey) { keySheet }
         .sheet(isPresented: $showHeaders) { headersSheet }
+        .sheet(item: $whoSeg) { seg in RsWhoSheet(segment: seg) { loadRaw() }.environmentObject(AppState.shared) }
         .task { loadRaw() }
         .task(id: rawDay) { loadRaw() }
         .onReceive(NotificationCenter.default.publisher(for: .taoshengDataChanged)) { _ in
@@ -1379,19 +1389,29 @@ struct RsTranscriptPage: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(rawSegs.enumerated()), id: \.element.id) { i, seg in
                         if i > 0 { RsRowDivider(inset: 18) }
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack(spacing: 8) {
-                                Text(seg.timeText).font(Rs.caption).foregroundStyle(Rs.text3)
-                                Text("· \(seg.durationText)").font(Rs.caption).foregroundStyle(Rs.text3)
-                                Spacer(minLength: 0)
+                        Button {
+                            whoSeg = seg
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 8) {
+                                    Text(seg.timeText).font(Rs.caption).foregroundStyle(Rs.text3)
+                                    Text("· \(seg.durationText)").font(Rs.caption).foregroundStyle(Rs.text3)
+                                    Spacer(minLength: 0)
+                                    // 声纹要有人物样本才认得出：这一行就是唯一能补样本的入口。
+                                    Text(seg.speaker.isEmpty ? "这是谁 ›" : "\(seg.speaker) ›")
+                                        .font(Rs.caption)
+                                        .foregroundStyle(seg.speaker.isEmpty ? Rs.accent : Rs.text3)
+                                }
+                                Text(seg.isEmptySpeech ? "没有文字" : seg.transcript)
+                                    .font(Rs.subhead)
+                                    .foregroundStyle(seg.isEmptySpeech ? Rs.text3 : Rs.text)
+                                    .lineLimit(3)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
-                            Text(seg.isEmptySpeech ? "没有文字" : seg.transcript)
-                                .font(Rs.subhead)
-                                .foregroundStyle(seg.isEmptySpeech ? Rs.text3 : Rs.text)
-                                .lineLimit(3)
-                                .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 18).padding(.vertical, 10)
+                            .contentShape(Rectangle())
                         }
-                        .padding(.horizontal, 18).padding(.vertical, 10)
+                        .buttonStyle(.plain)
                     }
                 }
                 .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
@@ -1403,7 +1423,6 @@ struct RsTranscriptPage: View {
         let day = DayKey.of(Date().addingTimeInterval(-Double(rawDay) * 86400))
         rawSegs = Store.shared.segments(day: day, limit: 60)
     }
-
     private func cardBody<C: View>(@ViewBuilder content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 0) { content() }
             .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
@@ -2387,6 +2406,135 @@ func rsImportAudio(_ urls: [URL], done: ((RsImportOutcome) -> Void)? = nil) {
         await MainActor.run {
             if !outcome.added.isEmpty { TranscribeQueue.shared.transcribeNow() }
             done?(outcome)
+        }
+    }
+}
+
+// MARK: - 指认说话人（声纹样本的唯一入口）
+
+/// 从一段原话指认「这是谁」：写入说话人，并把这段的声音算成该人物的样本。
+/// 原版的 `VoiceprintRecorder` 是单独录一段，iOS 这边没有独立录音页面，
+/// 直接用冷静下来的一段原话取样纹 —— 同一段音频既能听、也能当样本。
+struct RsWhoSheet: View {
+    let segment: Segment
+    var onDone: () -> Void = {}
+
+    @EnvironmentObject private var app: AppState
+    @Environment(\.dismiss) private var dismiss
+    @State private var newName = ""
+    @State private var busy = false
+    @State private var note: String?
+
+    var body: some View {
+        RsSubPage(title: "这是谁", backTitle: "关闭") {
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 7) {
+                    RsSectionLabel(title: "这一段")
+                    RsCard(padding: EdgeInsets(top: 12, leading: 18, bottom: 12, trailing: 18)) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(segment.timeText) · \(segment.durationText)")
+                                .font(Rs.caption).foregroundStyle(Rs.text3)
+                            Text(segment.isEmptySpeech ? "这段没有文字" : segment.transcript)
+                                .font(Rs.subhead).foregroundStyle(Rs.text)
+                                .lineLimit(3)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if !segment.speaker.isEmpty {
+                                Text("现在记在「\(segment.speaker)」名下")
+                                    .font(Rs.caption).foregroundStyle(Rs.text3)
+                            }
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 7) {
+                    RsSectionLabel(title: "人物", trailing: "\(app.persons.count) 个")
+                    RsCard(padding: EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0)) {
+                        VStack(spacing: 0) {
+                            ForEach(Array(app.persons.enumerated()), id: \.element.id) { i, p in
+                                if i > 0 { RsRowDivider(inset: 54) }
+                                Button {
+                                    assign(p)
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        RsMiniAvatar(text: String(p.name.prefix(1)))
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(p.name).font(Rs.body).foregroundStyle(Rs.text)
+                                            Text(p.sampleCount > 0 ? "已有 \(p.sampleCount) 段样本" : "还没有样本")
+                                                .font(Rs.caption).foregroundStyle(Rs.text3)
+                                        }
+                                        Spacer(minLength: 8)
+                                        Text("›").font(.system(size: 15)).foregroundStyle(Rs.text3)
+                                    }
+                                    .padding(.horizontal, 18).padding(.vertical, 11)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(busy)
+                            }
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 7) {
+                    RsSectionLabel(title: "新的人")
+                    RsCard(padding: EdgeInsets(top: 8, leading: 18, bottom: 8, trailing: 18)) {
+                        HStack(spacing: 10) {
+                            TextField("名字，例如：张工", text: $newName)
+                                .font(Rs.body)
+                            Button("新建并指认") {
+                                let n = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+                                guard !n.isEmpty else { return }
+                                app.addPerson(name: n)
+                                if let p = Store.shared.persons().first(where: { $0.name == n }) {
+                                    assign(p)
+                                }
+                            }
+                            .font(Rs.subhead)
+                            .foregroundStyle(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Rs.text3 : Rs.accent)
+                            .disabled(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || busy)
+                        }
+                    }
+                }
+
+                if let note {
+                    Text(note).font(Rs.caption).foregroundStyle(Rs.text3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                RsFootNote("指认之后，这段的声音会算作这个人的一条样本；样本够了，后面的录音会自动认出他。")
+            }
+        }
+    }
+
+    private func assign(_ p: Person) {
+        guard !busy else { return }
+        busy = true
+        Store.shared.setSpeaker(id: segment.id, speaker: p.name)
+        let url = Store.audioDir.appendingPathComponent(segment.fileName)
+        let personId = p.id
+        let segmentId = segment.id
+        Task {
+            let vector = await Task.detached(priority: .userInitiated) { Voiceprint.vector(from: url) }.value
+            if let vector {
+                Store.shared.insertVoiceSample(VoiceSample(
+                    id: UUID().uuidString,
+                    personId: personId,
+                    segmentId: segmentId,
+                    vector: vector,
+                    createdAt: Date()
+                ))
+                await MainActor.run {
+                    note = "已记下：\(p.name) · 共 \(Store.shared.persons().first(where: { $0.id == personId })?.sampleCount ?? 0) 段样本"
+                    app.refresh()
+                    busy = false
+                    onDone()
+                }
+            } else {
+                await MainActor.run {
+                    note = "这段音频太短或读不出来，声纹没算成；换一段长一点的原话再试。"
+                    busy = false
+                    onDone()
+                }
+            }
         }
     }
 }

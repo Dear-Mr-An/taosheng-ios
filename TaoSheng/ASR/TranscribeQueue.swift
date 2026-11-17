@@ -152,11 +152,15 @@ final class TranscribeQueue: ObservableObject {
         }
     }
 
-    /// 声纹比对：先认熟人；认不出就按当天的未知说话人簇给「说话人 1 / 2 / 3 …」，
+    /// 声纹比对：先认熟人；认不出就按未知说话人簇给「说话人 1 / 2 / 3 …」，
     /// 新声音自动开一个新簇，这样多人会议里每个人都能拿到稳定的编号。
+    /// 簇不再按天分桶：原版（Android `SpeakerIdentity`）的人物库是全局的，
+    /// 按天分桶会让同一个人每天重新变成「说话人 1」，跨天对不上。
     nonisolated static func identifySpeaker(segmentId: String, url: URL) async {
+        // 太短的段天空纹并不可靠：背景噪声、半个字都会被算成一个人。
+        guard let seg = Store.shared.segment(id: segmentId), seg.duration >= 1.5 else { return }
         guard let v = Voiceprint.vector(from: url) else { return }
-        let day = Store.shared.segment(id: segmentId)?.day ?? DayKey.of(Date())
+        let clusterKey = "all"
 
         let samples = Store.shared.allVoiceSamples()
         if !samples.isEmpty, let m = Voiceprint.match(v, samples: samples),
@@ -168,16 +172,16 @@ final class TranscribeQueue: ObservableObject {
         var bestNo = 0
         // 初值 -1：相似度全为负时也要能选出「最像的那个已有人」，否则每段都新开簇、编号爆炸
         var bestScore = -1.0
-        for c in Store.shared.clusters(day: day) where c.vector.count == v.count {
+        for c in Store.shared.clusters(day: clusterKey) where c.vector.count == v.count {
             let score = Voiceprint.cosine(v, c.vector)
             if score > bestScore { bestScore = score; bestNo = c.no }
         }
         if bestNo > 0 && bestScore >= 0.80 {
             Store.shared.setSpeaker(id: segmentId, speaker: "说话人\(bestNo)")
-            Store.shared.updateCluster(day: day, no: bestNo, vector: v)
+            Store.shared.updateCluster(day: clusterKey, no: bestNo, vector: v)
         } else {
-            let no = Store.shared.nextClusterNo(day: day)
-            Store.shared.insertCluster(day: day, no: no, vector: v)
+            let no = Store.shared.nextClusterNo(day: clusterKey)
+            Store.shared.insertCluster(day: clusterKey, no: no, vector: v)
             Store.shared.setSpeaker(id: segmentId, speaker: "说话人\(no)")
         }
     }
