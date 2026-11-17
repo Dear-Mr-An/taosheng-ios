@@ -4,6 +4,8 @@ import SwiftUI
 
 struct RsAskScreen: View {
     @ObservedObject private var app = AppState.shared
+    /// 面板打开时告诉外壳把内容层提到 TabBar 之上，否则胶囊会浮在「问过的」上面
+    var onPanel: (Bool) -> Void = { _ in }
 
     @State private var input = ""
     @State private var showHistory = false
@@ -28,6 +30,8 @@ struct RsAskScreen: View {
                 }
             }
         }
+        .onChange(of: showHistory) { onPanel($0) }
+        .onDisappear { onPanel(false) }
     }
 
     private var header: some View {

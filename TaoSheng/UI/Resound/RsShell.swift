@@ -452,7 +452,7 @@ struct RsShell: View {
             Group {
                 switch tab {
                 case 0: RsTodayScreen(autoSheet: todaySheet, onPanel: { panelOpen = $0 })
-                case 1: RsAskScreen()
+                case 1: RsAskScreen(onPanel: { panelOpen = $0 })
                 case 2: RsMemoryScreen()
                 case 3: RsTodoScreen()
                 default:
