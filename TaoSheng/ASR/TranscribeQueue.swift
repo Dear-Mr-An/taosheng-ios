@@ -157,7 +157,7 @@ final class TranscribeQueue: ObservableObject {
     /// 簇不再按天分桶：原版（Android `SpeakerIdentity`）的人物库是全局的，
     /// 按天分桶会让同一个人每天重新变成「说话人 1」，跨天对不上。
     nonisolated static func identifySpeaker(segmentId: String, url: URL) async {
-        // 太短的段天空纹并不可靠：背景噪声、半个字都会被算成一个人。
+        // 太短的段声纹并不可靠：背景噪声、半个字都会被算成一个人。
         guard let seg = Store.shared.segment(id: segmentId), seg.duration >= 1.5 else { return }
         guard let v = Voiceprint.vector(from: url) else { return }
         let clusterKey = "all"

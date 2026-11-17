@@ -18,7 +18,12 @@
 5. **【中】下载代次竞态**：下载中点了删除/取消，慢一步的 `run()` 回来仍可能把模型写回磁盘。新增 `generation`：开始、取消、删除各自加一，`run(gen:)` 在下载完成、校验前后都核对代次。
 6. **【低】失败原因被清空**：`refresh()` 以前会把上次的「为什么没下成」覆盖成「还没下载」。现在失败态保留，直到用户点「重试」。
 
-### 三、还没做
+### 三、验证
+
+- CI：`build-ipa` 第 169 次（`9ef96e5`）通过，`== warning count ==` 0，`swift test` **Executed 96 tests, with 0 failures**。
+- 产物：`dist/TaoSheng-v0.8.6.ipa`，**13 705 959 字节**，`0.8.6`（build `46`），`MinimumOSVersion 16.0`，`_CodeSignature` 0 条，Frameworks 仍是 `SherpaOnnxC` 与 `onnxruntime`（CAM++ 28 MB 不随包）。
+- 模型一致性：本机整份下载 CAM++ 后算出的字节数与 SHA-256 与 `src/app/src/main/assets/voiceprint/campplus.onnx` 逐字节相同。
+### 四、还没做
 
 1. 认人仍然只做「熟人 + 未知簇」，没有原版 `LocalSpeakerDiarizer` 那种整段会议的分人轨迹（要先接 seg 模型再聚簇）。
 2. `clearStaleClusters` 清掉旧簇后编号从「说话人 1」重新开始，历史分段里的「说话人 3」会和新编号并存。
