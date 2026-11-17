@@ -24,7 +24,7 @@ settings:
 packages:
   sherpa-onnx:
     url: https://github.com/k2-fsa/sherpa-onnx
-    exact: 2.0.1
+    exactVersion: 2.0.1
 
 targets:
   TaoSheng:
