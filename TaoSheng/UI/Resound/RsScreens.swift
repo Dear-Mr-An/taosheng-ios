@@ -21,9 +21,12 @@ struct RsAskScreen: View {
             composer
         }
         .background(Rs.bg)
-        .sheet(isPresented: $showHistory) {
-            RsAskHistorySheet()
-                .presentationDetents([.large])
+        .overlay {
+            if showHistory {
+                RsBottomSheet(tall: true, onClose: { showHistory = false }) {
+                    RsAskHistorySheet(onClose: { showHistory = false })
+                }
+            }
         }
     }
 
@@ -35,12 +38,15 @@ struct RsAskScreen: View {
             Spacer(minLength: 0)
             Button { showHistory = true } label: {
                 ZStack {
+                    // 白底在米色背景上几乎看不见，加一圈更亮的白边把圆形托出来
                     Circle().fill(Rs.card)
+                    Circle().strokeBorder(Color.white, lineWidth: 1)
                     Image(systemName: "clock")
-                        .font(.system(size: 16, weight: .regular))
+                        .font(.system(size: 18, weight: .medium))
                         .foregroundStyle(Rs.text2)
                 }
-                .frame(width: 40, height: 40)
+                .frame(width: 44, height: 44)
+                .shadow(color: Color.black.opacity(0.06), radius: 6, y: 2)
             }
             .buttonStyle(RsSpringButtonStyle())
         }
@@ -178,15 +184,16 @@ struct RsAskBubble: View {
 }
 
 struct RsAskHistorySheet: View {
-    @Environment(\.dismiss) private var dismiss
+    var onClose: () -> Void = {}
     @State private var rows: [AskMessage] = []
 
     var body: some View {
         RsSheetBody(title: "问过的") {
             if rows.isEmpty {
-                Text("还没有问过。")
+                Text("还没有问过。问过的问题和回答都会留在这里，方便回头看。")
                     .font(Rs.body)
                     .foregroundStyle(Rs.text2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             ForEach(rows) { m in
                 VStack(alignment: .leading, spacing: 3) {
