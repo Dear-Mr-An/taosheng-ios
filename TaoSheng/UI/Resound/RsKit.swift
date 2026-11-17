@@ -101,32 +101,6 @@ extension RsSection where Trailing == EmptyView {
 
 // MARK: - 胶囊
 
-/// 卡片上的小按钮：主要操作实心；次要操作白底橙字（OverviewCard.kt CardPill / SmallPill）
-struct RsPillButton: View {
-    let text: String
-    var filled: Bool = false
-    var danger: Bool = false
-    var minHeight: CGFloat = 44
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(text)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(danger ? Color.white : (filled ? Rs.accent : Rs.accent))
-                .lineLimit(1)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 5)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(danger ? Rs.critical : (filled ? Rs.accent : Rs.card))
-                )
-        }
-        .buttonStyle(RsSpringButtonStyle())
-        .frame(minHeight: minHeight)
-    }
-}
-
 /// 首页主卡上的胶囊：实心为白底橙字（ink.primary = 白）
 struct RsHeroPill: View {
     let text: String
@@ -304,83 +278,13 @@ struct RsMagnifier: View {
     }
 }
 
-enum RsThemeMode { case system, light, dark }
-
-struct RsThemeModePill: View {
-    @Binding var mode: RsThemeMode
-
-    var body: some View {
-        Button {
-            withAnimation(.easeOut(duration: 0.18)) {
-                mode = mode == .system ? .light : (mode == .light ? .dark : .system)
-            }
-        } label: {
-            ZStack {
-                Circle().fill(Rs.accentSoft)
-                icon.foregroundStyle(Rs.accent)
-                    .frame(width: 20, height: 20)
-            }
-            .frame(width: 40, height: 40)
-        }
-        .buttonStyle(RsSpringButtonStyle())
-    }
-
-    @ViewBuilder private var icon: some View {
-        switch mode {
-        case .light: sun
-        case .dark: moon
-        case .system: half
-        }
-    }
-
-    private var sun: some View {
-        Canvas { ctx, size in
-            let r = min(size.width, size.height) / 2
-            let c = CGPoint(x: size.width / 2, y: size.height / 2)
-            ctx.fill(Path(ellipseIn: CGRect(x: c.x - r * 0.42, y: c.y - r * 0.42, width: r * 0.84, height: r * 0.84)),
-                     with: .color(Rs.accent))
-            for i in 0..<8 {
-                let a = Double(i) * 45 * .pi / 180
-                var p = Path()
-                p.move(to: CGPoint(x: c.x + cos(a) * r * 0.66, y: c.y + sin(a) * r * 0.66))
-                p.addLine(to: CGPoint(x: c.x + cos(a) * r * 0.95, y: c.y + sin(a) * r * 0.95))
-                ctx.stroke(p, with: .color(Rs.accent), style: StrokeStyle(lineWidth: r * 0.16, lineCap: .round))
-            }
-        }
-    }
-
-    private var moon: some View {
-        Canvas { ctx, size in
-            let r = min(size.width, size.height) / 2
-            let c = CGPoint(x: size.width / 2, y: size.height / 2)
-            let full = Path(ellipseIn: CGRect(x: c.x - r * 0.85, y: c.y - r * 0.85, width: r * 1.7, height: r * 1.7))
-            ctx.fill(full, with: .color(Rs.accent))
-            let bite = Path(ellipseIn: CGRect(x: c.x + r * 0.42 - r * 0.72, y: c.y - r * 0.32 - r * 0.72,
-                                              width: r * 1.44, height: r * 1.44))
-            ctx.blendMode = .destinationOut
-            ctx.fill(bite, with: .color(.black))
-        }
-    }
-
-    private var half: some View {
-        Canvas { ctx, size in
-            let r = min(size.width, size.height) / 2
-            let c = CGPoint(x: size.width / 2, y: size.height / 2)
-            let ring = Path(ellipseIn: CGRect(x: c.x - r * 0.78, y: c.y - r * 0.78, width: r * 1.56, height: r * 1.56))
-            ctx.stroke(ring, with: .color(Rs.accent), lineWidth: r * 0.16)
-            var half = Path()
-            half.addArc(center: c, radius: r * 0.78, startAngle: .degrees(-90), endAngle: .degrees(90), clockwise: false)
-            half.closeSubpath()
-            ctx.fill(half, with: .color(Rs.accent))
-        }
-    }
-}
-
 // MARK: - 声波
 
 /// 实时声波：44 根柱子按 60ms 滚动，最右边是此刻（Components.kt BreathingWave）
 struct RsBreathingWave: View {
-    var level: Double
+    /// 读取此刻电平。必须是闭包：计时器抓住的是创建那一刻的视图副本，
+    /// 传数值进来的话柱子会一直停在开始录音时的那个高度。
+    var level: () -> Double = { CaptureEngine.shared.level }
     var active: Bool
     var recording: Bool
     var tint: Color = .white
@@ -418,13 +322,14 @@ struct RsBreathingWave: View {
     private func start() {
         ticker?.invalidate()
         let t = Timer(timeInterval: 0.06, repeats: true) { _ in
-            guard recording else {
-                // 说完后再滚约 2 秒让柱子退出画面
-                history[head] = 0
+            if recording {
+                history[head] = loudness(level())
                 head = (head + 1) % bars
                 return
             }
-            history[head] = loudness(level)
+            // 说完后再滚约 2 秒让柱子退出画面；全落回 0 以后不再改状态，空闲时就不重绘
+            guard history.contains(where: { $0 > 0 }) else { return }
+            history[head] = 0
             head = (head + 1) % bars
         }
         RunLoop.main.add(t, forMode: .common)

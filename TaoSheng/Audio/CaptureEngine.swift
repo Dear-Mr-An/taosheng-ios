@@ -11,7 +11,9 @@ final class CaptureEngine: ObservableObject {
 
     @Published private(set) var isRunning = false
     @Published private(set) var startedAt: Date?
-    @Published private(set) var level: Double = 0          // 0...1，给 UI 的波形
+    /// 0...1，给 UI 的波形。故意不加 @Published：说话时它几乎每帧都变，发布出去会让所有观察
+    /// CaptureEngine 的页面整页重算；波形（RsBreathingWave）自己按 60ms 轮询读取。
+    private(set) var level: Double = 0
     @Published private(set) var isSpeaking = false
     @Published private(set) var lastError: String?
     /// 麦克风被别人抢走（来电、微信/QQ 语音、系统录音）时的说明，给界面显示。
@@ -477,13 +479,12 @@ final class CaptureEngine: ObservableObject {
                 }
             }
             let isSpeaking = self.lastVoiceAt.map { now.timeIntervalSince($0) <= gap } ?? false
-            // level/isSpeaking 都是 @Published：每 85ms 写一次会让所有观察 CaptureEngine
-            // 的页面（今天、设置、设置子页）整页重绘，而目前没有任何 UI 读 level。
-            // 只在「是否在说话」真的变化时更新，电平按 2% 量化后再写。
+            // isSpeaking 是 @Published：只在「是否在说话」真的变化时才写，否则每 85ms 一次
+            // 会让所有观察 CaptureEngine 的页面（今天、设置、设置子页）整页重绘。
+            // level 不发布，直接写最新值，由波形自己轮询。
             DispatchQueue.main.async {
                 guard self.isRunning, self.bufferGeneration == token else { return }
-                let newLevel = min(1.0, Double(rms) * 12)
-                if abs(newLevel - self.level) > 0.02 { self.level = newLevel }
+                self.level = min(1.0, Double(rms) * 12)
                 if self.isSpeaking != isSpeaking { self.isSpeaking = isSpeaking }
             }
 

@@ -102,7 +102,7 @@ struct RsTodayScreen: View {
     @State private var showListen = false
     @State private var showSearch = false
     @State private var showTopic = false
-    @State private var themeMode: RsThemeMode = .system
+    @State private var showModel = false
     /// 截图模式：进页面就打开对应抽屉
     var autoSheet: String? = nil
     /// 面板打开时告诉外层，好把自己盖到 TabBar 上面
@@ -125,6 +125,7 @@ struct RsTodayScreen: View {
                     withAnimation(.easeOut(duration: 0.2)) { filter = 0 }
                 }, onOpenListen: { showListen = true },
                    onOpenTopic: { showTopic = true },
+                   onOpenModel: { showModel = true },
                    activeOverride: ShotMode.screen == "rs-today" ? true : nil)
                 if !pending.isEmpty { pendingSection }
                 timelineSection
@@ -151,6 +152,10 @@ struct RsTodayScreen: View {
                     RsRecordSearchSheet(onClose: { showSearch = false })
                 }
             }
+        }
+        .sheet(isPresented: $showModel) {
+            NavigationStack { RsModelPage(backTitle: "关闭") }
+                .environmentObject(AppState.shared)
         }
         .onChange(of: showListen) { onPanel($0 || showTopic || showSearch) }
         .onChange(of: showTopic) { onPanel(showListen || $0 || showSearch) }
@@ -186,7 +191,7 @@ struct RsTodayScreen: View {
                 .frame(width: 40, height: 40)
             }
             .buttonStyle(RsSpringButtonStyle())
-            RsThemeModePill(mode: $themeMode)
+            .accessibilityLabel("搜索记录")
         }
         .padding(.horizontal, 4)
     }
@@ -195,19 +200,9 @@ struct RsTodayScreen: View {
         dayOffset == 0 ? "今天 · \(weekday)" : (dayOffset == 1 ? "昨天 · \(weekday)" : "前天 · \(weekday)")
     }
 
-    private var weekday: String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_CN")
-        f.dateFormat = "EEEE"
-        return f.string(from: dayDate)
-    }
+    private var weekday: String { Fmt.weekday.string(from: dayDate) }
 
-    private var dayText: String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_CN")
-        f.dateFormat = "M月d日"
-        return f.string(from: dayDate)
-    }
+    private var dayText: String { Fmt.monthDay.string(from: dayDate) }
 
     private var dayDate: Date {
         Calendar.current.date(byAdding: .day, value: -dayOffset, to: Date()) ?? Date()
@@ -324,6 +319,7 @@ struct RsOverviewCard: View {
     var onPending: () -> Void = {}
     var onOpenListen: () -> Void = {}
     var onOpenTopic: () -> Void = {}
+    var onOpenModel: () -> Void = {}
     /// 截图模式用：模拟器没有麦克风，按原版显示「正在聆听」和暂停键
     var activeOverride: Bool? = nil
 
@@ -382,7 +378,7 @@ struct RsOverviewCard: View {
             }
             .buttonStyle(.plain)
             Spacer(minLength: 8)
-            RsBreathingWave(level: capture.level, active: listening, recording: recording, tint: .white)
+            RsBreathingWave(active: listening, recording: recording, tint: .white)
                 .frame(height: 22)
                 .frame(maxWidth: 110)
             Spacer(minLength: 8)
@@ -469,9 +465,12 @@ struct RsOverviewCard: View {
                     Text(number)
                         .font(Rs.number)
                         .foregroundStyle(Color.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
                     Text(unit)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(Color.white.opacity(0.85))
+                        .fixedSize()
                 }
                 Text(unit == "条" ? "待确认 ›" : (unit == "件" ? "事件" : "人声"))
                     .font(Rs.caption)
@@ -482,10 +481,14 @@ struct RsOverviewCard: View {
         .buttonStyle(.plain)
     }
 
+    /// 三个大数字各占三分之一宽：超过一小时改用小时（保留一位小数），
+    /// 不再写成「1 小时 5」+「分」那样在窄屏上挤出格子。
     private var speechParts: (String, String) {
-        let minutes = Int((app.todaySeconds / 60).rounded())
-        if minutes < 60 { return ("\(max(0, minutes))", "分钟") }
-        return ("\(minutes / 60) 小时 \(minutes % 60)", "分")
+        let minutes = max(0, Int((app.todaySeconds / 60).rounded()))
+        if minutes < 60 { return ("\(minutes)", "分钟") }
+        let hours = Double(minutes) / 60
+        let text = minutes % 60 == 0 ? "\(minutes / 60)" : String(format: "%.1f", hours)
+        return (text, "小时")
     }
 
     // 第三行：整理状态 + 现在整理 + 模型
@@ -496,13 +499,33 @@ struct RsOverviewCard: View {
                 .foregroundStyle(Color.white.opacity(0.8))
                 .lineLimit(2)
             Spacer(minLength: 6)
-            RsHeroPill(text: digest.running ? "排队中" : "现在整理", filled: true) {
-                guard !digest.running else { return }
-                Task { _ = try? await DigestEngine.shared.digest(day: DayKey.of(Date())) }
+            RsHeroPill(text: digest.running ? "整理中" : "现在整理", filled: true) {
+                digestNow()
             }
-            RsHeroPill(text: modelName) { onOpenListen() }
+            RsHeroPill(text: modelName) { onOpenModel() }
         }
         .padding(.top, 8)
+    }
+
+    private var llmMissing: Bool {
+        !ShotMode.active && settings.effectiveLLM.key.isEmpty
+    }
+
+    /// 手动整理：没配模型就直接带去配；整理完成或失败都给一句话，不再点了没动静
+    private func digestNow() {
+        guard !digest.running else { return }
+        if llmMissing {
+            onOpenModel()
+            return
+        }
+        Task { @MainActor in
+            do {
+                let r = try await DigestEngine.shared.digest(day: DayKey.of(Date()))
+                RsToast.shared.show(r.events > 0 ? "整理好了，新增 \(r.events) 件事" : "整理完了，这次没有新的事")
+            } catch {
+                RsToast.shared.show("整理没成功：\(error.localizedDescription)")
+            }
+        }
     }
 
     /// 原版写的是服务商名（DeepSeek ›），不是模型 id
@@ -520,6 +543,8 @@ struct RsOverviewCard: View {
 
     private var digestLine: String {
         if digest.running { return "正在整理…" }
+        if llmMissing { return "还没配模型，点右边去配" }
+        if let e = digest.lastError, !e.isEmpty, !ShotMode.active { return "上次整理没成功：\(e)" }
         if let t = digest.lastRunAt {
             let m = Int(Date().timeIntervalSince(t) / 60)
             if m < 1 { return "刚刚整理过" }

@@ -909,7 +909,7 @@ struct RsTranscriptPage: View {
                 case .downloading:
                     RsBtn(text: "取消", filled: false) { model.cancel() }
                 case .ready:
-                    RsBtn(text: "删除模型", filled: false) { model.delete() }
+                    RsBtn(text: "删除模型", filled: false) { confirmDeleteModel = true }
                 default:
                     RsBtn(text: model.phase == .absent ? "下载模型" : "重试") { model.start() }
                 }
@@ -925,7 +925,14 @@ struct RsTranscriptPage: View {
         .padding(.horizontal, 18)
         .padding(.bottom, 14)
         .task { model.refresh() }
+        .confirmationDialog("删除本地转写模型？", isPresented: $confirmDeleteModel, titleVisibility: .visible) {
+            Button("删除模型", role: .destructive) { model.delete() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("删掉后「本地」这一档退回系统识别，要离网转写得重新下载（\(LocalModelRules.sizeText(Int64(LocalModelRules.modelBytes)))）。")
+        }
     }
+    @State private var confirmDeleteModel = false
     @State private var testing = false
     @State private var testNote: String?
     @State private var showImporter = false
@@ -1448,6 +1455,7 @@ struct RsVoicePage: View {
     @State private var showAdd = false
     @State private var nameDraft = ""
     @State private var pendingDelete: Person?
+    @State private var confirmDeleteSpeakerModel = false
 
     var body: some View {
         RsSubPage(title: "声纹与人物") {
@@ -1506,7 +1514,7 @@ struct RsVoicePage: View {
                     case .downloading:
                         RsBtn(text: "取消", filled: false) { speakerModel.cancel() }
                     case .ready:
-                        RsBtn(text: "删除模型", filled: false) { speakerModel.delete() }
+                        RsBtn(text: "删除模型", filled: false) { confirmDeleteSpeakerModel = true }
                     default:
                         RsBtn(text: speakerModel.phase == .absent ? "下载模型" : "重试") { speakerModel.start() }
                     }
@@ -1522,6 +1530,12 @@ struct RsVoicePage: View {
             .padding(16)
             .background(RoundedRectangle(cornerRadius: Rs.cardRadius, style: .continuous).fill(Rs.card))
             .task { speakerModel.refresh() }
+            .confirmationDialog("删除认人模型？", isPresented: $confirmDeleteSpeakerModel, titleVisibility: .visible) {
+                Button("删除模型", role: .destructive) { speakerModel.delete() }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("删掉后认人退回 48 维粗特征，区分度会变差；要恢复得重新下载（\(SpeakerModelRules.sizeText(Int64(SpeakerModelRules.modelBytes)))）。")
+            }
 
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
@@ -1732,6 +1746,8 @@ struct RsLocationPage: View {
 // MARK: - 模型与整理时间（ProvidersCard.kt + DigestTimingCard.kt）
 
 struct RsModelPage: View {
+    /// 从设置推进来是「‹ 设置」；从首页主卡弹出时是「关闭」
+    var backTitle: String = "‹ 设置"
     @ObservedObject private var settings = Settings.shared
 
     @State private var usageTab = 0
@@ -1750,7 +1766,7 @@ struct RsModelPage: View {
     @State private var checking = false
 
     var body: some View {
-        RsSubPage(title: "模型与整理时间") {
+        RsSubPage(title: "模型与整理时间", backTitle: backTitle) {
             providersCard
             timingCard
             usageCard
@@ -2369,7 +2385,8 @@ struct RsAppearancePage: View {
                         HStack {
                             Text(opt.1).font(Rs.body).foregroundStyle(Rs.text)
                             Spacer(minLength: 8)
-                            RsRadio(on: appearance == opt.0)
+                            // 只有一个选项时它就是生效中的主题；存储里的默认值还是旧版的 "auto"
+                            RsRadio(on: options.count == 1 || appearance == opt.0)
                         }
                         .padding(.horizontal, 18)
                         .padding(.vertical, 13)
