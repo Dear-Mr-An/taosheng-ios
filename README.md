@@ -33,8 +33,8 @@
 
 ### 五、验证
 
-- CI：`build-ipa` 第 `__IPA_RUN__` 次（`__SHA__`）通过，Swift 编译 0 warning，`swift test` **__TEST__** 项全过（新增 `LocalModelRulesTests` 6 例）。
-- 产物：`dist/TaoSheng-v0.8.3.ipa`，`__BYTES__` 字节，`__VER__`（build `__BUILD__`），未签名。
+- CI：`build-ipa` 第 164 次（`25123fb`）通过，Swift 编译 0 warning，`swift test` **82** 项全过（新增 `LocalModelRulesTests` 6 例）。
+- 产物：`dist/TaoSheng-v0.8.3.ipa`，11 711 791 字节，0.8.3（build 43），未签名；比 0.8.2 大 9.4 MB，多出来的是 SherpaOnnx + onnxruntime 两个 framework。
 
 ### 六、还没做到
 
