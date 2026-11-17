@@ -146,6 +146,7 @@ struct RsListenSheet: View {
     @State private var name = ""
     @State private var endChoice = 0
     @State private var eraseMinutes = 10
+    @State private var confirmErase = false
 
     /// 关掉抽屉（换成自定义抽屉后不再用环境 dismiss）
     var onClose: () -> Void = {}
@@ -255,14 +256,29 @@ struct RsListenSheet: View {
                 }
             }
             RsActionButton(title: "删掉最近 \(eraseMinutes) 分钟的录音", kind: .danger) {
-                Store.shared.eraseRecent(minutes: eraseMinutes)
-                AppState.shared.refresh()
+                confirmErase = true
             }
-            Text("录音、原话和由它们整理出的内容一起彻底删除，无法恢复。")
+            // eraseRecent 只删段和音频；整理出的事件要等当天录音全删光才会一起清掉，说明不能夸大
+            Text("录音和原话会彻底删除，无法恢复。已经整理出的事件不会跟着删，要删请在时间线里点开那件事删除。")
                 .font(Rs.caption)
                 .foregroundStyle(Rs.text3)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .confirmationDialog("删掉最近 \(eraseMinutes) 分钟的录音？", isPresented: $confirmErase,
+                            titleVisibility: .visible) {
+            Button("删除", role: .destructive) { erase() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("录音和原话删掉后无法恢复。")
+        }
+    }
+
+    private func erase() {
+        let minutes = eraseMinutes
+        let n = Store.shared.eraseRecent(minutes: minutes)
+        AppState.shared.refresh()
+        RsToast.shared.show(n > 0 ? "已删掉 \(n) 段录音" : "最近 \(minutes) 分钟没有录音")
+        onClose()
     }
 
     private func start() {
@@ -395,6 +411,7 @@ struct RsTopicSheet: View {
 
 struct RsRecordSearchSheet: View {
     var onClose: () -> Void = {}
+    @ObservedObject private var player = SegmentPlayer.shared
 
     @State private var query = ""
     @State private var segments: [Segment] = []
@@ -427,51 +444,88 @@ struct RsRecordSearchSheet: View {
             if !events.isEmpty {
                 RsLabel("事件")
                 ForEach(events) { e in
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(e.title)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Rs.text)
-                        Text("\(DayKey.display(e.day)) \(e.timeText) · \(e.summary)")
-                            .font(Rs.caption)
-                            .foregroundStyle(Rs.text2)
-                            .lineLimit(2)
+                    Button {
+                        RsEventPanel.shared.open(e)
+                    } label: {
+                        HStack(alignment: .center, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(e.title)
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(Rs.text)
+                                    .multilineTextAlignment(.leading)
+                                Text(eventLine(e))
+                                    .font(Rs.caption)
+                                    .foregroundStyle(Rs.text2)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Rs.text3)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Rs.fill))
+                        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Rs.fill))
+                    .buttonStyle(.plain)
                 }
             }
 
             if !segments.isEmpty {
                 RsLabel("原话")
                 ForEach(segments) { s in
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("\(DayKey.display(s.day)) \(s.timeText)")
-                            .font(Rs.caption)
-                            .foregroundStyle(Rs.text3)
-                        Text(s.transcript)
-                            .font(Rs.body)
-                            .foregroundStyle(Rs.text)
-                            .lineLimit(3)
+                    let on = player.isPlaying(s.id)
+                    Button {
+                        player.toggle(segment: s)
+                    } label: {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: on ? "pause.circle.fill" : "play.circle.fill")
+                                .font(.system(size: 22))
+                                .foregroundStyle(Rs.accent)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("\(DayKey.display(s.day)) \(s.timeText)")
+                                    .font(Rs.caption)
+                                    .foregroundStyle(Rs.text3)
+                                Text(s.transcript)
+                                    .font(Rs.body)
+                                    .foregroundStyle(Rs.text)
+                                    .lineLimit(3)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Rs.fill))
+                        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Rs.fill))
+                    .buttonStyle(.plain)
+                    .accessibilityHint(on ? "暂停播放" : "播放这段录音")
                 }
             }
         }
     }
 
+    private func eventLine(_ e: MemoryEvent) -> String {
+        let head = "\(DayKey.display(e.day)) \(e.timeText)"
+        return e.summary.isEmpty ? head : head + " · " + e.summary
+    }
+
     private func run() {
-        let q = query.trimmingCharacters(in: .whitespaces)
-        guard q.count >= 1 else { segments = []; events = []; return }
-        segments = Store.shared.search(q, limit: 20)
-        let words = q.split(separator: " ").map(String.init)
-        events = Store.shared.events(limit: 400).filter { e in
+        // 全角空格也算分隔：中文输入法里打出来的空格常常是全角的
+        let words = query.split(whereSeparator: { $0 == " " || $0 == "\u{3000}" }).map(String.init)
+        guard let first = words.first else { segments = []; events = []; return }
+        // Store.search 是整串 LIKE，多个词直接传进去永远搜不到：先按第一个词取候选，再要求每个词都出现
+        segments = Array(Store.shared.search(first, limit: 200)
+            .filter { s in words.allSatisfy { s.transcript.localizedCaseInsensitiveContains($0) } }
+            .prefix(20))
+        events = Array(Store.shared.events(limit: 400).filter { e in
             words.allSatisfy { w in
-                e.title.contains(w) || e.summary.contains(w) || e.points.contains { $0.contains(w) }
+                e.title.localizedCaseInsensitiveContains(w) || e.summary.localizedCaseInsensitiveContains(w)
+                    || e.points.contains { $0.localizedCaseInsensitiveContains(w) }
             }
-        }
-        if events.count > 20 { events = Array(events.prefix(20)) }
+        }.prefix(20))
     }
 }
